@@ -1,3 +1,3 @@
 # ShopWriter
 
-AIによる商品説明・SNSコピー生成ツール（Next.js + Stripe連携）
+AIで商品説明とSNSコピーを生成するNext.jsアプリです。
