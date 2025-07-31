@@ -1,0 +1,9 @@
+{
+  "name": "shopwriter",
+  "version": "1.0.0",
+  "dependencies": {
+    "next": "latest",
+    "react": "latest",
+    "stripe": "latest"
+  }
+}
