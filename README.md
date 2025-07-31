@@ -1,3 +1,3 @@
 # ShopWriter App Router Template
 
-This is a Next.js 14 template using the `app/` directory structure.
+This version includes `layout.tsx` for proper Next.js 14 compatibility.
