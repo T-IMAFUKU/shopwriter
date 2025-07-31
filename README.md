@@ -1,3 +1,3 @@
-# ShopWriter
+# ShopWriter App Router Template
 
-Next.js + Stripe テンプレートです。
+This is a Next.js 14 template using the `app/` directory structure.
