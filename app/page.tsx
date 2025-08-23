@@ -1,8 +1,16 @@
-export default function Page() {
+import { AuthButton } from "@/components/AuthButton";
+
+export default function Home() {
   return (
-    <div style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
-      <h1>Welcome to ShopWriter (App Directory)</h1>
-      <p>This is the app/page.tsx version using Next.js 14.</p>
-    </div>
+    <main className="min-h-dvh p-8">
+      <header className="mb-8 flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">ShopWriter</h1>
+        <AuthButton />
+      </header>
+
+      <section className="space-y-2">
+        <p>ここにメインUIを追加していきます。</p>
+      </section>
+    </main>
   );
 }
