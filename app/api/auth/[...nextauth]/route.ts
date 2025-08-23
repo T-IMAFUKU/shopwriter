@@ -5,7 +5,7 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
-export const authOptions: NextAuthOptions = {
+const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as any,
   providers: [
     GithubProvider({
@@ -15,7 +15,7 @@ export const authOptions: NextAuthOptions = {
   ],
   session: { strategy: "database" },
   secret: process.env.NEXTAUTH_SECRET,
-  // debug: true, // 必要なら有効化（ログで原因特定に有効）
+  // debug: true, // 必要なら一時的に有効化
 };
 
 const handler = NextAuth(authOptions);
