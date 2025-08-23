@@ -1,0 +1,41 @@
+﻿# ---- Node / Next.js 基本 ----
+node_modules/
+.next/
+out/
+dist/
+.cache/
+.turbo/
+.vercel/
+coverage/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tsbuildinfo
+
+# ---- 環境変数（必ず除外）----
+.env
+.env.*
+!.env.example
+
+# ---- Prisma / DB 開発系 ----
+prisma/*.db
+prisma/*.db-journal
+prisma/*sqlite*
+*.sqlite
+*.sqlite-journal
+
+# ---- エディタ/OS/その他 ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# ---- ビルド/キャッシュ系（保険）----
+.eslintcache
+.next.cache/
+.pnp.*
+.pnpm-store/
