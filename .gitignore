@@ -39,3 +39,5 @@ Thumbs.db
 .next.cache/
 .pnp.*
 .pnpm-store/
+
+/app/generated/prisma
