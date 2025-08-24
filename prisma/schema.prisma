@@ -3,43 +3,18 @@ generator client {
 }
 
 datasource db {
-  // 開発は SQLite、本番は Neon(Postgres) を想定
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-model Draft {
-  id          String   @id @default(cuid())
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  productName String
-  audience    String
-  output      String?
-}
-
-model ApiLog {
-  id      String   @id @default(cuid())
-  ts      DateTime @default(now())
-  level   String
-  message String
-  reqId   String?
-  phase   String?
-  payload String?
-}
-
-/*** Auth.js / NextAuth 用（Prisma Adapter 標準モデル、SQLite対応） ***/
 model User {
-  id            String    @id @default(cuid())
+  id            String   @id @default(cuid())
   name          String?
-  email         String?   @unique
+  email         String?  @unique
   emailVerified DateTime?
   image         String?
-
   accounts      Account[]
   sessions      Session[]
-
-  role          String    @default("user")
 }
 
 model Account {
@@ -76,4 +51,24 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+model Draft {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  productName String
+  audience    String
+  output      String?
+}
+
+model ApiLog {
+  id        String   @id @default(cuid())
+  ts        DateTime @default(now())
+  level     String
+  message   String
+  reqId     String?
+  phase     String?
+  payload   String?
 }
