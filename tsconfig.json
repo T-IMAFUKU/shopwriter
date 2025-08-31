@@ -1,12 +1,12 @@
 {
   "compilerOptions": {
-    "target": "es2020",
+    "target": "ES2022",
     "lib": [
       "dom",
       "dom.iterable",
       "esnext"
     ],
-    "allowJs": false,
+    "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
@@ -16,19 +16,18 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "preserve",
-    // ★ ここがポイント：プロジェクト直下を @/ にマップ
     "baseUrl": ".",
     "paths": {
       "@/*": [
         "./*"
       ]
     },
-    "incremental": true,
     "plugins": [
       {
         "name": "next"
       }
-    ]
+    ],
+    "incremental": true
   },
   "include": [
     "next-env.d.ts",
