@@ -1,5 +1,6 @@
-export { default } from "next-auth/middleware";
+export { default } from "next-auth/middleware"
 
 export const config = {
-  matcher: ["/writer/:path*", "/dashboard/:path*", "/api/drafts/:path*"],
-};
+  // 認証が必要なパスだけ。/api/auth/* は含めない！
+  matcher: ["/writer"],
+}
