@@ -1,158 +1,156 @@
+// FILE: app/api/writer/route.ts
 import { NextResponse } from "next/server";
-import OpenAI from "openai";
 import { z } from "zod";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+export const runtime = "nodejs"; // Edge不可APIを使う可能性があるため nodejs を明示
 
-// 受信ペイロードのバリデーション（UI側の現行フィールドを広めに許容）
-const WriterSchema = z.object({
-  productName: z.string().min(1, "productName is required"),
-  audience: z.string().min(1, "audience is required"),
-  // 任意項目（存在すれば活用）
-  template: z.string().optional(),      // 例: "EC" / "SaaS" / "不動産"
-  tone: z.string().optional(),          // 例: "カジュアル" / "フォーマル"
-  keywords: z.array(z.string()).optional(),
-  language: z.string().optional(),      // 例: "ja" / "en"
-  maxWords: z.number().int().positive().optional(), // 文字数/語数の上限目安
-  notes: z.string().optional(),         // 補足・制約
+// 入力スキーマ（UIと合わせる）
+const WriterInputSchema = z.object({
+  productName: z.string().min(1, "商品名は必須です"),
+  audience: z.string().min(1, "想定読者は必須です"),
+  template: z.string().min(1, "テンプレートは必須です"),
+  tone: z.string().min(1, "トーンは必須です"),
+  keywords: z.array(z.string()).default([]),
+  language: z.string().min(2).max(5).default("ja"),
+  // 任意で model 指定可能（未指定なら既定）
+  model: z.string().optional(),
 });
 
-type WriterPayload = z.infer<typeof WriterSchema>;
+type WriterInput = z.infer<typeof WriterInputSchema>;
 
-const DEFAULT_MODEL = "gpt-4o-mini";
-const DEFAULT_TEMPERATURE = 0.7;
+const MOCK_TEXT = `【モック出力】
+以下の条件に基づくサンプル本文です。実API接続の前段テスト用。
 
-// プロンプト組み立て（System + User）
-function buildMessages(input: WriterPayload) {
-  const lang = input.language ?? "ja";
-  const kw = input.keywords?.length ? `\n- キーワード: ${input.keywords.join(", ")}` : "";
-  const tone = input.tone ? `\n- トーン: ${input.tone}` : "";
-  const template = input.template ? `\n- テンプレ: ${input.template}` : "";
-  const max = input.maxWords ? `\n- 目安長さ: 約${input.maxWords}語/字` : "";
-  const notes = input.notes ? `\n- 追加条件: ${input.notes}` : "";
+- 商品名: {productName}
+- 想定読者: {audience}
+- テンプレート: {template}
+- トーン: {tone}
+- キーワード: {keywords}
+- 言語: {language}
 
-  const userPrompt = [
-    `あなたは商品説明文のプロコピーライター（言語: ${lang}）。以下の条件で魅力的な商品説明を1つ作成してください。`,
-    `- 商品名: ${input.productName}`,
-    `- 想定読者: ${input.audience}`,
-    kw,
-    tone,
-    template,
-    max,
-    notes,
-    `\n# 出力要件`,
-    `- プレーンテキスト（Markdown可）`,
-    `- 見出し + 本文 + 箇条書きを適度に用いる`,
-    `- 誇大表現を避け、具体的メリット・使用シーン・CTAを含める`,
-  ]
-    .filter(Boolean)
-    .join("\n");
+（このメッセージが「出力」タブに表示されればOK）`;
 
-  const system = `You are "ShopWriter", a concise, commercially safe copywriter. Avoid unsupported claims. Keep it directly usable in UI.`;
+// OpenAI 呼び出し（SDK無依存で fetch を使用）
+async function generateWithOpenAI(input: WriterInput) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    // フォールバック（モック）
+    const text = MOCK_TEXT
+      .replace("{productName}", input.productName)
+      .replace("{audience}", input.audience)
+      .replace("{template}", input.template)
+      .replace("{tone}", input.tone)
+      .replace("{keywords}", input.keywords.join(", "))
+      .replace("{language}", input.language);
+    return { mock: true, model: "mock-v1", text };
+  }
 
-  return [
-    { role: "system" as const, content: system },
-    { role: "user" as const, content: userPrompt },
-  ];
-}
+  const model = input.model ?? "gpt-4o-mini";
+  const system =
+    input.language === "ja"
+      ? "あなたは日本語のECライティングに精通したプロのコピーライターです。出力は必ず日本語で、箇条書き→本文の順に簡潔に。"
+      : "You are a professional copywriter for e-commerce. Be concise and helpful.";
 
-// モック生成（OPENAI_API_KEYが無いとき用）
-function mockGenerate(input: WriterPayload) {
-  const bullets =
-    input.keywords && input.keywords.length
-      ? input.keywords.slice(0, 5).map((k) => `- ${k}`).join("\n")
-      : "- 使いやすい\n- コスパ良い\n- 初心者OK";
+  const userPrompt =
+    input.language === "ja"
+      ? [
+          `# 条件`,
+          `- 商品名: ${input.productName}`,
+          `- 想定読者: ${input.audience}`,
+          `- テンプレート: ${input.template}`,
+          `- トーン: ${input.tone}`,
+          `- キーワード: ${input.keywords.join(", ") || "（なし）"}`,
+          ``,
+          `# 指示`,
+          `1) 見出し（H2相当）`,
+          `2) 箇条書きで要点（3〜5点）`,
+          `3) 150〜250字の本文（トーンに合わせる）`,
+        ].join("\n")
+      : [
+          `# Conditions`,
+          `- Product: ${input.productName}`,
+          `- Audience: ${input.audience}`,
+          `- Template: ${input.template}`,
+          `- Tone: ${input.tone}`,
+          `- Keywords: ${input.keywords.join(", ") || "(none)"}`,
+          ``,
+          `# Task`,
+          `1) A heading`,
+          `2) 3-5 bullet points`,
+          `3) A 100-160 word paragraph in the given tone.`,
+        ].join("\n");
 
-  const tone = input.tone ?? "標準";
-  const tmpl = input.template ?? "EC";
-  const length = input.maxWords ? `（目安: 約${input.maxWords}）` : "";
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.7,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: userPrompt },
+      ],
+    }),
+  });
 
-  const text = [
-    `# ${input.productName}｜${input.audience}向け`,
-    ``,
-    `「${input.productName}」は、${input.audience}のために設計された実用的なソリューションです。${length}`,
-    ``,
-    `## 特長（トーン: ${tone} / テンプレ: ${tmpl}）`,
-    bullets,
-    ``,
-    `## こんなシーンで活躍`,
-    `- 日常の作業効率を上げたいとき`,
-    `- 初期導入の手間を抑えたいとき`,
-    `- コストを最小化しつつ効果を出したいとき`,
-    ``,
-    `## CTA`,
-    `今すぐ「${input.productName}」をお試しください。まずは無料で体験できます。`,
-  ].join("\n");
+  if (!res.ok) {
+    const errJson = await res.json().catch(() => ({}));
+    throw new Error(
+      `OpenAI API error: HTTP ${res.status} ${res.statusText} ${errJson?.error?.message ?? ""}`.trim(),
+    );
+  }
 
-  return {
-    ok: true,
-    mock: true,
-    model: "mock-local",
-    text,
-  };
+  const data = (await res.json()) as any;
+  const text =
+    data?.choices?.[0]?.message?.content ??
+    "(no content from OpenAI)";
+
+  return { mock: false, model, text };
 }
 
 export async function POST(req: Request) {
   try {
-    const json = await req.json().catch(() => ({}));
-    const parsed = WriterSchema.safeParse(json);
+    const json = (await req.json()) as unknown;
+    const input = WriterInputSchema.parse(json) as WriterInput;
 
-    if (!parsed.success) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "VALIDATION_ERROR",
-          details: parsed.error.flatten(),
-        },
-        { status: 400 }
-      );
-    }
-
-    const input = parsed.data;
-
-    // 環境変数が無ければモック
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      const mock = mockGenerate(input);
-      return NextResponse.json(mock, { status: 200 });
-    }
-
-    // OpenAI（本番モード）
-    const openai = new OpenAI({ apiKey });
-    const messages = buildMessages(input);
-
-    const completion = await openai.chat.completions.create({
-      model: DEFAULT_MODEL,
-      temperature: DEFAULT_TEMPERATURE,
-      messages,
-    });
-
-    const text =
-      completion.choices?.[0]?.message?.content?.trim() ??
-      "(no content)";
+    const { mock, model, text } = await generateWithOpenAI(input);
 
     return NextResponse.json(
       {
         ok: true,
-        mock: false,
-        model: DEFAULT_MODEL,
+        mock,
+        model,
+        received: input,
         text,
-        usage: completion.usage ?? null,
       },
-      { status: 200 }
+      { status: 200 },
     );
-  } catch (err: unknown) {
-    const message =
-      err instanceof Error ? err.message : "Unknown error";
-    // 統一エラーフォーマット
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return NextResponse.json(
+        { ok: false, mock: true, error: "VALIDATION_ERROR", details: err.flatten() },
+        { status: 400 },
+      );
+    }
+    const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json(
-      {
-        ok: false,
-        error: "INTERNAL_ERROR",
-        message,
-      },
-      { status: 500 }
+      { ok: false, mock: true, error: "OPENAI_OR_UNKNOWN", message: msg },
+      { status: 500 },
     );
   }
+}
+
+export async function GET() {
+  return NextResponse.json(
+    {
+      ok: true,
+      mock: !process.env.OPENAI_API_KEY,
+      endpoint: "/api/writer",
+      model: process.env.OPENAI_API_KEY ? "gpt-4o-mini (default)" : "mock-v1",
+    },
+    { status: 200 },
+  );
 }
