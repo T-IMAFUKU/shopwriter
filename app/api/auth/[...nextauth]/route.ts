@@ -1,30 +1,25 @@
-import NextAuth from "next-auth";
-import GitHub from "next-auth/providers/github";
+import NextAuth, { type NextAuthOptions } from "next-auth";
+import GitHubProvider from "next-auth/providers/github";
 
-const handler = NextAuth({
-  providers: [
-    GitHub({
-      clientId: process.env.GITHUB_ID || "",
-      clientSecret: process.env.GITHUB_SECRET || "",
-    }),
-  ],
-  // DB依存を外す：まずはJWTでサインイン成立を最短確認
+export const authOptions: NextAuthOptions = {
+  // ★ 一時的に DB Adapter を使わない JWT 方式に固定
   session: { strategy: "jwt" },
   secret: process.env.NEXTAUTH_SECRET,
-  trustHost: true,
-  // 期待どおり /writer に戻す
+
+  providers: [
+    GitHubProvider({
+      clientId: process.env.GITHUB_ID ?? "",
+      clientSecret: process.env.GITHUB_SECRET ?? "",
+    }),
+  ],
+
+  // サインイン後は常に /writer へ戻す（ループ回避）
   callbacks: {
-    async redirect({ url, baseUrl }) {
-      // 相対パスならアプリへ
-      if (url.startsWith("/")) return `${baseUrl}${url}`;
-      // 同一オリジンなら許可
-      if (url.startsWith(baseUrl)) return url;
-      // それ以外はホームへ
-      return baseUrl;
+    async redirect({ baseUrl }) {
+      return `${baseUrl}/writer`;
     },
   },
-  // 追加のデバッグ（本番でも一時的に役立つ）
-  debug: true,
-});
+};
 
+const handler = NextAuth(authOptions);
 export { handler as GET, handler as POST };
