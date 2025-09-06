@@ -1,0 +1,18 @@
+﻿{
+    "ok":  true,
+    "mock":  false,
+    "model":  "gpt-4o-mini",
+    "received":  {
+                     "productName":  "ShopWriter Premium",
+                     "audience":  "EC担当者",
+                     "template":  "EC",
+                     "tone":  "カジュアル",
+                     "keywords":  [
+                                      "SEO",
+                                      "CVR",
+                                      "スピード"
+                                  ],
+                     "language":  "ja"
+                 },
+    "text":  "## 見出し\nShopWriter PremiumでECサイトの成果を最大化！\n\n### 要点\n- SEO対策が簡単にできる\n- CVR（コンバージョン率）向上に寄与\n- スピード重視で作業効率アップ\n- 初心者でも使いやすいインターフェース\n- 充実したサポート体制\n\n### 本文\nShopWriter Premiumは、EC担当者のために特別に設計されたツールです。検索上位の獲得を狙えるだけでなく、CVR改善のための機能も充実。スピード感のある運用を支え、日々の作業効率を高めます。直感的なUIで導入も簡単。まずはECでお試しください。"
+}
