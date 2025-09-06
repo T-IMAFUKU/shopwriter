@@ -1,20 +1,17 @@
-"use client"
-import { useSession, signIn, signOut } from "next-auth/react"
-import Link from "next/link"
+// FILE: app/debug/session/page.tsx
+"use client";
 
-export default function DebugSession() {
-  const { data, status } = useSession()
+// 本番ビルドで失敗しない安全な静的スタブ。
+// （後続フェーズで SessionProvider を導入したら、ここを元の実装に戻せます）
+export const dynamic = "force-static";
+
+export default function SessionDebugStub() {
   return (
-    <div className="p-6 space-y-4">
-      <div>status: <b>{status}</b></div>
-      <pre className="border rounded-xl p-4 whitespace-pre-wrap">{JSON.stringify(data, null, 2)}</pre>
-      <div className="flex gap-3">
-        <button onClick={() => signIn("github", { callbackUrl: "/writer" })} className="border px-3 py-1 rounded">Sign in</button>
-        <a href="/api/auth/signin" className="border px-3 py-1 rounded">Sign in (link)</a>
-        <button onClick={() => signOut()} className="border px-3 py-1 rounded">Sign out</button>
-        <Link href="/api/auth/providers" className="underline">providers JSON</Link>
-        <Link href="/api/auth/session" className="underline">session JSON</Link>
-      </div>
+    <div className="container max-w-3xl py-10">
+      <h1 className="text-2xl font-semibold">Session Debug</h1>
+      <p className="mt-2 text-sm text-muted-foreground">
+        本番ビルド簡略化のため、デバッグ出力は一時的に無効化しています。
+      </p>
     </div>
-  )
+  );
 }

@@ -41,3 +41,5 @@ Thumbs.db
 .pnpm-store/
 
 /app/generated/prisma
+
+.vercel
