@@ -1,12 +1,8 @@
 ﻿{
-    "template":  "EC",
-    "tone":  "カジュアル",
-    "language":  "ja",
-    "audience":  "EC担当者",
-    "productName":  "ShopWriter Premium",
-    "keywords":  [
-                     "SEO",
-                     "CVR",
-                     "スピード"
-                 ]
+  "productName": "ShopWriter Premium",
+  "audience": "EC担当者",
+  "template": "EC",
+  "tone": "カジュアル",
+  "keywords": ["SEO", "CVR", "スピード"],
+  "language": "ja"
 }
