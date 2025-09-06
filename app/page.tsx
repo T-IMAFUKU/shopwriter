@@ -1,107 +1,105 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
+import { useToast } from "@/hooks/use-toast";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useToast } from "@/hooks/use-toast";
+import { useState } from "react";
 
-export default function Page() {
+export default function HomePage() {
   const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
 
-  const onClickTry = () => {
-    toast("Writer を開きます。");
+  const onTry = async () => {
+    setLoading(true);
+    toast({
+      title: "デモ開始",
+      description: "ダミー入力で生成プロセスを体験できます（UIのみ）。",
+    });
+    setTimeout(() => setLoading(false), 800);
   };
 
   return (
-    <div className="container py-12">
-      {/* Hero */}
+    <main className="container mx-auto px-4 py-12">
+      {/* HERO */}
       <section className="mx-auto max-w-4xl text-center">
-        <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
-          商品説明文、もう悩まない。
+        <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight">
+          ShopWriter
+          <span className="text-primary"> — 商品説明を、一瞬で。</span>
         </h1>
         <p className="mt-4 text-muted-foreground">
-          ShopWriterは、AIで商品ページのテキストを一瞬で作成。トーンも読者も自由に。
+          Next.js + Prisma 構成のライティング支援SaaS。ヒーロー＋3カードの新トップページです。
         </p>
-        <div className="mt-6 flex items-center justify-center gap-3">
-          <Link
-            href="/writer"
-            onClick={onClickTry}
-            className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground hover:opacity-90"
-          >
-            いますぐ試す
-          </Link>
-          <a
-            href="#features"
-            className="inline-flex h-10 items-center justify-center rounded-md border px-6 text-sm font-medium hover:bg-accent"
-          >
-            機能を見る
-          </a>
+
+        <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
+          <Button onClick={onTry} className="w-full sm:w-auto">無料で試す</Button>
+          <Button asChild variant="outline" className="w-full sm:w-auto">
+            <Link href="/api/auth/signin">GitHubでサインイン</Link>
+          </Button>
+        </div>
+
+        <div className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>すぐに書ける</CardTitle>
+              <CardDescription>商品名と読者ターゲットから、下書きを自動生成。</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Separator className="mb-4" />
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label htmlFor="name">商品名（例：速乾タオル）</Label>
+                  <Input id="name" placeholder="商品名を入力" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="aud">想定読者</Label>
+                  <Input id="aud" placeholder="例：忙しい社会人" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>テンプレ管理</CardTitle>
+              <CardDescription>書式やトーンをテンプレ化し、量産を効率化。</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Separator className="mb-4" />
+              {loading ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-4 w-1/2" />
+                  <Skeleton className="h-10 w-full" />
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  「無料で試す」を押すとトーストで開始通知。ローディングは Skeleton 表現。
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Next.js 15 + Prisma</CardTitle>
+              <CardDescription>Neon(Postgres) と連携、Vercel に即デプロイ。</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Separator className="mb-4" />
+              <ul className="text-sm list-disc pl-5 space-y-1 text-muted-foreground">
+                <li>Auth: NextAuth（GitHub OAuth）</li>
+                <li>UI: shadcn/ui + Tailwind</li>
+                <li>Toast: <code>@/hooks/use-toast</code></li>
+              </ul>
+            </CardContent>
+          </Card>
         </div>
       </section>
-
-      <Separator className="my-12" />
-
-      {/* 3 Cards */}
-      <section id="features" className="grid gap-6 md:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardTitle>テンプレ & トーン</CardTitle>
-            <CardDescription>用途に合わせて雛形と口調を選択</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="space-y-2">
-              <Label htmlFor="tone">トーン例</Label>
-              <Input id="tone" placeholder="例: 丁寧 / カジュアル / 専門的" />
-            </div>
-            <Skeleton className="h-10 w-full" />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>読者ターゲット</CardTitle>
-            <CardDescription>届けたい相手に刺さる表現に</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="space-y-2">
-              <Label htmlFor="aud">想定読者</Label>
-              <Input id="aud" placeholder="例: 20代女性 / 家電初心者 など" />
-            </div>
-            <Skeleton className="h-10 w-full" />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>即時プレビュー</CardTitle>
-            <CardDescription>生成結果をその場で確認</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="space-y-2">
-              <Label htmlFor="prod">商品名</Label>
-              <Input id="prod" placeholder="例: 充電式ハンディファン" />
-            </div>
-            <div className="flex items-center gap-3">
-              <Link
-                href="/writer"
-                onClick={onClickTry}
-                className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:opacity-90"
-              >
-                Writer を開く
-              </Link>
-              <button
-                onClick={() => toast("サンプル生成（ダミー）")}
-                className="inline-flex h-9 items-center justify-center rounded-md border px-4 text-sm font-medium hover:bg-accent"
-              >
-                サンプル生成
-              </button>
-            </div>
-          </CardContent>
-        </Card>
-      </section>
-    </div>
+    </main>
   );
 }
