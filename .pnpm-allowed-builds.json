@@ -1,0 +1,10 @@
+{
+  "$schema": "https://pnpm.io/schema/allowedBuilds",
+  "allowedBuilds": [
+    "@prisma/client",
+    "@prisma/engines",
+    "prisma",
+    "@tailwindcss/oxide",
+    "unrs-resolver"
+  ]
+}
