@@ -1,24 +1,30 @@
 import NextAuth from "next-auth";
-import type { NextAuthOptions } from "next-auth";
 import GitHub from "next-auth/providers/github";
-import { PrismaAdapter } from "@next-auth/prisma-adapter";
-import { PrismaClient } from "@prisma/client";
 
-// Prisma Client（開発時の多重生成を防止）
-const prisma = (globalThis as any).__prisma ?? new PrismaClient();
-if (process.env.NODE_ENV !== "production") (globalThis as any).__prisma = prisma;
-
-// ※ authOptions を「定義はしても export しない」ことが重要（Routeの型要件）
-const options: NextAuthOptions = {
-  adapter: PrismaAdapter(prisma),
+const handler = NextAuth({
   providers: [
     GitHub({
-      clientId: process.env.GITHUB_ID ?? "",
-      clientSecret: process.env.GITHUB_SECRET ?? "",
+      clientId: process.env.GITHUB_ID || "",
+      clientSecret: process.env.GITHUB_SECRET || "",
     }),
   ],
-  // 必要ならここに callbacks や session 設定を追加
-};
+  // DB依存を外す：まずはJWTでサインイン成立を最短確認
+  session: { strategy: "jwt" },
+  secret: process.env.NEXTAUTH_SECRET,
+  trustHost: true,
+  // 期待どおり /writer に戻す
+  callbacks: {
+    async redirect({ url, baseUrl }) {
+      // 相対パスならアプリへ
+      if (url.startsWith("/")) return `${baseUrl}${url}`;
+      // 同一オリジンなら許可
+      if (url.startsWith(baseUrl)) return url;
+      // それ以外はホームへ
+      return baseUrl;
+    },
+  },
+  // 追加のデバッグ（本番でも一時的に役立つ）
+  debug: true,
+});
 
-const handler = NextAuth(options);
 export { handler as GET, handler as POST };
