@@ -31,7 +31,20 @@ export default function Page() {
   const [streaming, setStreaming] = React.useState<boolean>(true);
   const [loading, setLoading] = React.useState<boolean>(false);
   const [output, setOutput] = React.useState<string>("");
+
+  // 中断/クリーンアップ用
   const abortRef = React.useRef<AbortController | null>(null);
+  const flushTimerRef = React.useRef<number | null>(null);
+  const mountedRef = React.useRef<boolean>(false);
+
+  React.useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      abortRef.current?.abort();
+      if (flushTimerRef.current) window.clearInterval(flushTimerRef.current);
+    };
+  }, []);
 
   const handleChange =
     (key: keyof FormState) =>
@@ -58,9 +71,9 @@ export default function Page() {
 
     try {
       if (streaming) {
-        await runStreaming(body);
+        await runStreaming(body); // 品質重視：まとめてflush
       } else {
-        await runNormal(body);
+        await runNormal(body); // 一括
       }
     } catch (err) {
       setOutput(
@@ -85,15 +98,11 @@ export default function Page() {
       );
     }
 
-    // 期待形式: { text: string, ... } を想定。fallbackで text/plain も吸収
     let md = "";
     const contentType = res.headers.get("content-type") || "";
     if (contentType.includes("application/json")) {
       const data = await res.json();
-      md =
-        data?.text ??
-        data?.markdown ??
-        JSON.stringify(data, null, 2 /* 予防的フォールバック */);
+      md = data?.text ?? data?.markdown ?? JSON.stringify(data, null, 2);
     } else {
       md = await res.text();
     }
@@ -101,11 +110,18 @@ export default function Page() {
     setOutput(md || "_（出力が空でした）_");
   };
 
+  /**
+   * 品質重視ストリーミング：
+   * - TextDecoder(stream:true) でバイト境界を安全に結合
+   * - UI更新は 50ms ごとにまとめて flush（Markdown崩れ/文字化けを軽減）
+   * - APIは text/plain の逐次チャンク（SSE→テキスト変換済み想定）
+   */
   const runStreaming = async (payload: any) => {
+    // 既存ストリームを中断
     abortRef.current?.abort();
     abortRef.current = new AbortController();
 
-    const res = await fetch("/api/writer/stream", {
+    const res = await fetch("/api/wwriter/stream".replace("/ww", "/w"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -118,21 +134,70 @@ export default function Page() {
         `HTTP ${res.status} ${res.statusText}${text ? `\n${text}` : ""}`
       );
     }
-
-    if (!res.body) {
-      throw new Error("ReadableStream がありません（res.body === null）");
-    }
+    if (!res.body) throw new Error("ReadableStream がありません（res.body === null）");
 
     const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let done = false;
+    const decoder = new TextDecoder("utf-8");
+    let tempBuffer = ""; // flush待ちのテキスト
+    let eof = false;
 
-    while (!done) {
-      const { value, done: doneReading } = await reader.read();
-      done = doneReading;
-      if (value) {
-        const chunk = decoder.decode(value, { stream: !doneReading });
-        setOutput((prev) => prev + chunk);
+    // 50msごとにまとめて追記（高頻度すぎず、体感リアルタイムを維持）
+    if (flushTimerRef.current) window.clearInterval(flushTimerRef.current);
+    flushTimerRef.current = window.setInterval(() => {
+      if (!mountedRef.current) return;
+      if (!tempBuffer) return;
+      setOutput((prev) => prev + tempBuffer);
+      tempBuffer = "";
+    }, 50);
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        // マルチバイト安全に decode（途中で切れたバイトは次回へ）
+        const chunk = decoder.decode(value, { stream: true });
+
+        // SSEの data: 行が来ても素直に文字化けせず抽出（ロバスト性）
+        if (chunk.includes("data:")) {
+          // 可能ならJSONを抽出して content だけ取り出す
+          for (const line of chunk.split("\n")) {
+            const t = line.trim();
+            if (!t.startsWith("data:")) {
+              tempBuffer += line; // 余剰はそのまま
+              continue;
+            }
+            const payload = t.slice(5).trim();
+            if (!payload || payload === "[DONE]") continue;
+            try {
+              const json = JSON.parse(payload);
+              const delta: string | undefined =
+                json?.choices?.[0]?.delta?.content ??
+                json?.choices?.[0]?.text;
+              if (delta) tempBuffer += delta;
+            } catch {
+              // JSONでなければそのまま足す（サーバは通常 text/plain のため）
+              tempBuffer += line.replace(/^data:\s*/, "");
+            }
+          }
+        } else {
+          tempBuffer += chunk; // 通常の text/plain ストリーム（想定）
+        }
+      }
+      eof = true;
+    } finally {
+      // 最終flush & クリーンアップ
+      decoder.decode(new Uint8Array(), { stream: false });
+      if (flushTimerRef.current) {
+        window.clearInterval(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
+      if (tempBuffer) {
+        // 残りを一括反映
+        if (mountedRef.current) setOutput((prev) => prev + tempBuffer);
+        tempBuffer = "";
+      }
+      if (!eof && mountedRef.current) {
+        setOutput((prev) => prev + "\n\n_（ストリームが中断されました）_");
       }
     }
   };
@@ -172,7 +237,7 @@ export default function Page() {
                 id="audience"
                 value={form.audience}
                 onChange={handleChange("audience")}
-                placeholder="EC担当者"
+                placeholder="EC担当者 / WEBユーザー など"
               />
             </div>
             <div>
