@@ -1,225 +1,265 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
-import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import * as React from "react";
+import ReactMarkdown from "react-markdown";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 
-type WriterRequest = {
+type FormState = {
   productName: string;
   audience: string;
   template: string;
   tone: string;
-  keywords: string[];
+  keywords: string;
   language: string;
 };
 
-type WriterResponse = {
-  ok: boolean;
-  mock?: boolean;
-  model?: string;
-  text?: string;
-  received?: WriterRequest;
-  [k: string]: unknown;
-};
-
 export default function Page() {
-  // 入力状態
-  const [productName, setProductName] = useState("ShopWriter Premium");
-  const [audience, setAudience] = useState("EC担当者");
-  const [template, setTemplate] = useState("EC");
-  const [tone, setTone] = useState("カジュアル");
-  const [keywordsCsv, setKeywordsCsv] = useState("SEO, CVR, スピード");
-  const [language, setLanguage] = useState("ja");
+  const [form, setForm] = React.useState<FormState>({
+    productName: "",
+    audience: "",
+    template: "EC",
+    tone: "カジュアル",
+    keywords: "",
+    language: "ja",
+  });
 
-  // 通信状態
-  const [loading, setLoading] = useState(false);
-  const [resp, setResp] = useState<WriterResponse | null>(null);
+  const [streaming, setStreaming] = React.useState<boolean>(true);
+  const [loading, setLoading] = React.useState<boolean>(false);
+  const [output, setOutput] = React.useState<string>("");
+  const abortRef = React.useRef<AbortController | null>(null);
 
-  const keywords = useMemo(
-    () =>
-      keywordsCsv
+  const handleChange =
+    (key: keyof FormState) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      setForm((s) => ({ ...s, [key]: e.target.value }));
+    };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setOutput("");
+    setLoading(true);
+
+    const body = {
+      productName: form.productName,
+      audience: form.audience,
+      template: form.template,
+      tone: form.tone,
+      keywords: form.keywords
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean),
-    [keywordsCsv]
-  );
-
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (loading) return;
-
-    setLoading(true);
-    setResp(null);
-
-    const body: WriterRequest = {
-      productName,
-      audience,
-      template,
-      tone,
-      keywords,
-      language,
+      language: form.language || "ja",
     };
 
-    const t = toast.loading("生成中… /api/writer に送信しています");
-
     try {
-      const r = await fetch("/api/writer", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json; charset=utf-8",
-        },
-        body: JSON.stringify(body),
-        cache: "no-store",
-      });
-
-      const data: WriterResponse = await r.json();
-
-      if (!r.ok) {
-        throw new Error(`HTTP ${r.status} ${r.statusText}`);
+      if (streaming) {
+        await runStreaming(body);
+      } else {
+        await runNormal(body);
       }
-
-      setResp(data);
-      toast.success("生成完了", {
-        id: t,
-        description: "モック応答の日本語テキストを表示します。",
-      });
-    } catch (err: any) {
-      const msg = err?.message ?? "送信に失敗しました。";
-      toast.error("エラー", { id: t, description: msg });
+    } catch (err) {
+      setOutput(
+        `**エラー**: ${(err as Error)?.message ?? "実行中に問題が発生しました"}`
+      );
     } finally {
       setLoading(false);
     }
-  }
+  };
 
-  function handleClear() {
-    setResp(null);
-    toast("クリアしました");
-  }
+  const runNormal = async (payload: any) => {
+    const res = await fetch("/api/writer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(
+        `HTTP ${res.status} ${res.statusText}${text ? `\n${text}` : ""}`
+      );
+    }
+
+    // 期待形式: { text: string, ... } を想定。fallbackで text/plain も吸収
+    let md = "";
+    const contentType = res.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await res.json();
+      md =
+        data?.text ??
+        data?.markdown ??
+        JSON.stringify(data, null, 2 /* 予防的フォールバック */);
+    } else {
+      md = await res.text();
+    }
+
+    setOutput(md || "_（出力が空でした）_");
+  };
+
+  const runStreaming = async (payload: any) => {
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+
+    const res = await fetch("/api/writer/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: abortRef.current.signal,
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(
+        `HTTP ${res.status} ${res.statusText}${text ? `\n${text}` : ""}`
+      );
+    }
+
+    if (!res.body) {
+      throw new Error("ReadableStream がありません（res.body === null）");
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let done = false;
+
+    while (!done) {
+      const { value, done: doneReading } = await reader.read();
+      done = doneReading;
+      if (value) {
+        const chunk = decoder.decode(value, { stream: !doneReading });
+        setOutput((prev) => prev + chunk);
+      }
+    }
+  };
+
+  const handleAbort = () => {
+    abortRef.current?.abort();
+  };
+
+  const handleClear = () => {
+    setOutput("");
+  };
 
   return (
-    <main className="max-w-4xl mx-auto p-6 space-y-8">
-      <header className="space-y-2">
-        <h1 className="text-2xl font-bold">Writer — モックAPI接続</h1>
-        <p className="text-sm text-muted-foreground">
-          フォーム送信 → <code>/api/writer</code>（POST） → 応答テキストを表示します。
-        </p>
-      </header>
+    <main className="container mx-auto px-4 py-6">
+      <h1 className="text-2xl font-bold mb-2">Writer（通常/ストリーミング切替）</h1>
+      <p className="text-sm text-muted-foreground mb-4">
+        /api/writer（JSON） と /api/writer/stream（逐次出力）を UI から切替
+      </p>
 
-      <Card className="rounded-2xl">
-        <CardContent className="p-6">
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="productName">製品名 (productName)</Label>
-                <Input
-                  id="productName"
-                  value={productName}
-                  onChange={(e) => setProductName(e.target.value)}
-                  placeholder="例: ShopWriter Premium"
-                  required
-                />
-              </div>
+      <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* 左ペイン：入力フォーム */}
+        <section className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="productName">商品名 / サービス名</Label>
+              <Input
+                id="productName"
+                value={form.productName}
+                onChange={handleChange("productName")}
+                placeholder="ShopWriter Premium"
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="audience">想定読者</Label>
+              <Input
+                id="audience"
+                value={form.audience}
+                onChange={handleChange("audience")}
+                placeholder="EC担当者"
+              />
+            </div>
+            <div>
+              <Label htmlFor="template">テンプレート</Label>
+              <Input
+                id="template"
+                value={form.template}
+                onChange={handleChange("template")}
+                placeholder="EC"
+              />
+            </div>
+            <div>
+              <Label htmlFor="tone">トーン</Label>
+              <Input
+                id="tone"
+                value={form.tone}
+                onChange={handleChange("tone")}
+                placeholder="カジュアル / フォーマル など"
+              />
+            </div>
+          </div>
 
-              <div className="grid gap-2">
-                <Label htmlFor="audience">想定読者 (audience)</Label>
-                <Input
-                  id="audience"
-                  value={audience}
-                  onChange={(e) => setAudience(e.target.value)}
-                  placeholder="例: EC担当者"
-                  required
-                />
-              </div>
+          <div>
+            <Label htmlFor="keywords">キーワード（カンマ区切り）</Label>
+            <Input
+              id="keywords"
+              value={form.keywords}
+              onChange={handleChange("keywords")}
+              placeholder="SEO, CVR, スピード"
+            />
+          </div>
 
-              <div className="grid gap-2">
-                <Label htmlFor="template">テンプレ (template)</Label>
-                <Input
-                  id="template"
-                  value={template}
-                  onChange={(e) => setTemplate(e.target.value)}
-                  placeholder="例: EC / 不動産 / SaaS"
-                  required
-                />
-              </div>
+          <div>
+            <Label htmlFor="language">出力言語</Label>
+            <Input
+              id="language"
+              value={form.language}
+              onChange={handleChange("language")}
+              placeholder="ja / en など"
+            />
+          </div>
 
-              <div className="grid gap-2">
-                <Label htmlFor="tone">トーン (tone)</Label>
-                <Input
-                  id="tone"
-                  value={tone}
-                  onChange={(e) => setTone(e.target.value)}
-                  placeholder="例: カジュアル / フォーマル"
-                  required
-                />
-              </div>
+          <Separator />
 
-              <div className="md:col-span-2 grid gap-2">
-                <Label htmlFor="keywords">キーワードCSV (keywords)</Label>
-                <Input
-                  id="keywords"
-                  value={keywordsCsv}
-                  onChange={(e) => setKeywordsCsv(e.target.value)}
-                  placeholder="例: SEO, CVR, スピード"
-                />
-                <p className="text-xs text-muted-foreground">
-                  カンマ区切りで入力（例: <code>SEO, CVR, スピード</code>）
-                </p>
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="language">言語 (language)</Label>
-                <Input
-                  id="language"
-                  value={language}
-                  onChange={(e) => setLanguage(e.target.value)}
-                  placeholder="例: ja / en"
-                  required
-                />
-              </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Switch
+                id="streaming"
+                checked={streaming}
+                onCheckedChange={setStreaming}
+              />
+              <Label htmlFor="streaming" className="cursor-pointer">
+                ストリーミング生成を有効にする
+              </Label>
             </div>
 
-            <div className="flex gap-3 pt-2">
-              <Button type="submit" disabled={loading}>
-                {loading ? "送信中…" : "送信"}
-              </Button>
-              <Button type="button" variant="outline" onClick={handleClear} disabled={loading}>
+            <div className="flex gap-2">
+              <Button type="button" variant="secondary" onClick={handleClear}>
                 クリア
               </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold">レスポンス</h2>
-
-        {!resp && (
-          <p className="text-sm text-muted-foreground">
-            送信するとここに結果が表示されます。
-          </p>
-        )}
-
-        {resp && (
-          <Card>
-            <CardContent className="p-4 space-y-4">
-              {"text" in resp && resp.text && (
-                <pre className="whitespace-pre-wrap text-sm leading-6">
-                  {resp.text}
-                </pre>
+              {loading ? (
+                <Button type="button" variant="destructive" onClick={handleAbort}>
+                  中止
+                </Button>
+              ) : (
+                <Button type="submit">生成</Button>
               )}
-              <details>
-                <summary className="cursor-pointer text-sm">JSON（詳細を開く）</summary>
-                <pre className="mt-2 text-xs overflow-x-auto">
-                  {JSON.stringify(resp, null, 2)}
-                </pre>
-              </details>
-            </CardContent>
-          </Card>
-        )}
-      </section>
+            </div>
+          </div>
+        </section>
+
+        {/* 右ペイン：逐次描画ビュー */}
+        <section className="min-h-[420px] rounded-lg border p-4 overflow-auto bg-background">
+          <div className="text-xs text-muted-foreground mb-2">
+            {streaming ? "ストリーミング表示中…" : "通常表示"}
+          </div>
+          <div className="prose prose-sm max-w-none">
+            {output ? (
+              <ReactMarkdown>{output}</ReactMarkdown>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                ここに Markdown 出力が段階的に表示されます…
+              </p>
+            )}
+          </div>
+        </section>
+      </form>
     </main>
   );
 }
