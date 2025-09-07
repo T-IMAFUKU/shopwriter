@@ -1,123 +1,225 @@
 "use client";
 
-import * as React from "react";
-import { useState, useTransition } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import React, { useMemo, useState } from "react";
 import { toast } from "sonner";
-
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent } from "@/components/ui/card";
 
-// ✅ 型とSchemaは外部からimport
-import { WriterInputSchema, WriterInput } from "@/lib/validation/writer";
+type WriterRequest = {
+  productName: string;
+  audience: string;
+  template: string;
+  tone: string;
+  keywords: string[];
+  language: string;
+};
+
+type WriterResponse = {
+  ok: boolean;
+  mock?: boolean;
+  model?: string;
+  text?: string;
+  received?: WriterRequest;
+  [k: string]: unknown;
+};
 
 export default function Page() {
-  const [output, setOutput] = useState("");
-  const [isPending, startTransition] = useTransition();
+  // 入力状態
+  const [productName, setProductName] = useState("ShopWriter Premium");
+  const [audience, setAudience] = useState("EC担当者");
+  const [template, setTemplate] = useState("EC");
+  const [tone, setTone] = useState("カジュアル");
+  const [keywordsCsv, setKeywordsCsv] = useState("SEO, CVR, スピード");
+  const [language, setLanguage] = useState("ja");
 
-  const form = useForm<WriterInput>({
-    resolver: zodResolver(WriterInputSchema),
-    defaultValues: {
-      productName: "",
-      audience: "",
-      template: "EC",
-      tone: "カジュアル",
-      keywords: [],   // 配列で初期化
-      language: "ja", // 必須文字列
-    },
-  });
+  // 通信状態
+  const [loading, setLoading] = useState(false);
+  const [resp, setResp] = useState<WriterResponse | null>(null);
 
-  const onSubmit = (values: WriterInput) => {
-    startTransition(async () => {
-      try {
-        const resp = await fetch("/api/writer", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(values),
-        });
+  const keywords = useMemo(
+    () =>
+      keywordsCsv
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    [keywordsCsv]
+  );
 
-        if (!resp.ok) {
-          toast.error("APIエラーが発生しました");
-          return;
-        }
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (loading) return;
 
-        const data = await resp.json();
-        setOutput(data.text || "");
-        toast.success("生成が完了しました");
-      } catch (err) {
-        toast.error("通信エラーが発生しました");
+    setLoading(true);
+    setResp(null);
+
+    const body: WriterRequest = {
+      productName,
+      audience,
+      template,
+      tone,
+      keywords,
+      language,
+    };
+
+    const t = toast.loading("生成中… /api/writer に送信しています");
+
+    try {
+      const r = await fetch("/api/writer", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+        },
+        body: JSON.stringify(body),
+        cache: "no-store",
+      });
+
+      const data: WriterResponse = await r.json();
+
+      if (!r.ok) {
+        throw new Error(`HTTP ${r.status} ${r.statusText}`);
       }
-    });
-  };
+
+      setResp(data);
+      toast.success("生成完了", {
+        id: t,
+        description: "モック応答の日本語テキストを表示します。",
+      });
+    } catch (err: any) {
+      const msg = err?.message ?? "送信に失敗しました。";
+      toast.error("エラー", { id: t, description: msg });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleClear() {
+    setResp(null);
+    toast("クリアしました");
+  }
 
   return (
-    <main className="container mx-auto max-w-3xl p-6 space-y-6">
-      <h1 className="text-2xl font-bold">Writer</h1>
+    <main className="max-w-4xl mx-auto p-6 space-y-8">
+      <header className="space-y-2">
+        <h1 className="text-2xl font-bold">Writer — モックAPI接続</h1>
+        <p className="text-sm text-muted-foreground">
+          フォーム送信 → <code>/api/writer</code>（POST） → 応答テキストを表示します。
+        </p>
+      </header>
 
-      <form
-        onSubmit={form.handleSubmit(onSubmit)}
-        className="space-y-4 border rounded-lg p-4"
-      >
-        <div>
-          <Label htmlFor="productName">商品名</Label>
-          <Input id="productName" {...form.register("productName")} />
-        </div>
+      <Card className="rounded-2xl">
+        <CardContent className="p-6">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="productName">製品名 (productName)</Label>
+                <Input
+                  id="productName"
+                  value={productName}
+                  onChange={(e) => setProductName(e.target.value)}
+                  placeholder="例: ShopWriter Premium"
+                  required
+                />
+              </div>
 
-        <div>
-          <Label htmlFor="audience">想定読者</Label>
-          <Input id="audience" {...form.register("audience")} />
-        </div>
+              <div className="grid gap-2">
+                <Label htmlFor="audience">想定読者 (audience)</Label>
+                <Input
+                  id="audience"
+                  value={audience}
+                  onChange={(e) => setAudience(e.target.value)}
+                  placeholder="例: EC担当者"
+                  required
+                />
+              </div>
 
-        <div>
-          <Label htmlFor="template">テンプレート</Label>
-          <Input id="template" {...form.register("template")} />
-        </div>
+              <div className="grid gap-2">
+                <Label htmlFor="template">テンプレ (template)</Label>
+                <Input
+                  id="template"
+                  value={template}
+                  onChange={(e) => setTemplate(e.target.value)}
+                  placeholder="例: EC / 不動産 / SaaS"
+                  required
+                />
+              </div>
 
-        <div>
-          <Label htmlFor="tone">トーン</Label>
-          <Input id="tone" {...form.register("tone")} />
-        </div>
+              <div className="grid gap-2">
+                <Label htmlFor="tone">トーン (tone)</Label>
+                <Input
+                  id="tone"
+                  value={tone}
+                  onChange={(e) => setTone(e.target.value)}
+                  placeholder="例: カジュアル / フォーマル"
+                  required
+                />
+              </div>
 
-        <div>
-          <Label htmlFor="keywords">キーワード（カンマ区切り）</Label>
-          <Input
-            id="keywords"
-            onChange={(e) => {
-              const arr = e.target.value
-                .split(",")
-                .map((k) => k.trim())
-                .filter(Boolean);
-              form.setValue("keywords", arr);
-            }}
-          />
-        </div>
+              <div className="md:col-span-2 grid gap-2">
+                <Label htmlFor="keywords">キーワードCSV (keywords)</Label>
+                <Input
+                  id="keywords"
+                  value={keywordsCsv}
+                  onChange={(e) => setKeywordsCsv(e.target.value)}
+                  placeholder="例: SEO, CVR, スピード"
+                />
+                <p className="text-xs text-muted-foreground">
+                  カンマ区切りで入力（例: <code>SEO, CVR, スピード</code>）
+                </p>
+              </div>
 
-        <div>
-          <Label htmlFor="language">言語</Label>
-          <Input id="language" {...form.register("language")} />
-        </div>
+              <div className="grid gap-2">
+                <Label htmlFor="language">言語 (language)</Label>
+                <Input
+                  id="language"
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value)}
+                  placeholder="例: ja / en"
+                  required
+                />
+              </div>
+            </div>
 
-        <Button type="submit" disabled={isPending}>
-          {isPending ? "生成中..." : "生成する"}
-        </Button>
-      </form>
+            <div className="flex gap-3 pt-2">
+              <Button type="submit" disabled={loading}>
+                {loading ? "送信中…" : "送信"}
+              </Button>
+              <Button type="button" variant="outline" onClick={handleClear} disabled={loading}>
+                クリア
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
 
-      <Tabs defaultValue="output" className="w-full">
-        <TabsList>
-          <TabsTrigger value="output">出力</TabsTrigger>
-        </TabsList>
-        <TabsContent value="output">
-          <Textarea
-            className="min-h-[200px] w-full"
-            value={output}
-            readOnly
-          />
-        </TabsContent>
-      </Tabs>
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold">レスポンス</h2>
+
+        {!resp && (
+          <p className="text-sm text-muted-foreground">
+            送信するとここに結果が表示されます。
+          </p>
+        )}
+
+        {resp && (
+          <Card>
+            <CardContent className="p-4 space-y-4">
+              {"text" in resp && resp.text && (
+                <pre className="whitespace-pre-wrap text-sm leading-6">
+                  {resp.text}
+                </pre>
+              )}
+              <details>
+                <summary className="cursor-pointer text-sm">JSON（詳細を開く）</summary>
+                <pre className="mt-2 text-xs overflow-x-auto">
+                  {JSON.stringify(resp, null, 2)}
+                </pre>
+              </details>
+            </CardContent>
+          </Card>
+        )}
+      </section>
     </main>
   );
 }
