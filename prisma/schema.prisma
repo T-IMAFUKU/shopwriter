@@ -1,59 +1,44 @@
-// =======================
-// ShopWriter Prisma Schema
-// DB: PostgreSQL (Neon)
-// =======================
-
-datasource db {
-  provider  = "postgresql"
-  // 実行時: DATABASE_URL（-pooler を含む）
-  url       = env("DATABASE_URL")
-  // Prisma CLI（db push/migrate）: DIRECT_URL（-pooler なし）
-  directUrl = env("DIRECT_URL")
-}
-
+// prisma/schema.prisma  ← 全文置換え
 generator client {
   provider = "prisma-client-js"
 }
 
-// ───────────────────────
-// NextAuth 標準モデル
-// https://next-auth.js.org/adapters/prisma
-// ───────────────────────
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/**
+ * NextAuth.js 公式サンプル準拠のモデル定義（PostgreSQL）
+ * 参考: https://authjs.dev/reference/adapter/prisma#schema
+ */
 
 model User {
-  id            String     @id @default(cuid())
+  id            String    @id @default(cuid())
   name          String?
-  email         String?    @unique
+  email         String?   @unique
   emailVerified DateTime?
   image         String?
 
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
-
   accounts      Account[]
   sessions      Session[]
-
-  // 拡張
-  profile       Profile?
-  auditLogs     AuditLog[]
 }
 
 model Account {
-  id                String   @id @default(cuid())
+  id                String  @id @default(cuid())
   userId            String
   type              String
   provider          String
   providerAccountId String
-
-  refresh_token     String?  @db.Text
-  access_token      String?  @db.Text
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
   expires_at        Int?
   token_type        String?
   scope             String?
-  id_token          String?  @db.Text
+  id_token          String? @db.Text
   session_state     String?
 
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
 }
@@ -64,7 +49,7 @@ model Session {
   userId       String
   expires      DateTime
 
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model VerificationToken {
@@ -73,39 +58,4 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
-}
-
-// ───────────────────────
-// 拡張モデル（任意）
-// 認可後に初期レコード作成の保存先
-// ───────────────────────
-
-model Profile {
-  id          String   @id @default(cuid())
-  userId      String   @unique
-  displayName String?
-  role        String?   // "admin" | "member" など
-  company     String?
-  locale      String?   // 例: "ja-JP"
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-model AuditLog {
-  id        String   @id @default(cuid())
-  userId    String?
-  action    String   // 例: "LOGIN", "GENERATE", "CHECK_PASSED" など
-  target    String?
-  ip        String?
-  userAgent String?
-  metadata  Json?
-
-  createdAt DateTime @default(now())
-
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-
-  @@index([userId, createdAt])
 }
