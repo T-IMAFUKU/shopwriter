@@ -1,0 +1,7 @@
+> C:\Users\81905\shopwriter-new\prisma\schema.prisma:10:model Draft {
+  C:\Users\81905\shopwriter-new\prisma\schema.prisma:11:  id        String   @id @default(cuid())
+  C:\Users\81905\shopwriter-new\prisma\schema.prisma:12:  userId    String
+  C:\Users\81905\shopwriter-new\prisma\schema.prisma:13:  title     String
+  C:\Users\81905\shopwriter-new\prisma\schema.prisma:14:  content   String
+  C:\Users\81905\shopwriter-new\prisma\schema.prisma:15:  createdAt DateTime @default(now())
+  C:\Users\81905\shopwriter-new\prisma\schema.prisma:16:}

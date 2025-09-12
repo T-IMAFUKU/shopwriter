@@ -1,83 +1,60 @@
-// app/api/drafts/route.ts — 最小保存版（title/content/userId のみ）
-// 認証は getServerSession、入力は body or content を許容、Prisma は必要最小限で保存
-
-import { NextResponse } from "next/server";
-import { headers, cookies } from "next/headers";
+// app/api/drafts/route.ts
+import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { PrismaClient } from "@prisma/client";
-import { getServerSession } from "next-auth/next";
+import { prisma } from "@/lib/prisma";
 
-const g = globalThis as unknown as { prisma?: PrismaClient };
-export const prisma = g.prisma ?? new PrismaClient({ log: ["warn", "error"] });
-if (!g.prisma) g.prisma = prisma;
+export const runtime = "nodejs";
 
-async function getSessionSafe() {
-  try {
-    const mod: any = await import("@/app/api/auth/[...nextauth]/route");
-    if (mod?.authOptions) return await getServerSession(mod.authOptions);
-  } catch {}
-  return await getServerSession();
-}
-
-const DraftSchemaFlexible = z
-  .object({
-    title: z.string().min(1, "title is required"),
-    body: z.string().min(1).optional(),
-    content: z.string().min(1).optional(),
-  })
-  .refine((d) => Boolean(d.body ?? d.content), {
-    message: "content (or body) is required",
-    path: ["content"],
-  });
-
-export async function POST(req: Request) {
-  try {
-    const ua = headers().get("user-agent");
-    const referer = headers().get("referer");
-    const cookieNames = cookies().getAll().map((c) => c.name);
-    console.debug("[/api/drafts][POST] UA=%s ref=%s cookies=%o", ua, referer, cookieNames);
-  } catch {}
-
-  const session: any = await getSessionSafe();
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  let raw: unknown;
-  try { raw = await req.json(); } catch { return NextResponse.json({ error: "Bad JSON" }, { status: 400 }); }
-  const parsed = DraftSchemaFlexible.safeParse(raw);
-  if (!parsed.success) {
-    return NextResponse.json({ error: "ValidationError", detail: parsed.error.flatten() }, { status: 422 });
-  }
-
-  const input = parsed.data;
-  const content = (input.content ?? input.body)!;
-
-  try {
-    const userId = (session.user as any)?.id ?? (session.user as any)?.email ?? "unknown";
-    const created = await prisma.draft.create({
-      data: {
-        title: input.title,
-        content,        // ← Prismaモデルにある想定のフィールドのみ
-        userId: String(userId),
-      },
-    });
-    return NextResponse.json(created, { status: 201 });
-  } catch (e: any) {
-    console.error("[/api/drafts][POST] prisma error:", e?.message || e);
-    return NextResponse.json({ error: "ServerError" }, { status: 500 });
-  }
-}
+/**
+ * userId は Draft モデルで必須。
+ * - 基本: リクエストbodyで userId を受ける
+ * - 代替: ヘッダ x-user-id
+ * - 最終フォールバック: env DEFAULT_USER_ID または "system"
+ *
+ * ※ 後で NextAuth と連携する際は、ここを session.user.id に差し替えます。
+ */
+const DraftCreateSchema = z.object({
+  title: z.string().min(1, "title is required"),
+  body: z.string().optional(),
+  content: z.string().optional(),
+  userId: z.string().optional(),
+}).refine(v => !!(v.body ?? v.content), {
+  message: "Either body or content is required",
+  path: ["content"],
+});
 
 export async function GET() {
+  return NextResponse.json({ ok: true, route: "/api/drafts" });
+}
+
+export async function POST(req: NextRequest) {
   try {
-    const items = await prisma.draft.findMany({
-      orderBy: [{ createdAt: "desc" }],
-      take: 20,
+    const json = await req.json();
+    const parsed = DraftCreateSchema.parse(json);
+
+    // 本文は content に正規化
+    const content = (parsed.body ?? parsed.content ?? "").trim();
+
+    // userId を決定（body > header > env > "system"）
+    const headerUserId = req.headers.get("x-user-id") ?? undefined;
+    const userId =
+      parsed.userId ??
+      headerUserId ??
+      process.env.DEFAULT_USER_ID ??
+      "system";
+
+    const draft = await prisma.draft.create({
+      data: {
+        userId,            // ★ 必須フィールド
+        title: parsed.title,
+        content,           // PrismaのDraftは content 列
+      },
     });
-    return NextResponse.json({ items }, { status: 200 });
-  } catch (e: any) {
-    console.error("[/api/drafts][GET] prisma error:", e?.message || e);
-    return NextResponse.json({ error: "ServerError" }, { status: 500 });
+
+    return NextResponse.json({ ok: true, draft }, { status: 201 });
+  } catch (err) {
+    const message =
+      err instanceof z.ZodError ? err.flatten() : (err as Error).message;
+    return NextResponse.json({ ok: false, error: message }, { status: 400 });
   }
 }

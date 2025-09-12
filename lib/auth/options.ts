@@ -1,24 +1,27 @@
-import type { NextAuthOptions } from "next-auth";
-import GithubProvider from "next-auth/providers/github";
+﻿import type { NextAuthOptions } from "next-auth";
+import GitHub from "next-auth/providers/github";
 
 export const authOptions: NextAuthOptions = {
-  session: { strategy: "jwt" },
   providers: [
-    GithubProvider({
-      clientId: process.env.GITHUB_ID ?? "",
-      clientSecret: process.env.GITHUB_SECRET ?? "",
+    GitHub({
+      clientId: process.env.GITHUB_ID!,
+      clientSecret: process.env.GITHUB_SECRET!,
+      allowDangerousEmailAccountLinking: true,
     }),
   ],
+  secret: process.env.NEXTAUTH_SECRET,
+  session: { strategy: "jwt" },
+
   callbacks: {
-    async jwt({ token, user, account }) {
-      if (account && user) {}
-      return token;
+    async redirect({ url, baseUrl }) {
+      // 認証フローや "/" からの戻りは /writer へ固定
+      if (url.startsWith("/api/auth") || url === "/") return `${baseUrl}/writer`;
+      if (url.startsWith("/")) return `${baseUrl}${url}`;
+      try { if (new URL(url).origin === baseUrl) return url; } catch {}
+      return `${baseUrl}/writer`;
     },
     async session({ session, token }) {
-      if (session.user) {
-        session.user.email = session.user.email ?? (token.email as string | undefined);
-        session.user.name = session.user.name ?? (token.name as string | undefined);
-      }
+      if (token?.sub) (session as any).userId = token.sub;
       return session;
     },
   },
