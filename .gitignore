@@ -1,24 +1,11 @@
-﻿# Env
-.env
-.env*.local
-.env.bak
-.env.bom
-
-# Node / Next.js
-node_modules/
+﻿node_modules/
 .next/
 dist/
-out/
+.env
+.env.*
+pnpm-lock.yaml
 
-# Prisma
-.prisma/
-prisma/dev.db
-prisma/dev.db-journal
-
-# Build artifacts
-*.log
+# Debug artifacts
+_debug/
+*_diagnostics_apis/
 *.tsbuildinfo
-
-# Backups
-*.bak
-*.corrupt
