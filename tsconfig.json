@@ -18,5 +18,10 @@
     "paths": { "@/*": ["*"] }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["_debug/**/*", "node_modules", "dist", ".next"]
+  "exclude": [
+    "_debug/**/*",           // ★ ここで _debug を明確に除外
+    "node_modules",
+    "dist",
+    ".next"
+  ]
 }
