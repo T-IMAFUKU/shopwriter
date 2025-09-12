@@ -1,61 +1,38 @@
-﻿// app/api/writer/route.ts — 安全化（遅延初期化＋nodejsランタイム固定・全文置換え）
+﻿// app/api/writer/route.ts — 決定版：遅延初期化＋runtime=nodejs（ビルド時env参照を回避）
 
 import { NextResponse } from "next/server";
 
-export const runtime = "nodejs"; // ← Edgeでの環境変数挙動差異を避ける
+export const runtime = "nodejs"; // Edge差分やビルド時評価を避ける
 
-// 共通：キー存在チェック
 function requireApiKey() {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey || apiKey.trim() === "") {
-    return { ok: false as const, reason: "OPENAI_API_KEY is missing" };
-  }
+  if (!apiKey || apiKey.trim() === "") return { ok: false as const };
   return { ok: true as const, apiKey };
 }
 
-// 必要なときにだけ動的import＆初期化（＝ビルド時に new しない）
+// 必要時のみ動的importで初期化（トップレベルで new しない）
 async function getOpenAI(apiKey: string) {
   const { default: OpenAI } = await import("openai");
   return new OpenAI({ apiKey });
 }
 
-export async function POST(req: Request) {
-  try {
-    const key = requireApiKey();
-    if (!key.ok) {
-      return NextResponse.json(
-        {
-          error: "Server Misconfiguration",
-          hint: "Set OPENAI_API_KEY in your environment (Vercel/Local).",
-        },
-        { status: 500 }
-      );
-    }
-
-    const client = await getOpenAI(key.apiKey);
-
-    // ここから先はあなたの元々の処理に置き換えてOK。
-    // まずは健全性確認用の最小応答にしておく。
-    // 例：モデルに触らず 200 を返す（ビルド/本番の健全性確認用）
-    return NextResponse.json({ ok: true }, { status: 200 });
-
-    // ---- 参考：実際に呼ぶときの雛形（必要になったら解禁）
-    // const body = await req.json();
-    // const res = await client.chat.completions.create({
-    //   model: "gpt-4o-mini",
-    //   messages: [{ role: "user", content: body.prompt ?? "ping" }],
-    // });
-    // return NextResponse.json({ ok: true, data: res }, { status: 200 });
-  } catch (e: any) {
-    return NextResponse.json({ error: String(e?.message ?? e) }, { status: 500 });
-  }
+export async function GET() {
+  const key = requireApiKey();
+  return NextResponse.json({ ok: true, hasApiKey: key.ok }, { status: 200 });
 }
 
-export async function GET() {
-  // ヘルスチェック用（本番/ローカルともに 200 を返せる）
+export async function POST(req: Request) {
   const key = requireApiKey();
-  return NextResponse.json(
-    { ok: true, hasApiKey: key.ok },
-    { status: 200 }
-  );
+  if (!key.ok) {
+    return NextResponse.json(
+      { error: "Server Misconfiguration", hint: "Set OPENAI_API_KEY in environment." },
+      { status: 500 }
+    );
+  }
+
+  // まずはヘルス返却（必要時に生成処理を復帰）
+  // const body = await req.json();
+  // const client = await getOpenAI(key.apiKey);
+  // ここで実際の処理へ…
+  return NextResponse.json({ ok: true }, { status: 200 });
 }

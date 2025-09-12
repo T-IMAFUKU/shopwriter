@@ -1,19 +1,16 @@
-// prisma/schema.prisma  ————— （全文置換え）
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
 
 generator client {
   provider = "prisma-client-js"
 }
 
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL") // Neon の接続文字列（?sslmode=require 推奨）
-}
-
 model Draft {
   id        String   @id @default(cuid())
-  userId    String // NextAuthのsession.user.idを保存（FKは張らず疎結合）
-  content   String   @db.Text
+  userId    String
+  title     String
+  content   String
   createdAt DateTime @default(now())
-
-  @@index([userId, createdAt(sort: Desc)])
 }

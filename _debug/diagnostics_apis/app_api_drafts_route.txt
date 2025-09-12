@@ -1,0 +1,40 @@
+// app/api/drafts/route.ts
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { prisma } from "@/lib/prisma";
+
+// Next.js Route縺ｧ險ｱ蜿ｯ縺輔ｌ繧九・縺ｯ runtime / GET / POST 縺ｪ縺ｩ縺ｮ縺ｿ
+export const runtime = "nodejs";
+
+// 繧ｵ繝ｼ繝仙・繝舌Μ繝・・繧ｷ繝ｧ繝ｳ・亥ｿ・ｦ∵怙蟆城剞・・
+const DraftCreateSchema = z.object({
+  title: z.string().min(1, "title is required"),
+  body: z.string().min(1, "body is required"),
+});
+
+export async function GET() {
+  // 繝倥Ν繧ｹ繝√ぉ繝・け逕ｨ縺ｮ霆ｽ驥上Ξ繧ｹ繝昴Φ繧ｹ
+  return NextResponse.json({ ok: true, route: "/api/drafts" });
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const json = await req.json();
+    const input = DraftCreateSchema.parse(json);
+
+    // Prisma繧剃ｽｿ縺｣縺滓怙菴朱剞縺ｮ菫晏ｭ倅ｾ具ｼ亥ｭ伜惠縺吶ｋ繝・・繝悶Ν蜷阪↓蜷医ｏ縺帙※縺上□縺輔＞・・
+    const draft = await prisma.draft.create({
+      data: {
+        title: input.title,
+        body: input.body,
+      },
+    });
+
+    return NextResponse.json({ ok: true, draft }, { status: 201 });
+  } catch (err) {
+    // Zod/Prisma/縺昴・莉悶・萓句､悶ｒ荳諡ｬ繝上Φ繝峨Μ繝ｳ繧ｰ
+    const message =
+      err instanceof z.ZodError ? err.flatten() : (err as Error).message;
+    return NextResponse.json({ ok: false, error: message }, { status: 400 });
+  }
+}
