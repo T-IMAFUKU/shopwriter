@@ -1,0 +1,16 @@
+﻿{
+    "timestamp":  "20250912-230220",
+    "base":  "http://localhost:3000",
+    "uri":  "http://localhost:3000/api/writer",
+    "variant":  1,
+    "sha256":  "8474EC963246C800D5FA57B7BCF2C9E63F44D5AB9DDC979C1A78B9F1038E1C34",
+    "length":  958,
+    "h1_count":  1,
+    "h2_count":  3,
+    "bullets":  3,
+    "length_ok":  true,
+    "h1_ok":  true,
+    "h2_ok":  true,
+    "bullets_ok":  true,
+    "PASS":  true
+}

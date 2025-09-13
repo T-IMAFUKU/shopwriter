@@ -1,3 +1,7 @@
+// prisma/schema.prisma
+// ShopWriter — DBスキーマ（Draft + Share）
+// Provider: PostgreSQL (Neon)
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -7,10 +11,55 @@ generator client {
   provider = "prisma-client-js"
 }
 
+/// 生成原稿の下書き
 model Draft {
   id        String   @id @default(cuid())
   userId    String
   title     String
   content   String
   createdAt DateTime @default(now())
+
+  /// 共有設定（1:1、任意）
+  share Share?
+}
+
+/// 共有設定（共有URL・閲覧権限制御）
+model Share {
+  id String @id @default(cuid())
+
+  /// 紐づく下書き（1:1）
+  draftId String @unique
+  draft   Draft  @relation(fields: [draftId], references: [id], onDelete: Cascade)
+
+  /// 公開識別子（非推測ID・URL直叩き用）
+  publicId String @unique @default(cuid())
+
+  /// 人が扱いやすい短縮スラッグ（例: 8〜16桁の英数）
+  slug String @unique
+
+  /// 可視性：PRIVATE=非公開 / UNLISTED=URL知ってる人のみ / PUBLIC=完全公開 / AUTHENTICATED=ログイン必須
+  visibility ShareVisibility @default(PRIVATE)
+
+  /// 任意：パスワード保護（ハッシュ保存。将来対応）
+  passwordHash String?
+
+  /// 任意：有効期限（期限切れで403）
+  expiresAt DateTime?
+
+  /// 監査
+  createdBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([slug])
+  @@index([visibility])
+  @@index([expiresAt])
+}
+
+/// 可視性の列挙
+enum ShareVisibility {
+  PRIVATE
+  UNLISTED
+  PUBLIC
+  AUTHENTICATED
 }

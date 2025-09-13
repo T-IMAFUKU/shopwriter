@@ -1,27 +1,50 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "preserve",
     "allowJs": false,
-    "skipLibCheck": true,
-    "strict": true,
     "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
     "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "bundler",
+    "forceConsistentCasingInFileNames": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    },
+    "types": [
+      "vitest/globals",
+      "node"
+    ],
+    "incremental": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "preserve",
-    "incremental": true,
-    "plugins": [{ "name": "next" }],
-    "baseUrl": ".",
-    "paths": { "@/*": ["*"] }
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "include": [
+    "app/**/*",
+    "components/**/*",
+    "lib/**/*",
+    "tests/**/*",
+    "next-env.d.ts",
+    "vitest.config.ts",
+    ".next/types/**/*.ts"
+  ],
   "exclude": [
-    "_debug/**/*",           // ★ ここで _debug を明確に除外
     "node_modules",
-    "dist",
-    ".next"
+    ".next",
+    "dist"
   ]
 }
