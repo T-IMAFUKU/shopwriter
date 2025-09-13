@@ -9,3 +9,7 @@ pnpm-lock.yaml
 _debug/
 *_diagnostics_apis/
 *.tsbuildinfo
+
+.vercel
+# ===== ignore env backups =====
+.env*.bak.*
