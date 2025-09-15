@@ -1,40 +1,47 @@
-import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+// app/layout.tsx
+"use client";
+
 import "./globals.css";
-import { Toaster } from "@/components/ui/sonner";
+import { useEffect } from "react";
+import { Toaster, toast } from "sonner";
 
-const inter = Inter({ subsets: ["latin"] });
+/**
+ * 目的：
+ * - 共有ページなどから window.sonnerToast.success/error を呼べるようにブリッジを提供
+ * - Toaster を全ページ共通で設置（右上表示）
+ *
+ * 注意：
+ * - 本レイアウトはクライアントコンポーネント化しています。
+ *   もし pages 内で metadata を使っていた場合は、必要に応じて
+ *   ルートやページ側で export const metadata を定義してください。
+ */
 
-export const metadata: Metadata = {
-  title: "ShopWriter",
-  description: "AI-powered product copywriter",
-};
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  // ブリッジ: window.sonnerToast を登録
+  useEffect(() => {
+    // 既に登録済みなら上書きせず終了
+    if ((window as any).sonnerToast) return;
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+    (window as any).sonnerToast = {
+      success: (msg: string, opt?: any) => {
+        try {
+          toast.success(msg, { duration: 1600, ...opt });
+        } catch {}
+      },
+      error: (msg: string, opt?: any) => {
+        try {
+          toast.error(msg, { duration: 1800, ...opt });
+        } catch {}
+      },
+    };
+  }, []);
+
   return (
-    <html lang="ja" suppressHydrationWarning>
-      <body className={`${inter.className} min-h-dvh bg-background text-foreground antialiased`}>
-        <div className="flex min-h-dvh flex-col">
-          <header className="border-b">
-            <div className="container flex h-14 items-center justify-between">
-              <div className="font-semibold">ShopWriter</div>
-              <nav className="text-sm text-muted-foreground">
-                <a className="hover:underline" href="/writer">Writer</a>
-              </nav>
-            </div>
-          </header>
-          <main className="flex-1">{children}</main>
-          <footer className="border-t">
-            <div className="container py-6 text-xs text-muted-foreground">
-              © {new Date().getFullYear()} ShopWriter
-            </div>
-          </footer>
-        </div>
-        <Toaster />
+    <html lang="ja">
+      <body>
+        {children}
+        {/* 全ページ共通のトースト（右上 / リッチカラー） */}
+        <Toaster richColors position="top-right" />
       </body>
     </html>
   );

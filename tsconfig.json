@@ -1,10 +1,7 @@
-{
+﻿{
   "compilerOptions": {
     "target": "ES2022",
-    "lib": [
-      "ES2022",
-      "DOM"
-    ],
+    "lib": ["ES2022","DOM"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "jsx": "preserve",
@@ -15,23 +12,15 @@
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "baseUrl": ".",
-    "paths": {
-      "@/*": [
-        "./*"
-      ]
-    },
-    "types": [
-      "vitest/globals",
-      "node"
-    ],
+    "paths": { "@/*": ["./*"] },
+
+    // ★ 修正: vitest/globals を外す
+    "types": ["node"],
+
     "incremental": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ]
+    "plugins": [{ "name": "next" }]
   },
   "include": [
     "app/**/*",
@@ -40,11 +29,8 @@
     "tests/**/*",
     "next-env.d.ts",
     "vitest.config.ts",
-    ".next/types/**/*.ts"
+    ".next/types/**/*.ts",
+    "types/**/*"
   ],
-  "exclude": [
-    "node_modules",
-    ".next",
-    "dist"
-  ]
+  "exclude": ["node_modules",".next","dist"]
 }
