@@ -1,117 +1,150 @@
-'use client';
+// app/dashboard/share/[id]/page.tsx
+"use client";
 
-import * as React from 'react';
-import { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import ShareCard, { type ShareData } from '@/components/share/ShareCard';
+import * as React from "react";
+import { useRouter, useParams } from "next/navigation";
 
-type FetchState =
-  | { status: 'idle' | 'loading' }
-  | { status: 'success'; data: ShareData }
-  | { status: 'error'; message: string; code?: number; raw?: string };
+// ShareCard: default export。型を合わせるため ShareData も利用
+import ShareCard, { type ShareData } from "@/components/share/ShareCard";
 
-export default function DashboardSharePreviewPage({ params }: { params: { id: string } }) {
-  const shareId = params.id;
-  const [state, setState] = useState<FetchState>({ status: 'idle' });
+import { useNotify } from "@/components/providers/ToasterProvider";
 
-  // 表示用URL（ダッシュボード上でのプレビューでも「公開URL」をコピーできるようにする）
-  const shareUrl = useMemo(() => {
-    if (typeof window === 'undefined') return '';
-    // 公開ビューのURLをコピー対象にする（/share/[id]）
-    const u = new URL(window.location.href);
-    u.pathname = `/share/${shareId}`;
-    u.search = '';
-    u.hash = '';
-    return u.toString();
-  }, [shareId]);
+export default function DashboardShareDetailPage() {
+  const router = useRouter();
+  const params = useParams<{ id: string }>();
+  const notify = useNotify();
 
-  useEffect(() => {
-    let alive = true;
-    const run = async () => {
-      setState({ status: 'loading' });
-      try {
-        const res = await fetch(`/api/shares/${encodeURIComponent(shareId)}`, {
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
-          cache: 'no-store',
-        });
-        if (!res.ok) {
-          const text = await res.text().catch(() => '');
-          throw Object.assign(new Error(res.statusText), { code: res.status, raw: text });
-        }
-        const json = (await res.json()) as ShareData;
-        if (!alive) return;
-        if (!json || !json.id) throw new Error('Invalid share payload');
-        setState({ status: 'success', data: json });
-      } catch (err: any) {
-        if (!alive) return;
-        const code: number | undefined = err?.code;
-        const raw: string | undefined = err?.raw;
-        const base =
-          code === 404
-            ? '指定された共有は見つかりませんでした。URLを確認してください。'
-            : '共有データの読み込みに失敗しました。時間を置いて再度お試しください。';
-        setState({
-          status: 'error',
-          message: base,
-          code,
-          raw: typeof raw === 'string' && raw.length > 0 ? raw : err?.message,
-        });
+  const shareId = React.useMemo(() => String(params.id), [params.id]);
+
+  // 状態は ShareCard 側の型に統一
+  const [share, setShare] = React.useState<ShareData | null>(null);
+  const [loading, setLoading] = React.useState<boolean>(true);
+  // 親側でのビジー管理（UI抑止に使う場合はこのページ内で制御）
+  const [busy, setBusy] = React.useState<false | "generate" | "delete">(false);
+
+  // ---- 初回ロード -----------------------------------------------------------
+  const load = React.useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await fetch(`/api/shares/${shareId}`, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) {
+        notify.error("共有情報の取得に失敗しました");
+        setShare(null);
+        return;
       }
-    };
-    run();
-    return () => {
-      alive = false;
-    };
-  }, [shareId]);
+      const data = (await res.json()) as ShareData;
+      setShare(data);
+    } catch (e) {
+      console.error(e);
+      notify.error("共有情報の取得でエラーが発生しました");
+    } finally {
+      setLoading(false);
+    }
+  }, [shareId, notify]);
+
+  React.useEffect(() => {
+    load();
+  }, [load]);
+
+  // ---- onGenerate: 公開URLの生成/再生成 -------------------------------------
+  const handleGenerate = React.useCallback(async () => {
+    if (!share) return;
+    try {
+      setBusy("generate");
+      const res = await fetch(`/api/shares/${share.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ op: "regenerate", isPublic: true }),
+      });
+      if (!res.ok) {
+        notify.error("公開URLの生成に失敗しました");
+        return;
+      }
+      const data = (await res.json()) as ShareData;
+      setShare(data);
+      notify.success("公開URLを生成しました");
+    } catch (e) {
+      console.error(e);
+      notify.error("公開URLの生成でエラーが発生しました");
+    } finally {
+      setBusy(false);
+    }
+  }, [share, notify]);
+
+  // ---- onDelete: 共有レコード削除 -------------------------------------------
+  const handleDelete = React.useCallback(async () => {
+    if (!share) return;
+    const ok = window.confirm("この共有リンクを削除します。よろしいですか？");
+    if (!ok) return;
+
+    try {
+      setBusy("delete");
+      const res = await fetch(`/api/shares/${share.id}`, {
+        method: "DELETE",
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) {
+        notify.error("削除に失敗しました");
+        return;
+      }
+      notify.success("削除しました");
+      router.push("/dashboard");
+    } catch (e) {
+      console.error(e);
+      notify.error("削除処理でエラーが発生しました");
+    } finally {
+      setBusy(false);
+    }
+  }, [share, notify, router]);
+
+  // ---- onChanged: ShareCard のシグネチャに厳密一致 (next?: ShareData) -------
+  const handleChanged = React.useCallback((next?: ShareData) => {
+    if (!next) return;
+    setShare((prev) => (prev ? { ...prev, ...next } : prev));
+  }, []);
+
+  // ---- レンダリング ---------------------------------------------------------
+  if (loading) {
+    return (
+      <div className="p-6">
+        <div className="animate-pulse h-6 w-40 rounded bg-muted mb-4" />
+        <div className="animate-pulse h-24 w-full rounded bg-muted" />
+      </div>
+    );
+  }
+
+  if (!share) {
+    return (
+      <div className="p-6">
+        <p className="text-sm text-muted-foreground">共有情報が見つかりませんでした。</p>
+      </div>
+    );
+  }
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-8">
-      <header className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">共有プレビュー</h1>
-          <p className="text-sm text-muted-foreground">
-            Dashboard から共有内容を確認し、公開URLをコピーできます。
-          </p>
-        </div>
-        <nav className="text-sm">
-          <Link href="/share/[id]" as={`/share/${shareId}`} className="underline underline-offset-4">
-            公開ページを開く
-          </Link>
-        </nav>
-      </header>
+    <div className="p-6 max-w-3xl mx-auto">
+      <div className="mb-4">
+        <h1 className="text-xl font-semibold">共有リンクの管理</h1>
+        <p className="text-sm text-muted-foreground">ID: {share.id}</p>
+      </div>
 
-      {state.status === 'error' && (
-        <Alert variant="destructive" className="mb-4">
-          <AlertTitle>読み込みエラー</AlertTitle>
-          <AlertDescription className="space-y-2 break-words">
-            <p>{state.message}</p>
-            {(state.raw || state.code) && (
-              <details className="[&_summary]:cursor-pointer text-xs text-muted-foreground">
-                <summary>詳細</summary>
-                <pre className="mt-1 whitespace-pre-wrap break-words">
-{String(state.code ?? '')}{state.code ? ': ' : ''}{state.raw ?? ''}
-                </pre>
-              </details>
-            )}
-          </AlertDescription>
-        </Alert>
-      )}
+      {/* ❌ loading プロップを渡さない（ShareCardProps に存在しないため） */}
+      <ShareCard
+        share={share}
+        onGenerate={handleGenerate}
+        onDelete={handleDelete}
+        onChanged={handleChanged}
+      />
 
-      {state.status === 'loading' && (
-        <section className="rounded-xl border bg-card p-5 text-sm text-muted-foreground">
-          読み込み中…
-        </section>
+      {/* 親側 busy を UI に反映したい場合は、必要に応じてここでボタンなどを無効化 */}
+      {busy && (
+        <p className="mt-4 text-xs text-muted-foreground">
+          実行中: {busy === "generate" ? "生成中" : "削除中"}…
+        </p>
       )}
-
-      {state.status === 'success' && (
-        <ShareCard
-          shareUrl={shareUrl}   // 公開URLをコピー対象に
-          data={state.data}
-          className="space-y-4"
-        />
-      )}
-    </main>
+    </div>
   );
 }

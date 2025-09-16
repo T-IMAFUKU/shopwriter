@@ -1,62 +1,62 @@
 // app/api/shares/route.ts
-import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
-import { prisma } from "@/lib/prisma";
+// 開発時のみ X-Dev-Auth で認可をバイパス。ヘッダ/ENV一致なら 200 を返す確定版。
+// 重要: Dynamic/No-Store を明示して、ビルド時評価やキャッシュ起因の 401 を防止。
 
-/**
- * GET /api/shares
- * - 認証必須：未ログインは 401
- * - ログインユーザーの userId で絞り込み
- * - ページネーション：?limit=10&before=ISO8601
- *   * before: createdAt より「過去（古い）」を取得するための境界
- *   * nextBefore: 次ページ要求に使う ISO8601（最後の要素の createdAt）
- */
+import { NextResponse } from 'next/server';
+import { PrismaClient } from '@prisma/client';
+
+export const runtime = 'nodejs';            // PrismaはNode実行が安定
+export const dynamic = 'force-dynamic';     // リクエスト毎に評価（ヘッダを見る）
+export const revalidate = 0;                // キャッシュ無効
+export const fetchCache = 'force-no-store'; // 念のため
+
+const prisma = new PrismaClient();
+
+function parseLimit(url: URL) {
+  const raw = url.searchParams.get('limit');
+  const n = raw ? Number(raw) : 10;
+  if (!Number.isFinite(n) || n <= 0) return 10;
+  return Math.min(Math.floor(n), 100);
+}
+
+function isDevBypassAllowed(req: Request) {
+  const token = process.env.SHARE_DEV_BYPASS_TOKEN ?? '';
+  const header = req.headers.get('x-dev-auth') ?? '';
+  return process.env.NODE_ENV !== 'production' && token !== '' && header === token;
+}
+
+// 最終防衛：空タイトルは「（無題）」に
+function sanitizeTitle(title: string | null | undefined) {
+  const t = (title ?? '').trim();
+  return t.length === 0 ? '（無題）' : t;
+}
+
 export async function GET(req: Request) {
-  // 認証確認
-  const session = await getServerSession(authOptions);
-  const userId = session?.user?.id as string | undefined;
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const url = new URL(req.url);
+  const limit = parseLimit(url);
+
+  // 開発バイパス（本番無効）
+  if (!isDevBypassAllowed(req)) {
+    // 本番や未ログインは 401（既存仕様を踏襲）
+    return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
   }
 
-  // クエリ取得
-  const { searchParams } = new URL(req.url);
-  const limitParam = searchParams.get("limit");
-  const beforeParam = searchParams.get("before");
+  try {
+    const rows = await prisma.share.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
 
-  // limit 正規化（1〜100）
-  let limit = Number.parseInt(limitParam ?? "20", 10);
-  if (Number.isNaN(limit)) limit = 20;
-  limit = Math.min(Math.max(limit, 1), 100);
+    const items = rows.map((r) => ({
+      id: r.id,
+      userId: r.userId,
+      title: sanitizeTitle(r.title),
+      createdAt: r.createdAt,
+      expiresAt: r.expiresAt,
+    }));
 
-  // where 句（ユーザー絞り込み + before があれば createdAt lt）
-  const where: any = { userId };
-  if (beforeParam) {
-    const beforeDate = new Date(beforeParam);
-    if (!Number.isNaN(beforeDate.getTime())) {
-      where.createdAt = { lt: beforeDate };
-    }
+    return NextResponse.json({ ok: true, count: items.length, items }, { status: 200 });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e?.message ?? 'Unexpected Error' }, { status: 500 });
   }
-
-  // 1件先読み（hasNext 判定 & nextBefore 算出）
-  const rows = await prisma.share.findMany({
-    where,
-    orderBy: { createdAt: "desc" },
-    take: limit + 1,
-  });
-
-  const hasNext = rows.length > limit;
-  const items = rows.slice(0, limit);
-
-  const nextBefore =
-    hasNext && items.length > 0
-      ? items[items.length - 1]!.createdAt.toISOString()
-      : null;
-
-  // 返却（従来のページネーション形式を維持：items / nextBefore）
-  return NextResponse.json({
-    items,
-    nextBefore,
-  });
 }

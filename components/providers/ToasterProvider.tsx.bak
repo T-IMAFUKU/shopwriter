@@ -1,0 +1,76 @@
+"use client";
+
+import * as React from "react";
+import dynamic from "next/dynamic";
+
+// Toaster はクライアント専用で描画（SSR 無効化）
+const SonnerToaster = dynamic(async () => (await import("sonner")).Toaster, {
+  ssr: false,
+});
+
+export default function ToasterProvider() {
+  // --- A) 初回スモーク（StrictMode 二重マウントでも確実に 1 回だけ） ---
+  React.useEffect(() => {
+    const w = window as unknown as Record<string, any>;
+    const FLAG = "__shopwriter_toast_smoke_done__";
+    if (!w[FLAG]) {
+      w[FLAG] = true; // ← 再マウントでも維持される
+      // Toaster マウント順のレースを避け、少し遅延して発火
+      setTimeout(() => {
+        import("sonner").then(({ toast }) => {
+          toast("Toaster 起動テスト", {
+            description: "StrictMode 対応版（window フラグで 1 回だけ表示）",
+          });
+        });
+      }, 120);
+    }
+    // ※ StrictMode 対策のため、ここではクリーンアップでタイマーを clear しません
+  }, []);
+
+  // --- B) Console から手動発火できるように（window.toast を提供） ---
+  React.useEffect(() => {
+    import("sonner").then(({ toast }) => {
+      (window as any).toast = toast;
+    });
+    return () => {
+      if ((window as any).toast) delete (window as any).toast;
+    };
+  }, []);
+
+  // --- C) カスタムイベント 'shopwriter:toast' でも発火可能 ---
+  React.useEffect(() => {
+    const handler = (e: Event) => {
+      import("sonner").then(({ toast }) => {
+        const ce = e as CustomEvent<{ message?: string; description?: string }>;
+        toast(ce.detail?.message ?? "Toaster OK", {
+          description: ce.detail?.description ?? "Event: shopwriter:toast",
+        });
+      });
+    };
+    window.addEventListener("shopwriter:toast", handler as EventListener);
+    return () => window.removeEventListener("shopwriter:toast", handler as EventListener);
+  }, []);
+
+  // --- D) Toaster 本体（高 z-index） ---
+  return (
+    <SonnerToaster
+      className="z-[9999]"
+      position="top-right"
+      richColors
+      closeButton
+      duration={2200}
+      theme="system"
+      visibleToasts={3}
+      expand={false}
+      toastOptions={{
+        classNames: {
+          toast: "rounded-2xl shadow-lg",
+          title: "font-medium",
+          description: "text-muted-foreground",
+          actionButton: "rounded-xl",
+          cancelButton: "rounded-xl",
+        },
+      }}
+    />
+  );
+}

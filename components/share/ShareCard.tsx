@@ -1,108 +1,241 @@
-'use client';
+"use client";
 
-import * as React from 'react';
-import { useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { toast } from 'sonner';
+import * as React from "react";
+import Link from "next/link";
+import { twMerge } from "tailwind-merge";
+
+/**
+ * Step 1.7: ShareCard（型エラー解消・互換ラッパー）
+ * - variant: "card" | "row"
+ * - ShareData を export（呼び出し側の import 復旧）
+ * - createdAt に null 許容（dashboard 側の null 実データに対応）
+ * - onChanged を props に追加（呼び出し側の監視フック）
+ * - onGenerate / onDelete は引数 any を許容（旧/新/引数なしを包括）
+ *   ※ 実行時は item を渡す（引数なし実装でも無害・string 期待にも対応可）
+ * - badge/dropdown/notify 依存は未使用（後続で置換）
+ */
 
 export type ShareData = {
   id: string;
   title?: string | null;
-  content?: string | null;
-  createdAt?: string | null;
-  expiresAt?: string | null;
-  // 追加項目が来ても安全に無視
-  [key: string]: unknown;
+  url?: string | null;                // 公開URL（例: /share/[id]）
+  createdAt?: string | Date | null;   // ← null 許容に拡張
+  views?: number | null;
+  isPublic?: boolean | null;
+  token?: string | null;
 };
 
-type Props = {
-  /** 画面上に表示する共有URL（例：window.location.href） */
-  shareUrl: string;
-  /** 共有データ本体 */
-  data: ShareData;
-  /** コピー成功時のフック（未指定ならトースト表示） */
-  onCopySuccess?: () => void;
-  /** コピー失敗時のフック（未指定ならトースト表示） */
-  onCopyError?: (err: unknown) => void;
-  /** className を上位で追加したい場合に使用 */
+type BaseHandlers = {
+  /** 共有URLコピー押下 */
+  onCopy?: (id: string, url?: string | null) => void | Promise<any>;
+  /** 削除押下（引数 any で旧/新/引数なしを包括） */
+  onDelete?: (arg?: any) => void | Promise<any>;
+  /** 任意：その他アクション */
+  onAction?: (id: string, action: string) => void | Promise<any>;
+  /** 変更通知（呼び出し側で状態更新） */
+  onChanged?: (next?: ShareData) => void | Promise<any>;
+};
+
+// 新API
+type NewProps = {
+  share?: ShareData;
+  variant?: "card" | "row";
   className?: string;
-};
+} & BaseHandlers;
 
-/**
- * ShareCard
- * - 上段：共有URL + 「URLをコピー」ボタン
- * - 下段：共有内容の概要（タイトル/本文/メタ情報）
- * - /app/share/[id]/page.tsx から利用する想定のプレゼンテーションコンポーネント
- */
-export default function ShareCard({
-  shareUrl,
-  data,
-  onCopySuccess,
-  onCopyError,
-  className,
-}: Props) {
-  const [copied, setCopied] = useState(false);
+// 旧API互換
+type LegacyProps = {
+  data?: ShareData;
+  /** 旧: 生成ハンドラ（引数 any で包括） */
+  onGenerate?: (arg?: any) => void | Promise<any>;
+} & Omit<NewProps, "share">;
 
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(shareUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-      if (onCopySuccess) onCopySuccess();
-      else toast.success('URLをコピーしました');
-    } catch (err) {
-      if (onCopyError) onCopyError(err);
-      else toast.error('コピーに失敗しました。ブラウザの権限設定をご確認ください。');
-    }
-  };
+export type ShareCardProps = NewProps & LegacyProps;
 
+export default function ShareCard(props: ShareCardProps) {
+  const item: ShareData | undefined = props.share ?? props.data;
+  const variant: "card" | "row" = props.variant ?? "card";
+
+  if (!item?.id) return null;
+
+  const { onCopy, onDelete, onAction, onChanged, onGenerate, className } = props;
+
+  const title = item.title ?? "（無題）";
+  const href = safeUrl(item.url, item.id);
+  const created = toDisplayDate(item.createdAt);
+  const views = item.views ?? undefined;
+  const isPublic = !!item.isPublic;
+
+  // 簡易 Badge（後で shadcn/ui Badge に置換）
+  const StatusBadge = () => (
+    <span
+      aria-label={isPublic ? "公開" : "非公開"}
+      className={twMerge(
+        "inline-flex items-center rounded px-2 py-0.5 text-xs font-medium",
+        isPublic
+          ? "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200"
+          : "bg-slate-50 text-slate-600 ring-1 ring-inset ring-slate-200"
+      )}
+    >
+      {isPublic ? "Public" : "Private"}
+    </span>
+  );
+
+  // 操作群（Dropdown 未導入の暫定ボタン）
+  const Actions = () => (
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        className={buttonClass()}
+        onClick={() => {
+          onCopy?.(item.id, href);
+          onAction?.(item.id, "copy");
+          console.log("[ShareCard] copy:", href);
+        }}
+        aria-label="共有URLをコピー"
+      >
+        コピー
+      </button>
+
+      {onGenerate && (
+        <button
+          type="button"
+          className={buttonClass("secondary")}
+          onClick={async () => {
+            await onGenerate(item);            // ← any 受け入れ（ShareData を渡す）
+            onAction?.(item.id, "generate");
+            console.log("[ShareCard] generate:", item.id);
+          }}
+          aria-label="生成する（互換）"
+        >
+          生成
+        </button>
+      )}
+
+      {onDelete && (
+        <button
+          type="button"
+          className={buttonClass("danger")}
+          onClick={async () => {
+            await onDelete(item);              // ← any 受け入れ（引数なし実装でも無害）
+            onAction?.(item.id, "delete");
+            onChanged?.();                     // 削除後に変更通知
+            console.log("[ShareCard] delete:", item.id);
+          }}
+          aria-label="共有を削除"
+        >
+          削除
+        </button>
+      )}
+    </div>
+  );
+
+  if (variant === "row") {
+    // 行レイアウト（Dashboard 一覧向け）
+    return (
+      <div
+        className={twMerge(
+          "w-full grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2",
+          className
+        )}
+        role="group"
+        aria-label={`共有 ${title}`}
+      >
+        <div className="min-w-0 flex items-center gap-3">
+          <StatusBadge />
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <Link
+                href={href}
+                className="truncate font-medium text-slate-900 hover:underline"
+                title={title}
+              >
+                {title}
+              </Link>
+              {views !== undefined && (
+                <span className="shrink-0 text-xs text-slate-500">{views} views</span>
+              )}
+            </div>
+            <div className="truncate text-xs text-slate-500">
+              {href} ・ {created}
+            </div>
+          </div>
+        </div>
+        <Actions />
+      </div>
+    );
+  }
+
+  // カードレイアウト（既存）
   return (
-    <section className={['space-y-4', className].filter(Boolean).join(' ')}>
-      {/* 共有URLブロック */}
-      <div className="rounded-xl border bg-card p-5">
-        <div className="mb-2 text-xs font-medium text-muted-foreground">共有URL</div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <code className="max-w-full overflow-x-auto rounded-md bg-muted px-3 py-2 text-sm">
-            {shareUrl}
-          </code>
-          <div className="shrink-0">
-            <Button onClick={handleCopy} aria-label="URLをコピー">
-              {copied ? '✓ コピーしました' : 'URLをコピー'}
-            </Button>
+    <div
+      className={twMerge(
+        "flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-4",
+        className
+      )}
+      role="group"
+      aria-label={`共有 ${title}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="mb-1 flex items-center gap-2">
+            <h3 className="truncate text-base font-semibold text-slate-900" title={title}>
+              {title}
+            </h3>
+            <StatusBadge />
+          </div>
+          <div className="truncate text-sm text-slate-600">
+            <Link href={href} className="hover:underline">
+              {href}
+            </Link>
+          </div>
+          <div className="mt-1 text-xs text-slate-500">
+            作成: {created}
+            {views !== undefined && <span> ・ {views} views</span>}
           </div>
         </div>
       </div>
 
-      {/* 概要ブロック */}
-      <div className="rounded-xl border bg-card p-5">
-        <div className="mb-2 text-xs font-medium text-muted-foreground">概要</div>
-        <h2 className="text-lg font-medium">{data.title ?? `Share #${data.id}`}</h2>
-
-        {data.content && (
-          <article className="prose prose-sm max-w-none whitespace-pre-wrap break-words">
-            {String(data.content)}
-          </article>
-        )}
-
-        <dl className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
-          <div>
-            <dt className="text-muted-foreground">共有ID</dt>
-            <dd className="break-all">{data.id}</dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">作成日時</dt>
-            <dd>
-              {data.createdAt ? new Date(String(data.createdAt)).toLocaleString() : '-'}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">有効期限</dt>
-            <dd>
-              {data.expiresAt ? new Date(String(data.expiresAt)).toLocaleString() : '（設定なし）'}
-            </dd>
-          </div>
-        </dl>
+      <div className="mt-4">
+        <Actions />
       </div>
-    </section>
+    </div>
   );
+}
+
+/** tailwind 簡易ボタン（後で shadcn/ui Button に置換可） */
+function buttonClass(variant: "primary" | "secondary" | "danger" = "primary") {
+  switch (variant) {
+    case "secondary":
+      return "inline-flex items-center rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-400";
+    case "danger":
+      return "inline-flex items-center rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-400";
+    default:
+      return "inline-flex items-center rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400";
+  }
+}
+
+/** URL 安全化（null/undefined でも `/share/[id]` にフォールバック） */
+function safeUrl(url: string | null | undefined, id: string) {
+  const u = (url ?? "").trim();
+  if (!u) return `/share/${encodeURIComponent(id)}`;
+  try {
+    const parsed = new URL(u, "http://localhost");
+    return u.startsWith("http") ? u : parsed.pathname + parsed.search + parsed.hash;
+  } catch {
+    return `/share/${encodeURIComponent(id)}`;
+  }
+}
+
+/** 日付表示（JST想定） */
+function toDisplayDate(input?: string | Date | null) {
+  if (!input) return "—";
+  const d = typeof input === "string" ? new Date(input) : input;
+  if (Number.isNaN(d.getTime())) return "—";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${y}-${m}-${day} ${hh}:${mm}`;
 }

@@ -1,0 +1,30 @@
+[
+  {
+    "id": "cmfkbawgi0000lcog1rqdc5wt",
+    "userId": "dev-user",
+    "title": "秋のセールLP原稿（ドラフト）",
+    "createdAt": "2025-09-13T11:14:13.063Z",
+    "expiresAt": "2025-09-24T23:14:13.063Z"
+  },
+  {
+    "id": "cmfkbawgk0001lcogmuwkr575",
+    "userId": "dev-user",
+    "title": "トップページ見出し案 v2",
+    "createdAt": "2025-09-14T13:14:13.063Z",
+    "expiresAt": null
+  },
+  {
+    "id": "",
+    "userId": "222792285",
+    "title": "テスト共有A",
+    "createdAt": "2025-09-15T00:25:39.741Z",
+    "expiresAt": null
+  },
+  {
+    "id": "cmfkdvf260000lcvketttt1kx",
+    "userId": "222792285",
+    "title": "",
+    "createdAt": "2025-09-15T00:26:09.534Z",
+    "expiresAt": null
+  }
+]
