@@ -1,330 +1,232 @@
 "use client";
 
 import * as React from "react";
-import ReactMarkdown from "react-markdown";
+import { useState, useRef } from "react";
+import { toast } from "sonner";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
-import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 
-type FormState = {
-  productName: string;
-  audience: string;
-  template: string;
-  tone: string;
-  keywords: string;
-  language: string;
-};
+type Lang = "ja" | "en";
 
 export default function Page() {
-  const [form, setForm] = React.useState<FormState>({
-    productName: "",
-    audience: "",
-    template: "EC",
-    tone: "カジュアル",
-    keywords: "",
-    language: "ja",
-  });
+  const [prompt, setPrompt] = useState("");
+  const [language, setLanguage] = useState<Lang>("ja");
+  const [result, setResult] = useState("");
+  const [model, setModel] = useState<string | undefined>(undefined);
+  const [mock, setMock] = useState<boolean | undefined>(undefined);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
-  const [streaming, setStreaming] = React.useState<boolean>(true);
-  const [loading, setLoading] = React.useState<boolean>(false);
-  const [output, setOutput] = React.useState<string>("");
-
-  // 中断/クリーンアップ用
-  const abortRef = React.useRef<AbortController | null>(null);
-  const flushTimerRef = React.useRef<number | null>(null);
-  const mountedRef = React.useRef<boolean>(false);
-
-  React.useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      abortRef.current?.abort();
-      if (flushTimerRef.current) window.clearInterval(flushTimerRef.current);
-    };
-  }, []);
-
-  const handleChange =
-    (key: keyof FormState) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      setForm((s) => ({ ...s, [key]: e.target.value }));
-    };
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setOutput("");
-    setLoading(true);
 
-    const body = {
-      productName: form.productName,
-      audience: form.audience,
-      template: form.template,
-      tone: form.tone,
-      keywords: form.keywords
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
-      language: form.language || "ja",
-    };
-
-    try {
-      if (streaming) {
-        await runStreaming(body); // 品質重視：まとめてflush
-      } else {
-        await runNormal(body); // 一括
-      }
-    } catch (err) {
-      setOutput(
-        `**エラー**: ${(err as Error)?.message ?? "実行中に問題が発生しました"}`
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const runNormal = async (payload: any) => {
-    const res = await fetch("/api/writer", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(
-        `HTTP ${res.status} ${res.statusText}${text ? `\n${text}` : ""}`
-      );
+    const trimmed = prompt.trim();
+    if (trimmed.length < 8) {
+      toast.error("入力は8文字以上にしてください（スナップショット前提）");
+      return;
     }
 
-    let md = "";
-    const contentType = res.headers.get("content-type") || "";
-    if (contentType.includes("application/json")) {
-      const data = await res.json();
-      md = data?.text ?? data?.markdown ?? JSON.stringify(data, null, 2);
-    } else {
-      md = await res.text();
-    }
-
-    setOutput(md || "_（出力が空でした）_");
-  };
-
-  /**
-   * 品質重視ストリーミング：
-   * - TextDecoder(stream:true) でバイト境界を安全に結合
-   * - UI更新は 50ms ごとにまとめて flush（Markdown崩れ/文字化けを軽減）
-   * - APIは text/plain の逐次チャンク（SSE→テキスト変換済み想定）
-   */
-  const runStreaming = async (payload: any) => {
-    // 既存ストリームを中断
-    abortRef.current?.abort();
+    // 既存ストリームを停止
+    if (abortRef.current) abortRef.current.abort();
     abortRef.current = new AbortController();
 
-    const res = await fetch("/api/wwriter/stream".replace("/ww", "/w"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: abortRef.current.signal,
-    });
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(
-        `HTTP ${res.status} ${res.statusText}${text ? `\n${text}` : ""}`
-      );
-    }
-    if (!res.body) throw new Error("ReadableStream がありません（res.body === null）");
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder("utf-8");
-    let tempBuffer = ""; // flush待ちのテキスト
-    let eof = false;
-
-    // 50msごとにまとめて追記（高頻度すぎず、体感リアルタイムを維持）
-    if (flushTimerRef.current) window.clearInterval(flushTimerRef.current);
-    flushTimerRef.current = window.setInterval(() => {
-      if (!mountedRef.current) return;
-      if (!tempBuffer) return;
-      setOutput((prev) => prev + tempBuffer);
-      tempBuffer = "";
-    }, 50);
+    setResult("");
+    setModel(undefined);
+    setMock(undefined);
+    setIsStreaming(true);
+    toast.loading("ストリーミング開始...", { id: "writer" });
 
     try {
+      // 1st: /api/writer/stream（SSE/Chunk）を期待
+      let res = await fetch("/api/writer/stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({ prompt: trimmed, language }),
+        signal: abortRef.current.signal,
+      });
+
+      // フォールバック: 404/405/500 等なら /api/writer を単発呼び出し
+      if (!res.ok && res.status !== 200) {
+        // JSON API フォールバック
+        const res2 = await fetch("/api/writer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json; charset=utf-8" },
+          body: JSON.stringify({ prompt: trimmed, language }),
+          signal: abortRef.current.signal,
+        });
+        if (!res2.ok) {
+          const msg = await res2.text();
+          throw new Error(`/api/writer: ${res2.status} ${res2.statusText} — ${msg}`);
+        }
+        const payload = await res2.json().catch(async () => ({ text: await res2.text() }));
+        const text =
+          typeof payload?.text === "string" && payload.text.length > 0
+            ? payload.text
+            : JSON.stringify(payload, null, 2);
+        setResult(text);
+        setModel(typeof payload?.model === "string" ? payload.model : undefined);
+        setMock(typeof payload?.mock === "boolean" ? payload.mock : undefined);
+        toast.success("フォールバックで完了（/api/writer）", { id: "writer" });
+        return;
+      }
+
+      // レスポンスヘッダに model 等があれば拾う
+      const hdrModel = res.headers.get("x-model") || res.headers.get("X-Model") || undefined;
+      if (hdrModel) setModel(hdrModel);
+
+      const contentType = res.headers.get("content-type") || "";
+
+      // 逐次読み取り
+      const reader = res.body?.getReader();
+      if (!reader) {
+        throw new Error("ReadableStream が利用できません");
+      }
+
+      const decoder = new TextDecoder();
+      let buffered = "";
+
       while (true) {
-        const { done, value } = await reader.read();
+        const { value, done } = await reader.read();
         if (done) break;
-        // マルチバイト安全に decode（途中で切れたバイトは次回へ）
         const chunk = decoder.decode(value, { stream: true });
 
-        // SSEの data: 行が来ても素直に文字化けせず抽出（ロバスト性）
-        if (chunk.includes("data:")) {
-          // 可能ならJSONを抽出して content だけ取り出す
-          for (const line of chunk.split("\n")) {
-            const t = line.trim();
-            if (!t.startsWith("data:")) {
-              tempBuffer += line; // 余剰はそのまま
-              continue;
-            }
-            const payload = t.slice(5).trim();
-            if (!payload || payload === "[DONE]") continue;
+        // SSE 形式（`data:` 行）にも素直なテキストにも対応
+        buffered += chunk;
+
+        // 行単位で処理
+        const lines = buffered.split(/\r?\n/);
+        buffered = lines.pop() ?? ""; // 最後の未完はバッファに戻す
+
+        for (const line of lines) {
+          if (!line) continue;
+
+          // SSEのコメント/keepalive
+          if (line.startsWith(":")) continue;
+
+          if (line.startsWith("data:")) {
+            const data = line.replace(/^data:\s?/, "");
+            // JSONライン { "text": "...", "model": "...", "mock": true } にも対応
             try {
-              const json = JSON.parse(payload);
-              const delta: string | undefined =
-                json?.choices?.[0]?.delta?.content ??
-                json?.choices?.[0]?.text;
-              if (delta) tempBuffer += delta;
+              const obj = JSON.parse(data);
+              if (typeof obj?.text === "string") {
+                setResult((prev) => prev + obj.text);
+              } else if (typeof obj === "string") {
+                setResult((prev) => prev + obj);
+              } else {
+                setResult((prev) => prev + JSON.stringify(obj));
+              }
+              if (typeof obj?.model === "string") setModel(obj.model);
+              if (typeof obj?.mock === "boolean") setMock(obj.mock);
             } catch {
-              // JSONでなければそのまま足す（サーバは通常 text/plain のため）
-              tempBuffer += line.replace(/^data:\s*/, "");
+              // 素のテキスト
+              setResult((prev) => prev + data);
+            }
+          } else {
+            // 非SSE（純テキスト/NDJSON等）
+            // NDJSON の場合は JSON なら text を拾う
+            try {
+              const obj = JSON.parse(line);
+              if (typeof obj?.text === "string") setResult((prev) => prev + obj.text);
+              else setResult((prev) => prev + JSON.stringify(obj));
+            } catch {
+              setResult((prev) => prev + line);
             }
           }
-        } else {
-          tempBuffer += chunk; // 通常の text/plain ストリーム（想定）
         }
       }
-      eof = true;
+
+      toast.success("ストリーミング完了", { id: "writer" });
+    } catch (err: any) {
+      if (err?.name === "AbortError") {
+        toast.message("ストリーミングを停止しました", { id: "writer" });
+      } else {
+        console.error(err);
+        toast.error(String(err?.message ?? err), { id: "writer" });
+      }
     } finally {
-      // 最終flush & クリーンアップ
-      decoder.decode(new Uint8Array(), { stream: false });
-      if (flushTimerRef.current) {
-        window.clearInterval(flushTimerRef.current);
-        flushTimerRef.current = null;
-      }
-      if (tempBuffer) {
-        // 残りを一括反映
-        if (mountedRef.current) setOutput((prev) => prev + tempBuffer);
-        tempBuffer = "";
-      }
-      if (!eof && mountedRef.current) {
-        setOutput((prev) => prev + "\n\n_（ストリームが中断されました）_");
-      }
+      setIsStreaming(false);
     }
-  };
+  }
 
-  const handleAbort = () => {
+  function handleStop() {
     abortRef.current?.abort();
-  };
+    setIsStreaming(false);
+  }
 
-  const handleClear = () => {
-    setOutput("");
-  };
+  function handleClear() {
+    setPrompt("");
+    setResult("");
+    setModel(undefined);
+    setMock(undefined);
+  }
 
   return (
-    <main className="container mx-auto px-4 py-6">
-      <h1 className="text-2xl font-bold mb-2">Writer（通常/ストリーミング切替）</h1>
-      <p className="text-sm text-muted-foreground mb-4">
-        /api/writer（JSON） と /api/writer/stream（逐次出力）を UI から切替
-      </p>
-
-      <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* 左ペイン：入力フォーム */}
-        <section className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="productName">商品名 / サービス名</Label>
-              <Input
-                id="productName"
-                value={form.productName}
-                onChange={handleChange("productName")}
-                placeholder="ShopWriter Premium"
+    <main className="container mx-auto max-w-3xl px-4 py-8 space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Writer（Step 4/4：ストリーミング UI）</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="prompt">入力（8文字以上）</Label>
+              <Textarea
+                id="prompt"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="例）春の新作ニットの魅力を、ECサイト向けに紹介してください。"
+                minLength={8}
                 required
               />
             </div>
-            <div>
-              <Label htmlFor="audience">想定読者</Label>
-              <Input
-                id="audience"
-                value={form.audience}
-                onChange={handleChange("audience")}
-                placeholder="EC担当者 / WEBユーザー など"
-              />
-            </div>
-            <div>
-              <Label htmlFor="template">テンプレート</Label>
-              <Input
-                id="template"
-                value={form.template}
-                onChange={handleChange("template")}
-                placeholder="EC"
-              />
-            </div>
-            <div>
-              <Label htmlFor="tone">トーン</Label>
-              <Input
-                id="tone"
-                value={form.tone}
-                onChange={handleChange("tone")}
-                placeholder="カジュアル / フォーマル など"
-              />
-            </div>
-          </div>
 
-          <div>
-            <Label htmlFor="keywords">キーワード（カンマ区切り）</Label>
-            <Input
-              id="keywords"
-              value={form.keywords}
-              onChange={handleChange("keywords")}
-              placeholder="SEO, CVR, スピード"
-            />
-          </div>
+            <div className="space-y-2">
+              <Label htmlFor="language">言語コード</Label>
+              <Input
+                id="language"
+                value={language}
+                onChange={(e) => setLanguage((e.target.value as Lang) || "ja")}
+                placeholder="ja または en"
+              />
+            </div>
 
-          <div>
-            <Label htmlFor="language">出力言語</Label>
-            <Input
-              id="language"
-              value={form.language}
-              onChange={handleChange("language")}
-              placeholder="ja / en など"
-            />
-          </div>
+            <div className="flex items-center gap-3">
+              <Button type="submit" disabled={isStreaming}>
+                {isStreaming ? "配信中…" : "生成（ストリーム）"}
+              </Button>
+              <Button type="button" variant="destructive" onClick={handleStop} disabled={!isStreaming}>
+                停止
+              </Button>
+              <Button type="button" variant="secondary" onClick={handleClear} disabled={isStreaming}>
+                クリア
+              </Button>
+            </div>
+          </form>
 
           <Separator />
 
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Switch
-                id="streaming"
-                checked={streaming}
-                onCheckedChange={setStreaming}
-              />
-              <Label htmlFor="streaming" className="cursor-pointer">
-                ストリーミング生成を有効にする
-              </Label>
-            </div>
-
-            <div className="flex gap-2">
-              <Button type="button" variant="secondary" onClick={handleClear}>
-                クリア
-              </Button>
-              {loading ? (
-                <Button type="button" variant="destructive" onClick={handleAbort}>
-                  中止
-                </Button>
-              ) : (
-                <Button type="submit">生成</Button>
-              )}
-            </div>
+          <div className="space-y-2">
+            <Label>結果（リアルタイム）</Label>
+            <Card className="bg-muted/30">
+              <CardContent className="py-4">
+                {(model || mock !== undefined) && (
+                  <div className="mb-2 text-sm text-muted-foreground">
+                    {model ? `model: ${model}` : ""}
+                    {mock !== undefined ? `  mock: ${mock}` : ""}
+                  </div>
+                )}
+                <pre className="whitespace-pre-wrap text-sm leading-6 min-h-[120px]">
+                  {result || "（まだ結果はありません）"}
+                </pre>
+              </CardContent>
+            </Card>
           </div>
-        </section>
-
-        {/* 右ペイン：逐次描画ビュー */}
-        <section className="min-h-[420px] rounded-lg border p-4 overflow-auto bg-background">
-          <div className="text-xs text-muted-foreground mb-2">
-            {streaming ? "ストリーミング表示中…" : "通常表示"}
-          </div>
-          <div className="prose prose-sm max-w-none">
-            {output ? (
-              <ReactMarkdown>{output}</ReactMarkdown>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                ここに Markdown 出力が段階的に表示されます…
-              </p>
-            )}
-          </div>
-        </section>
-      </form>
+        </CardContent>
+      </Card>
     </main>
   );
 }

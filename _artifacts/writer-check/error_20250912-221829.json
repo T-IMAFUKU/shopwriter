@@ -1,0 +1,1 @@
+﻿{"ok":false,"error":"Missing credentials. Please pass an `apiKey`, or set the `OPENAI_API_KEY` environment variable."}

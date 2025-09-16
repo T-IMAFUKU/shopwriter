@@ -1,0 +1,16 @@
+﻿{
+    "timestamp":  "20250912-225321",
+    "base":  "https://shopwriter-next.vercel.app",
+    "uri":  "https://shopwriter-next.vercel.app/api/writer",
+    "variant":  1,
+    "sha256":  "9EC65FF19B8049E67881AD31485B8D59E67B6A48E45026E219D62830E988D11E",
+    "length":  1034,
+    "h1_count":  1,
+    "h2_count":  3,
+    "bullets":  3,
+    "length_ok":  true,
+    "h1_ok":  true,
+    "h2_ok":  true,
+    "bullets_ok":  true,
+    "PASS":  true
+}
