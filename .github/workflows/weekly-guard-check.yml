@@ -1,0 +1,23 @@
+# .github/workflows/weekly-guard-check.yml
+name: Weekly Guard Check (/api/shares)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 毎週月曜 10:00 JST（= 01:00 UTC）
+    - cron: "0 1 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  guard-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run guard check script (PowerShell)
+        shell: pwsh
+        run: |
+          ./scripts/check-shares-guard.ps1 -ProdUrl "${{ secrets.PROD_URL }}"
