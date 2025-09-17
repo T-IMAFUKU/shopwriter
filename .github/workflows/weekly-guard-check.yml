@@ -1,4 +1,3 @@
-# .github/workflows/weekly-guard-check.yml
 name: Weekly Guard Check (/api/shares)
 
 on:
@@ -16,6 +15,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Verify script path (list files)
+        shell: bash
+        run: |
+          echo "PWD=$(pwd)"
+          ls -la
+          echo "---- scripts ----"
+          ls -la scripts || true
+          echo "---- test file ----"
+          test -f scripts/check-shares-guard.ps1 && echo "FOUND" || (echo "MISSING"; exit 2)
 
       - name: Run guard check script (PowerShell)
         shell: pwsh
