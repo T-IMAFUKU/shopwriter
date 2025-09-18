@@ -1,0 +1,70 @@
+/*
+  Warnings:
+
+  - You are about to drop the column `slug` on the `Share` table. All the data in the column will be lost.
+  - You are about to drop the column `userId` on the `Share` table. All the data in the column will be lost.
+  - You are about to drop the `Draft` table. If the table is not empty, all the data it contains will be lost.
+
+*/
+-- DropForeignKey
+ALTER TABLE "public"."Draft" DROP CONSTRAINT "Draft_userId_fkey";
+
+-- DropForeignKey
+ALTER TABLE "public"."Share" DROP CONSTRAINT "Share_userId_fkey";
+
+-- DropIndex
+DROP INDEX "public"."Account_userId_idx";
+
+-- DropIndex
+DROP INDEX "public"."Session_userId_idx";
+
+-- DropIndex
+DROP INDEX "public"."Share_slug_key";
+
+-- DropIndex
+DROP INDEX "public"."Share_userId_idx";
+
+-- AlterTable
+ALTER TABLE "public"."Share" DROP COLUMN "slug",
+DROP COLUMN "userId",
+ADD COLUMN     "body" TEXT,
+ADD COLUMN     "ownerId" TEXT;
+
+-- DropTable
+DROP TABLE "public"."Draft";
+
+-- CreateTable
+CREATE TABLE "public"."MetricEvent" (
+    "id" TEXT NOT NULL,
+    "event" TEXT NOT NULL,
+    "props" JSONB,
+    "ts" BIGINT,
+    "receivedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "ip" TEXT,
+    "ua" TEXT,
+    "userId" TEXT,
+    "shareId" TEXT,
+
+    CONSTRAINT "MetricEvent_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "MetricEvent_event_receivedAt_idx" ON "public"."MetricEvent"("event", "receivedAt");
+
+-- CreateIndex
+CREATE INDEX "MetricEvent_userId_receivedAt_idx" ON "public"."MetricEvent"("userId", "receivedAt");
+
+-- CreateIndex
+CREATE INDEX "MetricEvent_shareId_receivedAt_idx" ON "public"."MetricEvent"("shareId", "receivedAt");
+
+-- CreateIndex
+CREATE INDEX "Share_ownerId_isPublic_idx" ON "public"."Share"("ownerId", "isPublic");
+
+-- AddForeignKey
+ALTER TABLE "public"."Share" ADD CONSTRAINT "Share_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "public"."User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."MetricEvent" ADD CONSTRAINT "MetricEvent_userId_fkey" FOREIGN KEY ("userId") REFERENCES "public"."User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."MetricEvent" ADD CONSTRAINT "MetricEvent_shareId_fkey" FOREIGN KEY ("shareId") REFERENCES "public"."Share"("id") ON DELETE SET NULL ON UPDATE CASCADE;
