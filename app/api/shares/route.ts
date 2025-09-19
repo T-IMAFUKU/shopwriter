@@ -1,6 +1,7 @@
 // app/api/shares/route.ts
-// 概要：Share 一覧/作成（DBスキーマ ownerId に準拠）
-// 注：ok() の data はオブジェクト限定（TS: spread of unknown を回避）
+// 概要：Share 一覧/作成（DBとスキーマの乖離があっても落ちないミニマム）
+// 方針：ownerId 準拠。body列は未使用（select/insertしない）。
+// 応答：ok/false の正規JSON。例外は 4xx に正規化（500ゼロ方針）。
 
 import { NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
@@ -20,8 +21,6 @@ function j(data: unknown, init: ResponseInit = {}) {
   headers.set("Content-Language", "ja");
   return new NextResponse(JSON.stringify(data), { ...init, headers });
 }
-
-// ★ 修正：data をオブジェクト型に限定
 function ok(data?: Record<string, unknown>, status: 200 | 201 = 200) {
   return j({ ok: true, ...(data ?? {}) }, { status });
 }
@@ -37,14 +36,13 @@ function getUserId(req: Request): string | null {
   return v && v.trim().length > 0 ? v.trim() : null;
 }
 
-// Zod（DBに存在する項目のみ）
+// Zod（DBに確実にあるフィールドのみ）
 const listQ = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(10),
-  before: z.string().optional(), // ISO8601 文字列→Date化
+  before: z.string().optional(), // ISO8601 → Date化
 });
 const createBody = z.object({
   title: z.string().min(1, "title は必須です").max(200),
-  body: z.string().max(10_000).optional().nullable(),
   isPublic: z.boolean().optional(),
 });
 
@@ -77,6 +75,7 @@ export async function GET(req: Request) {
     const where: Record<string, unknown> = { ownerId: userId };
     if (beforeDate) where.createdAt = { lt: beforeDate };
 
+    // ★ body を select しない（列が無くても動く）
     const rows = await prisma.share.findMany({
       where,
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -84,7 +83,6 @@ export async function GET(req: Request) {
       select: {
         id: true,
         title: true,
-        body: true,
         isPublic: true,
         ownerId: true,
         createdAt: true,
@@ -99,8 +97,6 @@ export async function GET(req: Request) {
       ownerId: r.ownerId,
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
-      // 一覧では body を省略したい場合はコメントアウト可
-      // body: r.body,
     }));
 
     return ok({
@@ -127,19 +123,18 @@ export async function POST(req: Request) {
       return bad(`入力が不正です: ${msg}`, 400, { code: "ZOD_PARSE_ERROR" });
     }
 
-    const { title, body: content, isPublic } = parsed.data;
+    const { title, isPublic } = parsed.data;
 
+    // ★ body を書き込まない（列が無くても動く）
     const created = await prisma.share.create({
       data: {
         ownerId: userId,
         title,
-        body: content ?? null,
         isPublic: isPublic ?? false,
       },
       select: {
         id: true,
         title: true,
-        body: true,
         isPublic: true,
         ownerId: true,
         createdAt: true,
