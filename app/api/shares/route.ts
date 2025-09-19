@@ -1,7 +1,8 @@
-// app/api/shares/route.ts
 // 概要：Share 一覧/作成（DBとスキーマの乖離があっても落ちないミニマム）
 // 方針：ownerId 準拠。body列は未使用（select/insertしない）。
 // 応答：ok/false の正規JSON。例外は 4xx に正規化（500ゼロ方針）。
+// 本番ポリシー：NODE_ENV=production では X-User-Id を無視し、未認証は必ず 401。
+// 開発ポリシー：NODE_ENV!='production' かつ ALLOW_DEV_HEADER='1' の時のみ X-User-Id を暫定許可。
 
 import { NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
@@ -31,15 +32,22 @@ function bad(
 ) {
   return j({ ok: false, message, ...(extra ?? {}) }, { status });
 }
+
+// 認証ヘルパ：本番は常に未認証。開発のみ ALLOW_DEV_HEADER=1 で X-User-Id を読む。
 function getUserId(req: Request): string | null {
-  const v = req.headers.get("X-User-Id");
+  const isProd = process.env.NODE_ENV === "production";
+  const allowDevHeader = process.env.ALLOW_DEV_HEADER === "1";
+  if (isProd || !allowDevHeader) {
+    return null; // 本番またはフラグOFF → 未認証扱い
+  }
+  const v = req.headers.get("x-user-id") ?? req.headers.get("X-User-Id");
   return v && v.trim().length > 0 ? v.trim() : null;
 }
 
 // Zod（DBに確実にあるフィールドのみ）
 const listQ = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(10),
-  before: z.string().optional(), // ISO8601 → Date化
+  before: z.string().optional(), // ISO8601
 });
 const createBody = z.object({
   title: z.string().min(1, "title は必須です").max(200),
@@ -50,7 +58,7 @@ const createBody = z.object({
 export async function GET(req: Request) {
   try {
     const userId = getUserId(req);
-    if (!userId) return bad("未認証です（X-User-Id ヘッダがありません）", 401, { code: "NO_USER" });
+    if (!userId) return bad("未認証です", 401, { code: "NO_USER" });
 
     const { searchParams } = new URL(req.url);
     const parsed = listQ.safeParse({
@@ -58,7 +66,7 @@ export async function GET(req: Request) {
       before: searchParams.get("before") ?? undefined,
     });
     if (!parsed.success) {
-      const msg = parsed.error.issues.map(i => i.message).join(", ");
+      const msg = parsed.error.issues.map((i) => i.message).join(", ");
       return bad("クエリが不正です: " + msg, 400, { code: "ZOD_PARSE_ERROR" });
     }
 
@@ -73,7 +81,7 @@ export async function GET(req: Request) {
     }
 
     const where: Record<string, unknown> = { ownerId: userId };
-    if (beforeDate) where.createdAt = { lt: beforeDate };
+    if (beforeDate) (where as any).createdAt = { lt: beforeDate };
 
     // ★ body を select しない（列が無くても動く）
     const rows = await prisma.share.findMany({
@@ -90,7 +98,7 @@ export async function GET(req: Request) {
       },
     });
 
-    const items = rows.map(r => ({
+    const items = rows.map((r) => ({
       id: r.id,
       title: r.title,
       isPublic: r.isPublic,
@@ -114,12 +122,12 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const userId = getUserId(req);
-    if (!userId) return bad("未認証です（X-User-Id ヘッダがありません）", 401, { code: "NO_USER" });
+    if (!userId) return bad("未認証です", 401, { code: "NO_USER" });
 
     const body = await req.json().catch(() => ({}));
     const parsed = createBody.safeParse(body);
     if (!parsed.success) {
-      const msg = parsed.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join(", ");
+      const msg = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join(", ");
       return bad(`入力が不正です: ${msg}`, 400, { code: "ZOD_PARSE_ERROR" });
     }
 
