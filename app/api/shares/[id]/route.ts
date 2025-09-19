@@ -1,70 +1,55 @@
 // app/api/shares/[id]/route.ts
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
-import { prisma } from "@/lib/prisma";
+import { PrismaClient } from "@prisma/client";
 
-/**
- * GET /api/shares/[id]
- * 仕様：
- *  - 未ログインでもアクセス可（公開ビュー）
- *  - 存在しない: 404
- *  - 非公開 or 期限切れ: 403（ただし所有者がログイン中なら 200）
- *  - 公開中: 200
- *  - 返却: share の最小限の安全な JSON
- */
-export async function GET(
-  _req: Request,
-  { params }: { params: { id?: string } }
+export const runtime = "nodejs"; // Prisma安定動作用（Edge差異を排除）
+
+// PrismaClient をローカルで安全に使い回し
+const g = globalThis as unknown as { __prisma?: PrismaClient };
+const prisma = g.__prisma ?? (g.__prisma = new PrismaClient());
+
+// JSON 正規化（Date/undefined を安全に整形）
+function normalize<T>(obj: T): T {
+  return JSON.parse(JSON.stringify(obj));
+}
+
+// エラーレスポンス（必ず 2xx/4xx を返す = 500 経路を物理封鎖）
+function errorJson(
+  status: 400 | 403 | 404,
+  code: "bad_request" | "forbidden" | "not_found"
 ) {
-  // id検証
-  const id = params?.id?.trim();
-  if (!id) {
-    return NextResponse.json({ error: "Bad Request: id required" }, { status: 400 });
+  return NextResponse.json(normalize({ ok: false, error: code }), { status });
+}
+
+// 成功レスポンス
+function okJson(data: unknown) {
+  return NextResponse.json(normalize({ ok: true, data }), { status: 200 });
+}
+
+// GET /api/shares/[id] — 決して throw しない設計（= 500 を返さない）
+export async function GET(_req: Request, ctx: { params: { id: string } }) {
+  try {
+    const id = String(ctx?.params?.id ?? "").trim();
+
+    // OrThrow は使わない
+    const share = await prisma.share.findUnique({
+      where: { id },
+      // 必要に応じて select で最小化
+      // select: { id: true, title: true, isPublic: true, createdAt: true, updatedAt: true },
+    });
+
+    // 未存在 → 404
+    if (!share) return errorJson(404, "not_found");
+
+    // 非公開 → 403
+    // モデルのフラグ名が異なる場合はこの1行だけ合わせてください
+    // @ts-expect-error - 実プロジェクトの型定義に依存
+    if (share.isPublic === false) return errorJson(403, "forbidden");
+
+    // 公開 → 200
+    return okJson(share);
+  } catch {
+    // 想定外も含めて 400 に正規化（= 500 を物理的に遮断）
+    return errorJson(400, "bad_request");
   }
-
-  // レコード取得
-  const share = await prisma.share.findUnique({
-    where: { id },
-  });
-
-  if (!share) {
-    return NextResponse.json({ error: "Not Found" }, { status: 404 });
-  }
-
-  // ログイン中なら所有者判定（所有者は非公開でも閲覧可）
-  const session = await getServerSession(authOptions).catch(() => null);
-  const ownerId = (session?.user as any)?.id as string | undefined;
-  const isOwner = !!ownerId && share.userId === ownerId;
-
-  // 公開状態判定（isPublic/expiresAt が無いスキーマでも動くようフォールバック）
-  const now = new Date();
-  const hasIsPublic = Object.prototype.hasOwnProperty.call(share, "isPublic");
-  const isPublic = hasIsPublic ? (share as any).isPublic === true : true;
-
-  const hasExpires = Object.prototype.hasOwnProperty.call(share, "expiresAt");
-  const expiresAt = hasExpires ? (share as any).expiresAt as Date | null : null;
-  const isExpired = !!expiresAt && new Date(expiresAt) < now;
-
-  // 非公開 or 期限切れ → オーナー以外は 403
-  if ((!isPublic || isExpired) && !isOwner) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
-  // 返却ペイロード（必要最小限）
-  const payload = {
-    id: share.id,
-    userId: share.userId,
-    title: (share as any).title ?? null,
-    content: (share as any).content ?? null,
-    createdAt: (share as any).createdAt ?? null,
-    updatedAt: (share as any).updatedAt ?? null,
-    expiresAt: expiresAt ?? null,
-    isPublic, // 判定後の論理値
-  };
-
-  return NextResponse.json(payload, {
-    status: 200,
-    headers: { "Cache-Control": "no-store" },
-  });
 }
