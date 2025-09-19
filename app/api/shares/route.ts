@@ -1,14 +1,13 @@
 // app/api/shares/route.ts
 // 概要：Share 一覧/作成（DBスキーマ ownerId に準拠）
-// 方針：ヘッダ X-User-Id を受け取り、DBは ownerId に保存/検索
-// 返却：ok/false を含む正規JSON。可能な限り 4xx を返し 500 を出さない。
+// 注：ok() の data はオブジェクト限定（TS: spread of unknown を回避）
 
 import { NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 
-export const runtime = "nodejs";        // Prisma 安定動作用
-export const dynamic = "force-dynamic"; // 一覧のキャッシュ無効化
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 // PrismaClient（単一インスタンス）
 const g = globalThis as unknown as { __prisma?: PrismaClient };
@@ -21,10 +20,16 @@ function j(data: unknown, init: ResponseInit = {}) {
   headers.set("Content-Language", "ja");
   return new NextResponse(JSON.stringify(data), { ...init, headers });
 }
-function ok(data: unknown, status: 200 | 201 = 200) {
-  return j({ ok: true, ...data }, { status });
+
+// ★ 修正：data をオブジェクト型に限定
+function ok(data?: Record<string, unknown>, status: 200 | 201 = 200) {
+  return j({ ok: true, ...(data ?? {}) }, { status });
 }
-function bad(message: string, status: 400 | 401 | 404 | 409 = 400, extra?: Record<string, unknown>) {
+function bad(
+  message: string,
+  status: 400 | 401 | 404 | 409 = 400,
+  extra?: Record<string, unknown>
+) {
   return j({ ok: false, message, ...(extra ?? {}) }, { status });
 }
 function getUserId(req: Request): string | null {
@@ -33,12 +38,10 @@ function getUserId(req: Request): string | null {
 }
 
 // Zod（DBに存在する項目のみ）
-// - Share スキーマ：id, title, body?, isPublic, ownerId?, createdAt, updatedAt
 const listQ = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(10),
   before: z.string().optional(), // ISO8601 文字列→Date化
 });
-
 const createBody = z.object({
   title: z.string().min(1, "title は必須です").max(200),
   body: z.string().max(10_000).optional().nullable(),
@@ -74,7 +77,6 @@ export async function GET(req: Request) {
     const where: Record<string, unknown> = { ownerId: userId };
     if (beforeDate) where.createdAt = { lt: beforeDate };
 
-    // スキーマに存在する項目のみ select
     const rows = await prisma.share.findMany({
       where,
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -108,7 +110,6 @@ export async function GET(req: Request) {
     });
   } catch (e: any) {
     console.error("[GET /api/shares] error", e);
-    // ここでは 400 に正規化（500 を避ける）
     return bad("内部エラーが発生しました", 400, { code: e?.code ?? null, detail: e?.message ?? null });
   }
 }
@@ -130,9 +131,9 @@ export async function POST(req: Request) {
 
     const created = await prisma.share.create({
       data: {
-        ownerId: userId,          // ← ここがポイント：DBは ownerId
+        ownerId: userId,
         title,
-        body: content ?? null,    // schema: body String? @db.Text
+        body: content ?? null,
         isPublic: isPublic ?? false,
       },
       select: {
@@ -149,7 +150,6 @@ export async function POST(req: Request) {
     return ok({ message: "共有を作成しました", item: created }, 201);
   } catch (e: any) {
     console.error("[POST /api/shares] prisma error", e);
-    // P2002 等は 409/400 に落とす
     const code = e?.code as string | undefined;
     if (code === "P2002") {
       return bad("一意制約により作成できませんでした", 409, { code, detail: e?.message ?? null });
