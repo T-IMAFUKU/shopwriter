@@ -7,7 +7,6 @@ on:
   pull_request:
     branches: ["**"]
 
-# ← ここを明示することで checkout の権限不足を確実に回避
 permissions:
   contents: read
 
@@ -26,32 +25,46 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-
-      # pnpm は 10 系（lockfile v9 と整合）
-      - name: Setup pnpm
+      # 先に pnpm を入れる（10.x に固定）
+      - name: Setup pnpm (10.x)
         uses: pnpm/action-setup@v4
         with:
           version: 10.14.0
           run_install: false
 
+      # Node は cache を使わない（ここで pnpm を要求しないため）
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # pnpm ストアの場所を取得（出力に渡す）
+      - name: Resolve pnpm store path
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+
+      # pnpm ストアを actions/cache で手動キャッシュ
+      - name: Restore pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
       - name: Show versions
         run: |
-          echo "actor=$GITHUB_ACTOR event=$GITHUB_EVENT_NAME ref=$GITHUB_REF"
           node -v
           pnpm -v
 
       - name: Install deps
         run: pnpm install --frozen-lockfile
 
-      # DB接続は不要なのでダミーURLをこのステップだけに付与（ジョブ全体envから退避）
       - name: Prisma generate
         env:
           NEXT_TELEMETRY_DISABLED: "1"
+          # generate は接続不要。ダミーでOK
           DATABASE_URL: "postgresql://user:pass@localhost:5432/db"
         run: pnpm prisma generate
 
