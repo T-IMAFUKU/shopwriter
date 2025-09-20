@@ -1,0 +1,63 @@
+# .github/workflows/ci.yml
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      # Prisma generate は DB 接続不要。DATABASE_URL が必要な場合はリポジトリ Secrets で設定。
+      DATABASE_URL: "${{ secrets.DATABASE_URL || 'postgresql://user:pass@localhost:5432/db' }}"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node (corepack + pnpm)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      # Windows の EPERM 回避は不要だが、将来の安定性のため軽いリトライを入れておく
+      - name: Prisma generate (with retry)
+        run: |
+          set -e
+          n=0
+          until [ $n -ge 2 ]; do
+            pnpm prisma generate && break
+            n=$((n+1))
+            echo "retry $n/2..." && sleep 2
+          done
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm vitest run --reporter=dot
+
+      - name: Build
+        run: pnpm build
+
+      - name: Upload .next artifact (optional)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: next-build
+          path: .next
+          retention-days: 7
