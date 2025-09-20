@@ -16,26 +16,33 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NEXT_TELEMETRY_DISABLED: "1"
-      # Prisma generate は DB 接続不要。DATABASE_URL が必要な場合はリポジトリ Secrets で設定。
-      DATABASE_URL: "${{ secrets.DATABASE_URL || 'postgresql://user:pass@localhost:5432/db' }}"
+      DATABASE_URL: ${{ secrets.DATABASE_URL || 'postgresql://user:pass@localhost:5432/db' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node (corepack + pnpm)
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: "pnpm"
+          cache: pnpm
 
-      - name: Enable corepack
-        run: corepack enable
+      # ここで pnpm を 10 系に固定（lockfile v9 対応）
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+          run_install: false
+
+      - name: Show versions
+        run: |
+          node -v
+          pnpm -v
 
       - name: Install deps
         run: pnpm install --frozen-lockfile
 
-      # Windows の EPERM 回避は不要だが、将来の安定性のため軽いリトライを入れておく
-      - name: Prisma generate (with retry)
+      - name: Prisma generate (retry x2)
         run: |
           set -e
           n=0
