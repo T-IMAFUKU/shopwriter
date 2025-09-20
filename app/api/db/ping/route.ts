@@ -1,25 +1,29 @@
-// app/api/db/ping/route.ts（全文）
-export const runtime = "nodejs";
+// app/api/db/ping/route.ts
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { PrismaClient } from "@prisma/client";
 
-function maskUrl(raw?: string | null) {
-  if (!raw) return null;
-  try {
-    const u = new URL(raw);
-    u.password = "***";
-    return u.toString();
-  } catch {
-    return "***";
-  }
-}
+// 重要: API ルートをビルド時の事前レンダリング対象から外す
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function GET() {
-  // DB 1 クエリで生存確認
-  const now = await prisma.$queryRawUnsafe<Date>("select now()");
-  return NextResponse.json({
-    ok: true,
-    now,
-    databaseUrl: maskUrl(process.env.DATABASE_URL),
-  });
+  // CI など DATABASE_URL が無い環境では DB チェックをスキップ
+  if (!process.env.DATABASE_URL) {
+    return NextResponse.json({ ok: true, skipped: "no DATABASE_URL" });
+  }
+
+  const prisma = new PrismaClient();
+  try {
+    // 接続確認（安全なクエリ）
+    await prisma.$queryRawUnsafe("SELECT 1");
+    return NextResponse.json({ ok: true });
+  } catch (err: any) {
+    return NextResponse.json(
+      { ok: false, error: String(err?.message ?? err) },
+      { status: 500 }
+    );
+  } finally {
+    await prisma.$disconnect().catch(() => {});
+  }
 }
