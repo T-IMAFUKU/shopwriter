@@ -1,0 +1,22 @@
+name: smoke
+
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  just-run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Say hello
+        run: |
+          echo "repo=$GITHUB_REPOSITORY"
+          echo "sha=$GITHUB_SHA"
+          echo "runner=$RUNNER_OS"
