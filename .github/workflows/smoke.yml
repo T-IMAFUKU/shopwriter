@@ -15,8 +15,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Say hello
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Setup pnpm (pin 10.x)
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+          run_install: false
+
+      - name: Versions
         run: |
-          echo "repo=$GITHUB_REPOSITORY"
-          echo "sha=$GITHUB_SHA"
-          echo "runner=$RUNNER_OS"
+          echo "actor=$GITHUB_ACTOR event=$GITHUB_EVENT_NAME ref=$GITHUB_REF"
+          node -v
+          pnpm -v
