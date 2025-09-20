@@ -1,9 +1,9 @@
+# .github/workflows/smoke.yml
 name: smoke
 
 on:
   push:
     branches: ["**"]
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -11,17 +11,19 @@ permissions:
 jobs:
   just-run:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      # ここでは cache: pnpm を付けない（付けると pnpm が PATH に無くて失敗する）
+      - name: Setup Node 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: pnpm
 
-      - name: Setup pnpm (pin 10.x)
+      # pnpm を明示インストール（10系に固定）
+      - name: Setup pnpm (10.x)
         uses: pnpm/action-setup@v4
         with:
           version: 10.14.0
@@ -29,6 +31,8 @@ jobs:
 
       - name: Versions
         run: |
-          echo "actor=$GITHUB_ACTOR event=$GITHUB_EVENT_NAME ref=$GITHUB_REF"
           node -v
           pnpm -v
+
+      - name: Just echo
+        run: echo "smoke ok"
