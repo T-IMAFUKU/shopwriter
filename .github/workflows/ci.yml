@@ -16,7 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NEXT_TELEMETRY_DISABLED: "1"
-      DATABASE_URL: ${{ secrets.DATABASE_URL || 'postgresql://user:pass@localhost:5432/db' }}
+      # Prisma generate は接続不要。式は使わず固定のダミーURLを渡して安定化。
+      DATABASE_URL: "postgresql://user:pass@localhost:5432/db"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,7 +28,7 @@ jobs:
           node-version: 20
           cache: pnpm
 
-      # ここで pnpm を 10 系に固定（lockfile v9 対応）
+      # pnpm は 10 系へ固定（lockfile v9 と整合）
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
