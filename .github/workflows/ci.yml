@@ -32,19 +32,19 @@ jobs:
           version: 10.14.0
           run_install: false
 
-      # Node は cache を使わない（ここで pnpm を要求しないため）
+      # Node セットアップ（cache:pnpm は使わず、後段で手動キャッシュ）
       - name: Setup Node 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      # pnpm ストアの場所を取得（出力に渡す）
+      # pnpm ストアパスを取得
       - name: Resolve pnpm store path
         id: pnpm-cache
         shell: bash
         run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
 
-      # pnpm ストアを actions/cache で手動キャッシュ
+      # pnpm ストアをキャッシュ
       - name: Restore pnpm cache
         uses: actions/cache@v4
         with:
@@ -61,10 +61,10 @@ jobs:
       - name: Install deps
         run: pnpm install --frozen-lockfile
 
+      # Prisma は generate だけ。DB接続は発生しないのでダミーURLでOK
       - name: Prisma generate
         env:
           NEXT_TELEMETRY_DISABLED: "1"
-          # generate は接続不要。ダミーでOK
           DATABASE_URL: "postgresql://user:pass@localhost:5432/db"
         run: pnpm prisma generate
 
@@ -74,7 +74,11 @@ jobs:
       - name: Test
         run: pnpm vitest run --reporter=dot
 
+      # ← ここが今回のFix：Build にもダミーの DATABASE_URL を渡す
       - name: Build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          DATABASE_URL: "postgresql://user:pass@localhost:5432/db"
         run: pnpm build
 
       - name: Upload .next artifact (optional)
