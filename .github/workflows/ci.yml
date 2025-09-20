@@ -4,6 +4,7 @@ name: ci
 on:
   push:
     branches: ["**"]
+# run on PRs
   pull_request:
     branches: ["**"]
 
