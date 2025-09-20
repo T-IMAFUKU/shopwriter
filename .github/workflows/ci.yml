@@ -7,6 +7,10 @@ on:
   pull_request:
     branches: ["**"]
 
+# ← ここを明示することで checkout の権限不足を確実に回避
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -14,13 +18,13 @@ concurrency:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-    env:
-      NEXT_TELEMETRY_DISABLED: "1"
-      # Prisma generate は接続不要。式は使わず固定のダミーURLを渡して安定化。
-      DATABASE_URL: "postgresql://user:pass@localhost:5432/db"
+    timeout-minutes: 30
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -28,7 +32,7 @@ jobs:
           node-version: 20
           cache: pnpm
 
-      # pnpm は 10 系へ固定（lockfile v9 と整合）
+      # pnpm は 10 系（lockfile v9 と整合）
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -37,21 +41,19 @@ jobs:
 
       - name: Show versions
         run: |
+          echo "actor=$GITHUB_ACTOR event=$GITHUB_EVENT_NAME ref=$GITHUB_REF"
           node -v
           pnpm -v
 
       - name: Install deps
         run: pnpm install --frozen-lockfile
 
-      - name: Prisma generate (retry x2)
-        run: |
-          set -e
-          n=0
-          until [ $n -ge 2 ]; do
-            pnpm prisma generate && break
-            n=$((n+1))
-            echo "retry $n/2..." && sleep 2
-          done
+      # DB接続は不要なのでダミーURLをこのステップだけに付与（ジョブ全体envから退避）
+      - name: Prisma generate
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          DATABASE_URL: "postgresql://user:pass@localhost:5432/db"
+        run: pnpm prisma generate
 
       - name: Typecheck
         run: pnpm typecheck
