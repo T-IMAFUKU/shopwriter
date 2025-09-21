@@ -1,15 +1,15 @@
-"use client";
+﻿"use client";
 
 import React, { useState } from "react";
 
 /**
  * /debug/drafts-post
- * - 同一オリジン fetch で /api/drafts に POST を送る検証ページ
- * - API スキーマ：{ title: string, content: string } に準拠
+ * - 蜷御ｸ繧ｪ繝ｪ繧ｸ繝ｳ fetch 縺ｧ /api/drafts 縺ｫ POST 繧帝√ｋ讀懆ｨｼ繝壹・繧ｸ
+ * - API 繧ｹ繧ｭ繝ｼ繝橸ｼ嘴 title: string, content: string } 縺ｫ貅匁侠
  */
 export default function Page() {
-  const [title, setTitle] = useState("テストタイトル");
-  const [content, setContent] = useState("テスト本文");
+  const [title, setTitle] = useState("繝・せ繝医ち繧､繝医Ν");
+  const [content, setContent] = useState("繝・せ繝域悽譁・);
   const [posting, setPosting] = useState(false);
   const [postResult, setPostResult] = useState<any>(null);
   const [getResult, setGetResult] = useState<any>(null);
@@ -24,8 +24,7 @@ export default function Page() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ title, content }),
-        // 同一オリジンなので Cookie は自動送信（NextAuth セッション）
-        // credentials: "same-origin",
+        // 蜷御ｸ繧ｪ繝ｪ繧ｸ繝ｳ縺ｪ縺ｮ縺ｧ Cookie 縺ｯ閾ｪ蜍暮∽ｿ｡・・extAuth 繧ｻ繝・す繝ｧ繝ｳ・・        // credentials: "same-origin",
       });
 
       const data = await res.json().catch(() => ({}));
@@ -63,8 +62,7 @@ export default function Page() {
     <main className="p-6 max-w-2xl mx-auto space-y-6">
       <h1 className="text-2xl font-bold">/debug/drafts-post</h1>
       <p className="text-sm text-gray-600">
-        /api/drafts へ POST の最小検証。ログイン済みで実行してください。
-      </p>
+        /api/drafts 縺ｸ POST 縺ｮ譛蟆乗､懆ｨｼ縲ゅΟ繧ｰ繧､繝ｳ貂医∩縺ｧ螳溯｡後＠縺ｦ縺上□縺輔＞縲・      </p>
 
       <section className="space-y-3">
         <label className="block">
@@ -73,7 +71,7 @@ export default function Page() {
             className="block w-full border rounded-md px-3 py-2"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="タイトル"
+            placeholder="繧ｿ繧､繝医Ν"
           />
         </label>
         <label className="block">
@@ -82,7 +80,7 @@ export default function Page() {
             className="block w-full border rounded-md px-3 py-2 min-h-[120px]"
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            placeholder="本文（content）"
+            placeholder="譛ｬ譁・ｼ・ontent・・
           />
         </label>
 
@@ -92,7 +90,7 @@ export default function Page() {
             disabled={posting}
             className="px-4 py-2 rounded-lg border shadow-sm"
           >
-            {posting ? "送信中…" : "POST /api/drafts"}
+            {posting ? "騾∽ｿ｡荳ｭ窶ｦ" : "POST /api/drafts"}
           </button>
           <button
             onClick={doGet}
@@ -129,3 +127,4 @@ export default function Page() {
     </main>
   );
 }
+

@@ -1,4 +1,4 @@
-// app/layout.tsx
+﻿// app/layout.tsx
 import "./globals.css";
 import type { Metadata } from "next";
 import * as React from "react";
@@ -22,3 +22,4 @@ export default function RootLayout({
     </html>
   );
 }
+

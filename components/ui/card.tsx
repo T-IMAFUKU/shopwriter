@@ -1,4 +1,4 @@
-import * as React from "react";
+﻿import * as React from "react";
 
 export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {}
 export function Card({ className = "", ...props }: CardProps) {
@@ -24,3 +24,4 @@ export function CardContent({ className = "", ...props }: React.HTMLAttributes<H
 export function CardFooter({ className = "", ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return <div className={`flex items-center p-6 pt-0 ${className}`} {...props} />;
 }
+

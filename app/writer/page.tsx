@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
 import { useState, useRef } from "react";
@@ -26,11 +26,11 @@ export default function Page() {
 
     const trimmed = prompt.trim();
     if (trimmed.length < 8) {
-      toast.error("入力は8文字以上にしてください（スナップショット前提）");
+      toast.error("蜈･蜉帙・8譁・ｭ嶺ｻ･荳翫↓縺励※縺上□縺輔＞・医せ繝翫ャ繝励す繝ｧ繝・ヨ蜑肴署・・);
       return;
     }
 
-    // 既存ストリームを停止
+    // 譌｢蟄倥せ繝医Μ繝ｼ繝繧貞●豁｢
     if (abortRef.current) abortRef.current.abort();
     abortRef.current = new AbortController();
 
@@ -38,10 +38,10 @@ export default function Page() {
     setModel(undefined);
     setMock(undefined);
     setIsStreaming(true);
-    toast.loading("ストリーミング開始...", { id: "writer" });
+    toast.loading("繧ｹ繝医Μ繝ｼ繝溘Φ繧ｰ髢句ｧ・..", { id: "writer" });
 
     try {
-      // 1st: /api/writer/stream（SSE/Chunk）を期待
+      // 1st: /api/writer/stream・・SE/Chunk・峨ｒ譛溷ｾ・
       let res = await fetch("/api/writer/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json; charset=utf-8" },
@@ -49,9 +49,9 @@ export default function Page() {
         signal: abortRef.current.signal,
       });
 
-      // フォールバック: 404/405/500 等なら /api/writer を単発呼び出し
+      // 繝輔か繝ｼ繝ｫ繝舌ャ繧ｯ: 404/405/500 遲峨↑繧・/api/writer 繧貞腰逋ｺ蜻ｼ縺ｳ蜃ｺ縺・
       if (!res.ok && res.status !== 200) {
-        // JSON API フォールバック
+        // JSON API 繝輔か繝ｼ繝ｫ繝舌ャ繧ｯ
         const res2 = await fetch("/api/writer", {
           method: "POST",
           headers: { "Content-Type": "application/json; charset=utf-8" },
@@ -60,7 +60,7 @@ export default function Page() {
         });
         if (!res2.ok) {
           const msg = await res2.text();
-          throw new Error(`/api/writer: ${res2.status} ${res2.statusText} — ${msg}`);
+          throw new Error(`/api/writer: ${res2.status} ${res2.statusText} 窶・${msg}`);
         }
         const payload = await res2.json().catch(async () => ({ text: await res2.text() }));
         const text =
@@ -70,20 +70,20 @@ export default function Page() {
         setResult(text);
         setModel(typeof payload?.model === "string" ? payload.model : undefined);
         setMock(typeof payload?.mock === "boolean" ? payload.mock : undefined);
-        toast.success("フォールバックで完了（/api/writer）", { id: "writer" });
+        toast.success("繝輔か繝ｼ繝ｫ繝舌ャ繧ｯ縺ｧ螳御ｺ・ｼ・api/writer・・, { id: "writer" });
         return;
       }
 
-      // レスポンスヘッダに model 等があれば拾う
+      // 繝ｬ繧ｹ繝昴Φ繧ｹ繝倥ャ繝縺ｫ model 遲峨′縺ゅｌ縺ｰ諡ｾ縺・
       const hdrModel = res.headers.get("x-model") || res.headers.get("X-Model") || undefined;
       if (hdrModel) setModel(hdrModel);
 
       const contentType = res.headers.get("content-type") || "";
 
-      // 逐次読み取り
+      // 騾先ｬ｡隱ｭ縺ｿ蜿悶ｊ
       const reader = res.body?.getReader();
       if (!reader) {
-        throw new Error("ReadableStream が利用できません");
+        throw new Error("ReadableStream 縺悟茜逕ｨ縺ｧ縺阪∪縺帙ｓ");
       }
 
       const decoder = new TextDecoder();
@@ -94,22 +94,22 @@ export default function Page() {
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
 
-        // SSE 形式（`data:` 行）にも素直なテキストにも対応
+        // SSE 蠖｢蠑擾ｼ・data:` 陦鯉ｼ峨↓繧らｴ逶ｴ縺ｪ繝・く繧ｹ繝医↓繧ょｯｾ蠢・
         buffered += chunk;
 
-        // 行単位で処理
+        // 陦悟腰菴阪〒蜃ｦ逅・
         const lines = buffered.split(/\r?\n/);
-        buffered = lines.pop() ?? ""; // 最後の未完はバッファに戻す
+        buffered = lines.pop() ?? ""; // 譛蠕後・譛ｪ螳後・繝舌ャ繝輔ぃ縺ｫ謌ｻ縺・
 
         for (const line of lines) {
           if (!line) continue;
 
-          // SSEのコメント/keepalive
+          // SSE縺ｮ繧ｳ繝｡繝ｳ繝・keepalive
           if (line.startsWith(":")) continue;
 
           if (line.startsWith("data:")) {
             const data = line.replace(/^data:\s?/, "");
-            // JSONライン { "text": "...", "model": "...", "mock": true } にも対応
+            // JSON繝ｩ繧､繝ｳ { "text": "...", "model": "...", "mock": true } 縺ｫ繧ょｯｾ蠢・
             try {
               const obj = JSON.parse(data);
               if (typeof obj?.text === "string") {
@@ -122,12 +122,12 @@ export default function Page() {
               if (typeof obj?.model === "string") setModel(obj.model);
               if (typeof obj?.mock === "boolean") setMock(obj.mock);
             } catch {
-              // 素のテキスト
+              // 邏縺ｮ繝・く繧ｹ繝・
               setResult((prev) => prev + data);
             }
           } else {
-            // 非SSE（純テキスト/NDJSON等）
-            // NDJSON の場合は JSON なら text を拾う
+            // 髱朶SE・育ｴ斐ユ繧ｭ繧ｹ繝・NDJSON遲会ｼ・
+            // NDJSON 縺ｮ蝣ｴ蜷医・ JSON 縺ｪ繧・text 繧呈鏡縺・
             try {
               const obj = JSON.parse(line);
               if (typeof obj?.text === "string") setResult((prev) => prev + obj.text);
@@ -139,10 +139,10 @@ export default function Page() {
         }
       }
 
-      toast.success("ストリーミング完了", { id: "writer" });
+      toast.success("繧ｹ繝医Μ繝ｼ繝溘Φ繧ｰ螳御ｺ・, { id: "writer" });
     } catch (err: any) {
       if (err?.name === "AbortError") {
-        toast.message("ストリーミングを停止しました", { id: "writer" });
+        toast.message("繧ｹ繝医Μ繝ｼ繝溘Φ繧ｰ繧貞●豁｢縺励∪縺励◆", { id: "writer" });
       } else {
         console.error(err);
         toast.error(String(err?.message ?? err), { id: "writer" });
@@ -168,41 +168,41 @@ export default function Page() {
     <main className="container mx-auto max-w-3xl px-4 py-8 space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Writer（Step 4/4：ストリーミング UI）</CardTitle>
+          <CardTitle>Writer・・tep 4/4・壹せ繝医Μ繝ｼ繝溘Φ繧ｰ UI・・/CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="prompt">入力（8文字以上）</Label>
+              <Label htmlFor="prompt">蜈･蜉幢ｼ・譁・ｭ嶺ｻ･荳奇ｼ・/Label>
               <Textarea
                 id="prompt"
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
-                placeholder="例）春の新作ニットの魅力を、ECサイト向けに紹介してください。"
+                placeholder="萓具ｼ画丼縺ｮ譁ｰ菴懊ル繝・ヨ縺ｮ鬲・鴨繧偵・C繧ｵ繧､繝亥髄縺代↓邏ｹ莉九＠縺ｦ縺上□縺輔＞縲・
                 minLength={8}
                 required
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="language">言語コード</Label>
+              <Label htmlFor="language">險隱槭さ繝ｼ繝・/Label>
               <Input
                 id="language"
                 value={language}
                 onChange={(e) => setLanguage((e.target.value as Lang) || "ja")}
-                placeholder="ja または en"
+                placeholder="ja 縺ｾ縺溘・ en"
               />
             </div>
 
             <div className="flex items-center gap-3">
               <Button type="submit" disabled={isStreaming}>
-                {isStreaming ? "配信中…" : "生成（ストリーム）"}
+                {isStreaming ? "驟堺ｿ｡荳ｭ窶ｦ" : "逕滓・・医せ繝医Μ繝ｼ繝・・}
               </Button>
               <Button type="button" variant="destructive" onClick={handleStop} disabled={!isStreaming}>
-                停止
+                蛛懈ｭ｢
               </Button>
               <Button type="button" variant="secondary" onClick={handleClear} disabled={isStreaming}>
-                クリア
+                繧ｯ繝ｪ繧｢
               </Button>
             </div>
           </form>
@@ -210,7 +210,7 @@ export default function Page() {
           <Separator />
 
           <div className="space-y-2">
-            <Label>結果（リアルタイム）</Label>
+            <Label>邨先棡・医Μ繧｢繝ｫ繧ｿ繧､繝・・/Label>
             <Card className="bg-muted/30">
               <CardContent className="py-4">
                 {(model || mock !== undefined) && (
@@ -220,7 +220,7 @@ export default function Page() {
                   </div>
                 )}
                 <pre className="whitespace-pre-wrap text-sm leading-6 min-h-[120px]">
-                  {result || "（まだ結果はありません）"}
+                  {result || "・医∪縺邨先棡縺ｯ縺ゅｊ縺ｾ縺帙ｓ・・}
                 </pre>
               </CardContent>
             </Card>
@@ -230,3 +230,4 @@ export default function Page() {
     </main>
   );
 }
+

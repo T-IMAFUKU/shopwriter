@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -12,21 +12,22 @@ export default function Header() {
         <NavigationMenu>
           <NavigationMenuList className="gap-2">
             <NavigationMenuItem>
-              <Link href="/writer" className="px-3 py-2 text-sm font-medium hover:underline">文章生成</Link>
+              <Link href="/writer" className="px-3 py-2 text-sm font-medium hover:underline">譁・ｫ逕滓・</Link>
             </NavigationMenuItem>
             <NavigationMenuItem>
-              <Link href="/dashboard" className="px-3 py-2 text-sm font-medium hover:underline">ダッシュボード</Link>
+              <Link href="/dashboard" className="px-3 py-2 text-sm font-medium hover:underline">繝繝・す繝･繝懊・繝・/Link>
             </NavigationMenuItem>
             <NavigationMenuItem>
-              <Link href="/docs" className="px-3 py-2 text-sm font-medium hover:underline">ドキュメント</Link>
+              <Link href="/docs" className="px-3 py-2 text-sm font-medium hover:underline">繝峨く繝･繝｡繝ｳ繝・/Link>
             </NavigationMenuItem>
           </NavigationMenuList>
         </NavigationMenu>
         <div className="flex items-center gap-2">
-          <Button asChild variant="secondary"><Link href="/api/auth/signin">サインイン</Link></Button>
-          <Button asChild><Link href="/writer">無料で試す</Link></Button>
+          <Button asChild variant="secondary"><Link href="/api/auth/signin">繧ｵ繧､繝ｳ繧､繝ｳ</Link></Button>
+          <Button asChild><Link href="/writer">辟｡譁吶〒隧ｦ縺・/Link></Button>
         </div>
       </div>
     </header>
   )
 }
+

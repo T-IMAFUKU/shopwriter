@@ -1,9 +1,10 @@
-export default function Footer() {
+﻿export default function Footer() {
   return (
     <footer className="border-t">
       <div className="container mx-auto px-4 py-8 text-sm text-muted-foreground">
-        <p>ﾂｩ {new Date().getFullYear()} Inovista Inc. All rights reserved.</p>
+        <p>・ゑｽｩ {new Date().getFullYear()} Inovista Inc. All rights reserved.</p>
       </div>
     </footer>
   )
 }
+

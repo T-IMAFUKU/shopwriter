@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import * as React from "react"
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu"
@@ -12,13 +12,11 @@ const DropdownMenuPortal = DropdownMenuPrimitive.Portal
 const DropdownMenuSub = DropdownMenuPrimitive.Sub
 const DropdownMenuRadioGroup = DropdownMenuPrimitive.RadioGroup
 
-// 共通（項目）
-const commonItem =
+// 蜈ｱ騾夲ｼ磯・岼・・const commonItem =
   "relative flex cursor-default select-none items-center rounded-sm text-sm outline-none " +
   "focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
 
-// ★透け対策：テーマ変数に依存せず最終的に不透明化（bg-white / dark:bg-neutral-900）
-const panelBase =
+// 笘・上￠蟇ｾ遲厄ｼ壹ユ繝ｼ繝槫､画焚縺ｫ萓晏ｭ倥○縺壽怙邨ら噪縺ｫ荳埼乗・蛹厄ｼ・g-white / dark:bg-neutral-900・・const panelBase =
   "z-50 min-w-[10rem] overflow-hidden rounded-md border p-1 text-popover-foreground shadow-md " +
   "bg-popover bg-opacity-100 backdrop-blur-none backdrop-filter-none " +
   "bg-white dark:bg-neutral-900"
