@@ -3,7 +3,7 @@ name: Weekly Guard Check (/api/shares)
 on:
   workflow_dispatch:
   schedule:
-    # 毎週月曜 10:00 JST（= 01:00 UTC）
+    # 豈朱ｱ譛域屆 10:00 JST・・ 01:00 UTC・・
     - cron: "0 1 * * 1"
 
 permissions:

@@ -12,7 +12,8 @@
     "prisma:generate:prod": "PRISMA_CLI_QUERY_ENGINE_TYPE=binary prisma generate",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:migrate:resolve": "prisma migrate resolve",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.10.0",

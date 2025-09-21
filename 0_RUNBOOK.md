@@ -1,4 +1,4 @@
-﻿## 2025-09-14 共有UI整備 — shadcn/ui 適用 + トースト + ShareCard
+## 2025-09-14 共有UI整備 — shadcn/ui 適用 + トースト + ShareCard
 - /share/[id] を shadcn/ui `<Button/>` / `<Alert/>` に統一
 - sonner トースト導入（コピー成功/失敗を右上通知）
 - `components/share/ShareCard.tsx` 新規作成、`/app/share/[id]/page.tsx` は取得/エラー処理へ責務分離

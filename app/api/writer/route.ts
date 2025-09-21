@@ -1,4 +1,4 @@
-﻿/**
+/**
  * /api/writer — Request 対応（NextRequest 非依存）
  * - 受け取り: Fetch API の Request
  * - 返却: Fetch API の Response

@@ -1,0 +1,37 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+set -e
+
+cd "$(git rev-parse --show-toplevel)"
+echo "[pre-push] start: prisma(generate-if-needed) -> typecheck -> test -> build"
+
+# 0) テスト一時スキップ（必要なときだけ PREPUSH_SKIP_TESTS=1 で push）
+if [ "${PREPUSH_SKIP_TESTS:-}" = "1" ]; then
+  echo "[pre-push] SKIP tests by PREPUSH_SKIP_TESTS=1"
+  # prisma client/engine が無ければ generate のみ実施
+  if node -e "require('fs').accessSync('./node_modules/.pnpm/@prisma+client');" 2>/dev/null; then
+    :
+  else
+    echo "[pre-push] detected: prisma client/engine missing (generate)"
+    pnpm -s prisma:generate || pnpm -s prisma generate || npx prisma generate
+  fi
+  pnpm -s typecheck || (echo "[pre-push] typecheck failed"; exit 1)
+  pnpm -s build     || (echo "[pre-push] build failed"; exit 1)
+  echo "[pre-push] done (tests skipped)"
+  exit 0
+fi
+
+# 通常ルート
+# prisma client/engine が無ければ generate
+if node -e "require('fs').accessSync('./node_modules/.pnpm/@prisma+client');" 2>/dev/null; then
+  :
+else
+  echo "[pre-push] detected: prisma client/engine missing (generate)"
+  pnpm -s prisma:generate || pnpm -s prisma generate || npx prisma generate
+fi
+
+pnpm -s typecheck
+pnpm -s test
+pnpm -s build
+
+echo "[pre-push] done"

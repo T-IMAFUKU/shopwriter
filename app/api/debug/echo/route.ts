@@ -1,4 +1,4 @@
-﻿export const dynamic = "force-dynamic";
+export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   const hdr = req.headers.get("x-dev-auth");

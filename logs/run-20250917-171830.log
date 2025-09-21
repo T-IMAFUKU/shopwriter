@@ -1,0 +1,38 @@
+[20250917-171830] CMD: pnpm typecheck
+EXIT: 0
+---- STDOUT(head) ----
+
+> shopwriter-app@0.1.0 typecheck C:\Users\81905\shopwriter-new
+> tsc --noEmit
+
+
+---- STDERR(head) ----
+
+=====
+[20250917-171830] CMD: pnpm build
+EXIT: 0
+---- STDOUT(head) ----
+
+> shopwriter-app@0.1.0 build C:\Users\81905\shopwriter-new
+> next build
+
+  笆ｲ Next.js 14.2.5
+  - Environments: .env.local, .env
+
+   Creating an optimized production build ...
+ 笨・Compiled successfully
+   Linting and checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/15) ...
+   Generating static pages (3/15) 
+   Generating static pages (7/15) 
+   Generating static pages (11/15) 
+ 笨・Generating static pages (15/15)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                              Size     First Load JS
+---- STDERR(head) ----
+ 笞 Using edge runtime on a page currently disables static generation for that page
+
+=====

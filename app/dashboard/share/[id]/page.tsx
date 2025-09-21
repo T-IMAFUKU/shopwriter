@@ -1,149 +1,99 @@
-// app/dashboard/share/[id]/page.tsx
-"use client";
+// /app/dashboard/page.tsx
+// 逶ｮ逧・ｼ咼ashboard 荳隕ｧ縺ｫ ShareCard 繧貞・蛻ｩ逕ｨ・・SR縺ｧ /api/shares 繧貞叙蠕暦ｼ・
+// 繝昴う繝ｳ繝茨ｼ壹し繝ｼ繝舌・蛛ｴfetch譎ゅ↓ "cookie" 繧貞ｧ碑ｭｲ縺励↑縺・→ 401・域悴隱崎ｨｼ・峨↓縺ｪ繧九◆繧√”eaders() 縺九ｉCookie繧定ｻ｢騾√☆繧九・
 
-import * as React from "react";
-import { useRouter, useParams } from "next/navigation";
-
-// ShareCard: default export。型を合わせるため ShareData も利用
+import Link from "next/link";
+import { headers } from "next/headers";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import ShareCard, { type ShareData } from "@/components/share/ShareCard";
 
-import { useNotify } from "@/components/providers/ToasterProvider";
+export const revalidate = 0;             // 蟶ｸ縺ｫ譛譁ｰ
+export const dynamic = "force-dynamic";  // SSR 蠑ｷ蛻ｶ
 
-export default function DashboardShareDetailPage() {
-  const router = useRouter();
-  const params = useParams<{ id: string }>();
-  const notify = useNotify();
+type ApiShare = {
+  id: string;
+  title?: string | null;
+  url?: string | null;
+  isPublic?: boolean | null;
+  createdAt?: string | null;
+};
 
-  const shareId = React.useMemo(() => String(params.id), [params.id]);
+async function fetchShares(): Promise<ShareData[]> {
+  const hdrs = headers();
+  const host = hdrs.get("x-forwarded-host") ?? hdrs.get("host") ?? "localhost:3000";
+  const proto = hdrs.get("x-forwarded-proto") ?? (host.includes("localhost") ? "http" : "https");
+  const baseUrl = `${proto}://${host}`;
 
-  // 状態は ShareCard 側の型に統一
-  const [share, setShare] = React.useState<ShareData | null>(null);
-  const [loading, setLoading] = React.useState<boolean>(true);
-  // 親側でのビジー管理（UI抑止に使う場合はこのページ内で制御）
-  const [busy, setBusy] = React.useState<false | "generate" | "delete">(false);
+  // 笘・驥崎ｦ・ｼ壹し繝ｼ繝舌・fetch縺ｧ繧りｪ崎ｨｼ繧ｯ繝・く繝ｼ繧定ｻ｢騾√☆繧・
+  const cookie = hdrs.get("cookie") ?? "";
 
-  // ---- 初回ロード -----------------------------------------------------------
-  const load = React.useCallback(async () => {
-    try {
-      setLoading(true);
-      const res = await fetch(`/api/shares/${shareId}`, {
-        method: "GET",
-        headers: { Accept: "application/json" },
-      });
-      if (!res.ok) {
-        notify.error("共有情報の取得に失敗しました");
-        setShare(null);
-        return;
-      }
-      const data = (await res.json()) as ShareData;
-      setShare(data);
-    } catch (e) {
-      console.error(e);
-      notify.error("共有情報の取得でエラーが発生しました");
-    } finally {
-      setLoading(false);
-    }
-  }, [shareId, notify]);
+  const res = await fetch(`${baseUrl}/api/shares?limit=50`, {
+    cache: "no-store",
+    headers: { cookie },
+  });
 
-  React.useEffect(() => {
-    load();
-  }, [load]);
-
-  // ---- onGenerate: 公開URLの生成/再生成 -------------------------------------
-  const handleGenerate = React.useCallback(async () => {
-    if (!share) return;
-    try {
-      setBusy("generate");
-      const res = await fetch(`/api/shares/${share.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ op: "regenerate", isPublic: true }),
-      });
-      if (!res.ok) {
-        notify.error("公開URLの生成に失敗しました");
-        return;
-      }
-      const data = (await res.json()) as ShareData;
-      setShare(data);
-      notify.success("公開URLを生成しました");
-    } catch (e) {
-      console.error(e);
-      notify.error("公開URLの生成でエラーが発生しました");
-    } finally {
-      setBusy(false);
-    }
-  }, [share, notify]);
-
-  // ---- onDelete: 共有レコード削除 -------------------------------------------
-  const handleDelete = React.useCallback(async () => {
-    if (!share) return;
-    const ok = window.confirm("この共有リンクを削除します。よろしいですか？");
-    if (!ok) return;
-
-    try {
-      setBusy("delete");
-      const res = await fetch(`/api/shares/${share.id}`, {
-        method: "DELETE",
-        headers: { Accept: "application/json" },
-      });
-      if (!res.ok) {
-        notify.error("削除に失敗しました");
-        return;
-      }
-      notify.success("削除しました");
-      router.push("/dashboard");
-    } catch (e) {
-      console.error(e);
-      notify.error("削除処理でエラーが発生しました");
-    } finally {
-      setBusy(false);
-    }
-  }, [share, notify, router]);
-
-  // ---- onChanged: ShareCard のシグネチャに厳密一致 (next?: ShareData) -------
-  const handleChanged = React.useCallback((next?: ShareData) => {
-    if (!next) return;
-    setShare((prev) => (prev ? { ...prev, ...next } : prev));
-  }, []);
-
-  // ---- レンダリング ---------------------------------------------------------
-  if (loading) {
-    return (
-      <div className="p-6">
-        <div className="animate-pulse h-6 w-40 rounded bg-muted mb-4" />
-        <div className="animate-pulse h-24 w-full rounded bg-muted" />
-      </div>
-    );
+  if (res.status === 401) {
+    // 譛ｪ繝ｭ繧ｰ繧､繝ｳ or 繧ｻ繝・す繝ｧ繝ｳ譛ｪ蟋碑ｭｲ
+    return [];
+  }
+  if (!res.ok) {
+    return [];
   }
 
-  if (!share) {
-    return (
-      <div className="p-6">
-        <p className="text-sm text-muted-foreground">共有情報が見つかりませんでした。</p>
-      </div>
-    );
-  }
+  const data = await res.json().catch(() => null);
+
+  // 譛溷ｾ・ｽ｢・嘴 items: ApiShare[], nextBefore?: string | null } 繧ゅ＠縺上・ 逶ｴ謗･驟榊・
+  const arr: ApiShare[] = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+
+  // API繝ｬ繧ｹ繝昴Φ繧ｹ 竊・ShareData 縺ｸ豁｣隕丞喧
+  const items: ShareData[] = arr
+    .filter((x) => typeof x?.id === "string")
+    .map((x) => ({
+      id: x.id,
+      title: x.title ?? null,
+      url: x.url ?? null,
+      isPublic: Boolean(x.isPublic ?? false),
+      createdAt: x.createdAt ?? null,
+    }));
+
+  return items;
+}
+
+export default async function DashboardPage() {
+  const shares = await fetchShares();
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
-      <div className="mb-4">
-        <h1 className="text-xl font-semibold">共有リンクの管理</h1>
-        <p className="text-sm text-muted-foreground">ID: {share.id}</p>
+    <div className="container mx-auto max-w-5xl py-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+        <div className="flex gap-2">
+          <Button asChild>
+            <Link href="/writer">譁ｰ隕丈ｽ懈・</Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link href="/dashboard">譖ｴ譁ｰ</Link>
+          </Button>
+        </div>
       </div>
 
-      {/* ❌ loading プロップを渡さない（ShareCardProps に存在しないため） */}
-      <ShareCard
-        share={share}
-        onGenerate={handleGenerate}
-        onDelete={handleDelete}
-        onChanged={handleChanged}
-      />
-
-      {/* 親側 busy を UI に反映したい場合は、必要に応じてここでボタンなどを無効化 */}
-      {busy && (
-        <p className="mt-4 text-xs text-muted-foreground">
-          実行中: {busy === "generate" ? "生成中" : "削除中"}…
-        </p>
+      {shares.length === 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>蜈ｱ譛我ｸ隕ｧ</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              蜈ｱ譛峨ョ繝ｼ繧ｿ縺後∪縺縺ゅｊ縺ｾ縺帙ｓ縲ょ承荳翫・縲梧眠隕丈ｽ懈・縲阪°繧我ｽ懈・縺励※縺上□縺輔＞縲・
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {shares.map((s) => (
+            <ShareCard key={s.id} share={s} />
+          ))}
+        </div>
       )}
     </div>
   );

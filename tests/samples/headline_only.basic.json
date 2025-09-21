@@ -1,0 +1,59 @@
+[
+  {
+    "id": "hl.food.001",
+    "note": "食品/低糖質パン — headline_only/friendly（20〜30字・誇張回避）",
+    "input": {
+      "productName": "ShopWriter 低糖質ブレッド",
+      "category": "食品",
+      "audience": "糖質を抑えたい人",
+      "useCases": ["朝食", "在宅ワークの昼食"],
+      "benefits": ["糖質控えめ", "食べ応え", "そのままでも美味しい"],
+      "specs": { "糖質_g_": 9, "内容量_g_": 300 },
+      "bannedPhrases": ["世界一", "No.1", "奇跡", "最強"],
+      "noClaims": ["医薬効能の示唆を避ける"],
+      "tone": "friendly",
+      "style": "headline_only",
+      "lengthHint": 26,
+      "locale": "ja"
+    },
+    "expect": { "style": "headline_only", "tone": "friendly", "locale": "ja" }
+  },
+  {
+    "id": "hl.gadget.002",
+    "note": "ガジェット/静音マウス — headline_only/professional（数値・主観表現を避ける）",
+    "input": {
+      "productName": "Imafic Silent Mouse S1",
+      "category": "家電",
+      "audience": "オフィス・在宅ユーザー",
+      "useCases": ["会議中", "図書館", "深夜作業"],
+      "benefits": ["静かなクリック感", "持ち運びやすい", "省電力"],
+      "specs": { "重量_g": 78, "無線": "2.4GHz/Bluetooth" },
+      "bannedPhrases": ["神", "一瞬で", "完全無欠"],
+      "noClaims": ["未記載の性能値を断定しない"],
+      "tone": "professional",
+      "style": "headline_only",
+      "lengthHint": 24,
+      "locale": "ja"
+    },
+    "expect": { "style": "headline_only", "tone": "professional", "locale": "ja" }
+  },
+  {
+    "id": "hl.cosme.003",
+    "note": "コスメ/敏感肌用ローション — headline_only/neutral（薬機NGワード監視）",
+    "input": {
+      "productName": "Inovista センシティブローション",
+      "category": "コスメ",
+      "audience": "乾燥や刺激が気になる人",
+      "useCases": ["朝晩のケア", "外出後のリセット"],
+      "benefits": ["無香料", "さらっと軽い", "ポンプ式"],
+      "specs": { "内容量_ml_": 150, "無香料": "はい" },
+      "bannedPhrases": ["完治", "治る", "劇的"],
+      "noClaims": ["治療・改善を断定しない"],
+      "tone": "neutral",
+      "style": "headline_only",
+      "lengthHint": 22,
+      "locale": "ja"
+    },
+    "expect": { "style": "headline_only", "tone": "neutral", "locale": "ja" }
+  }
+]

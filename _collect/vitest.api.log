@@ -1,0 +1,206 @@
+﻿
+[1m[46m RUN [49m[22m [36mv3.2.4 [39m[90mC:/Users/81905/shopwriter-new[39m
+
+[33m[39m[31mx[39m[33m[39m[31mx[39m[33m[39m[31mx[39m[33m[39m[31mx[39m[33m[39m[31mx[39m[33m[39m[31mx[39m[33m[39m[31mx[39m[33m[39m[32mﾂｷ[39m[33m[39m[32mﾂｷ[39m[33m[39m[31mx[39m[33m[39m[32mﾂｷ[39m[33m[39m[32mﾂｷ[39m
+node.exe : 
+発生場所 C:\nvm4w\nodejs\pnpm.ps1:16 文字:5
++     & "$basedir/node$exe"  "$basedir/node_modules/pnpm/bin/pnpm.cjs"  ...
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+[31m竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ[39m[1m[41m Failed Tests 8 [49m[22m[31m竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ[39m
+
+[41m[1m FAIL [22m[49m tests/api/shares.route.test.ts[2m > [22m/api/shares GET[2m > [22m髢狗匱迺ｰ蠅
+・ｼ唸-User-Id 縺ゅｊ縺ｧ 200 & List 霑泌唆
+[31m[1mAssertionError[22m: expected 400 to be 200 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 200[39m
+[31m+ 400[39m
+
+[36m [2m笶ｯ[22m tests/api/shares.route.test.ts:[2m115:24[22m[39m
+    [90m113| [39m
+    [90m114| [39m    [35mconst[39m res [33m=[39m [35mawait[39m [33mGET[39m(req)[33m;[39m
+    [90m115| [39m    [34mexpect[39m(res[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m200[39m)
+[33m;[39m
+    [90m   | [39m                       [31m^[39m
+    [90m116| [39m
+    [90m117| [39m    [35mconst[39m json [33m=[39m [35mawait[39m [34mjsonOf[39m(res)[33m;[
+39m
+
+[31m[2m竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ[1/8]竡ｯ[22m[39m
+
+[41m[1m FAIL [22m[49m tests/api/shares.route.test.ts[2m > [22m/api/shares POST[2m > [22m髢狗匱迺ｰ
+蠅・ｼ唸-User-Id 縺ゅｊ縺ｧ 201 & Entity 霑泌唆
+[31m[1mAssertionError[22m: expected 422 to be 201 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 201[39m
+[31m+ 422[39m
+
+[36m [2m笶ｯ[22m tests/api/shares.route.test.ts:[2m167:24[22m[39m
+    [90m165| [39m
+    [90m166| [39m    [35mconst[39m res [33m=[39m [35mawait[39m [33mPOST[39m(req)[33m;[39m
+    [90m167| [39m    [34mexpect[39m(res[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m201[39m)
+[33m;[39m
+    [90m   | [39m                       [31m^[39m
+    [90m168| [39m
+    [90m169| [39m    [35mconst[39m json [33m=[39m [35mawait[39m [34mjsonOf[39m(res)[33m;[
+39m
+
+[31m[2m竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ[2/8]竡ｯ[22m[39m
+
+[41m[1m FAIL [22m[49m tests/api/writer.samples.email.test.ts[2m > [22mwriter samples (email.bas
+ic.json)[2m > [22m繝｡繝ｼ繝ｫ蜷・し繝ｳ繝励Ν縺・data.text 繧定ｿ斐＠縲√Γ繧ｿ荳閾ｴ・・ユ繝ｳ繝励Ξ隕∽ｻｶ繧呈ｺ縺溘☆・医Δ繝ｼ繝牙挨縺ｫ讀懈渊蠑ｷ蠎ｦ繧定ｪｿ謨
+ｴ・・[31m[1mAssertionError[22m: expected 'generic' to be 'email' // Object.is equality[39m
+
+Expected: [32m"email"[39m
+Received: [31m"generic"[39m
+
+[36m [2m笶ｯ[22m tests/api/writer.samples.email.test.ts:[2m57:39[22m[39m
+    [90m 55| [39m      [34mexpect[39m(json[33m?.[39mok)[33m.[39m[34mtoBe[39m([35mtrue[39m
+)[33m;[39m
+    [90m 56| [39m      [34mexpect[39m([35mtypeof[39m json[33m?.[39mdata[33m?.[39mtext)[33m
+.[39m[34mtoBe[39m([32m"string"[39m)[33m;[39m
+    [90m 57| [39m      [34mexpect[39m(json[33m?.[39mdata[33m?.[39mmeta[33m?.[39mstyle)[33m
+.[39m[34mtoBe[39m(c[33m.[39mexpect[33m.[39mstyle)[33m;[39m
+    [90m   | [39m                                      [31m^[39m
+    [90m 58| [39m      [34mexpect[39m(json[33m?.[39mdata[33m?.[39mmeta[33m?.[39mtone)[33m.
+[39m[34mtoBe[39m(c[33m.[39mexpect[33m.[39mtone)[33m;[39m
+    [90m 59| [39m      [34mexpect[39m(json[33m?.[39mdata[33m?.[39mmeta[33m?.[39mlocale)[33
+m.[39m[34mtoBe[39m(c[33m.[39mexpect[33m.[39mlocale)[33m;[39m
+
+[31m[2m竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ[3/8]竡ｯ[22m[39m
+
+[41m[1m FAIL [22m[49m tests/api/writer.samples.headline_only.test.ts[2m > [22mwriter samples (h
+eadline_only.basic.json)[2m > [22m繝倥ャ繝峨Λ繧､繝ｳ蜷・し繝ｳ繝励Ν縺・data.text 繧定ｿ斐＠縲√Γ繧ｿ荳閾ｴ・・ユ繝ｳ繝励Ξ隕∽ｻｶ繧呈ｺ縺溘☆・医
+Δ繝ｼ繝牙挨縺ｧ讀懈渊蠑ｷ蠎ｦ隱ｿ謨ｴ・・[31m[1mAssertionError[22m: expected 'generic' to be 'headline_only' // Object
+.is equality[39m
+
+Expected: [32m"headline_only"[39m
+Received: [31m"generic"[39m
+
+[36m [2m笶ｯ[22m tests/api/writer.samples.headline_only.test.ts:[2m52:39[22m[39m
+    [90m 50| [39m      [34mexpect[39m(json[33m?.[39mok)[33m.[39m[34mtoBe[39m([35mtrue[39m
+)[33m;[39m
+    [90m 51| [39m      [34mexpect[39m([35mtypeof[39m json[33m?.[39mdata[33m?.[39mtext)[33m
+.[39m[34mtoBe[39m([32m"string"[39m)[33m;[39m
+    [90m 52| [39m      [34mexpect[39m(json[33m?.[39mdata[33m?.[39mmeta[33m?.[39mstyle)[33m
+.[39m[34mtoBe[39m(c[33m.[39mexpect[33m.[39mstyle)[33m;[39m
+    [90m   | [39m                                      [31m^[39m
+    [90m 53| [39m      [34mexpect[39m(json[33m?.[39mdata[33m?.[39mmeta[33m?.[39mtone)[33m.
+[39m[34mtoBe[39m(c[33m.[39mexpect[33m.[39mtone)[33m;[39m
+    [90m 54| [39m      [34mexpect[39m(json[33m?.[39mdata[33m?.[39mmeta[33m?.[39mlocale)[33
+m.[39m[34mtoBe[39m(c[33m.[39mexpect[33m.[39mlocale)[33m;[39m
+
+[31m[2m竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ[4/8]竡ｯ[22m[39m
+
+[41m[1m FAIL [22m[49m tests/api/writer.samples.lp.test.ts[2m > [22mwriter samples (lp.basic.jso
+n)[2m > [22mLP繧ｹ繧ｿ繧､繝ｫ縺ｮ蜷・し繝ｳ繝励Ν縺・data.text 繧定ｿ斐＠縲√Γ繧ｿ荳閾ｴ &・・penai譎ゅ・縺ｿ・峨そ繧ｯ繧ｷ繝ｧ繝ｳ菴楢｣√ｒ貅縺溘☆
+[31m[1mAssertionError[22m: expected 'generic' to be 'lp' // Object.is equality[39m
+
+Expected: [32m"lp"[39m
+Received: [31m"generic"[39m
+
+[36m [2m笶ｯ[22m tests/api/writer.samples.lp.test.ts:[2m47:39[22m[39m
+    [90m 45| [39m      [34mexpect[39m(json[33m?.[39mok)[33m.[39m[34mtoBe[39m([35mtrue[39m
+)[33m;[39m
+    [90m 46| [39m      [34mexpect[39m([35mtypeof[39m json[33m?.[39mdata[33m?.[39mtext)[33m
+.[39m[34mtoBe[39m([32m"string"[39m)[33m;[39m
+    [90m 47| [39m      [34mexpect[39m(json[33m?.[39mdata[33m?.[39mmeta[33m?.[39mstyle)[33m
+.[39m[34mtoBe[39m(c[33m.[39mexpect[33m.[39mstyle)[33m;[39m
+    [90m   | [39m                                      [31m^[39m
+    [90m 48| [39m      [34mexpect[39m(json[33m?.[39mdata[33m?.[39mmeta[33m?.[39mtone)[33m.
+[39m[34mtoBe[39m(c[33m.[39mexpect[33m.[39mtone)[33m;[39m
+    [90m 49| [39m      [34mexpect[39m(json[33m?.[39mdata[33m?.[39mmeta[33m?.[39mlocale)[33
+m.[39m[34mtoBe[39m(c[33m.[39mexpect[33m.[39mlocale)[33m;[39m
+
+[31m[2m竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ[5/8]竡ｯ[22m[39m
+
+[41m[1m FAIL [22m[49m tests/api/writer.samples.sns_short.test.ts[2m > [22mwriter samples (sns_s
+hort.basic.json)[2m > [22mSNS繧ｷ繝ｧ繝ｼ繝亥推繧ｵ繝ｳ繝励Ν縺・data.text 繧定ｿ斐＠縲√Γ繧ｿ荳閾ｴ ・・繝・Φ繝励Ξ隕∽ｻｶ繧呈ｺ縺溘☆・医Δ繝ｼ繝牙挨
+縺ｫ讀懈渊蠑ｷ蠎ｦ繧定ｪｿ謨ｴ・・[31m[1mAssertionError[22m: expected 'generic' to be 'sns_short' // Object.is equa
+lity[39m
+
+Expected: [32m"sns_short"[39m
+Received: [31m"generic"[39m
+
+[36m [2m笶ｯ[22m tests/api/writer.samples.sns_short.test.ts:[2m55:39[22m[39m
+    [90m 53| [39m      [34mexpect[39m(json[33m?.[39mok)[33m.[39m[34mtoBe[39m([35mtrue[39m
+)[33m;[39m
+    [90m 54| [39m      [34mexpect[39m([35mtypeof[39m json[33m?.[39mdata[33m?.[39mtext)[33m
+.[39m[34mtoBe[39m([32m"string"[39m)[33m;[39m
+    [90m 55| [39m      [34mexpect[39m(json[33m?.[39mdata[33m?.[39mmeta[33m?.[39mstyle)[33m
+.[39m[34mtoBe[39m(c[33m.[39mexpect[33m.[39mstyle)[33m;[39m
+    [90m   | [39m                                      [31m^[39m
+    [90m 56| [39m      [34mexpect[39m(json[33m?.[39mdata[33m?.[39mmeta[33m?.[39mtone)[33m.
+[39m[34mtoBe[39m(c[33m.[39mexpect[33m.[39mtone)[33m;[39m
+    [90m 57| [39m      [34mexpect[39m(json[33m?.[39mdata[33m?.[39mmeta[33m?.[39mlocale)[33
+m.[39m[34mtoBe[39m(c[33m.[39mexpect[33m.[39mlocale)[33m;[39m
+
+[31m[2m竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ[6/8]竡ｯ[22m[39m
+
+[41m[1m FAIL [22m[49m tests/api/writer.samples.test.ts[2m > [22mwriter samples (product_card.ba
+sic.json)[2m > [22m蜷・し繝ｳ繝励Ν縺・data.text 繧定ｿ斐＠縲√Γ繧ｿ荳閾ｴ & banned隱樔ｸ榊惠繧呈ｺ縺溘☆縺薙→
+[31m[1mAssertionError[22m: expected 'generic' to be 'product_card' // Object.is equality[39m
+
+Expected: [32m"product_card"[39m
+Received: [31m"generic"[39m
+
+[36m [2m笶ｯ[22m tests/api/writer.samples.test.ts:[2m61:39[22m[39m
+    [90m 59| [39m
+    [90m 60| [39m      [90m// 繝｡繧ｿ荳閾ｴ・・tyle/tone/locale・・[39m
+    [90m 61| [39m      [34mexpect[39m(json[33m?.[39mdata[33m?.[39mmeta[33m?.[39mstyle)[33m
+.[39m[34mtoBe[39m(c[33m.[39mexpect[33m.[39mstyle)[33m;[39m
+    [90m   | [39m                                      [31m^[39m
+    [90m 62| [39m      [34mexpect[39m(json[33m?.[39mdata[33m?.[39mmeta[33m?.[39mtone)[33m.
+[39m[34mtoBe[39m(c[33m.[39mexpect[33m.[39mtone)[33m;[39m
+    [90m 63| [39m      [34mexpect[39m(json[33m?.[39mdata[33m?.[39mmeta[33m?.[39mlocale)[33
+m.[39m[34mtoBe[39m(c[33m.[39mexpect[33m.[39mlocale)[33m;[39m
+
+[31m[2m竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ[7/8]竡ｯ[22m[39m
+
+[41m[1m FAIL [22m[49m tests/api/writer.snapshot.test.ts[2m > [22m/api/writer snapshot[2m > [2
+2m蝗ｺ螳壼・蜉・>=8譁・ｭ・ 竊・螳牙ｮ壹せ繝翫ャ繝励す繝ｧ繝・ヨ
+[31m[1mError[22m: Snapshot `/api/writer snapshot > 蝗ｺ螳壼・蜉・>=8譁・ｭ・ 竊・螳牙ｮ壹せ繝翫ャ繝励す繝ｧ繝・ヨ 1` mismatched
+[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  {[22m
+[32m-   "[7mmeta": {[27m[39m
+[32m- [7m    "model": "gpt-4o-mini[27m",[39m
+[31m+   "[7mdata": {[27m[39m
+[31m+     "meta": {[39m
+[31m+       "style": "generic",[39m
+
+[2m  Snapshots [22m [1m[31m1 failed[39m[22m
+[2m Test Files [22m [1m[31m7 failed[39m[22m[90m (7)[39m
+[2m      Tests [22m [1m[31m8 failed[39m[22m[2m | [22m[1m[32m4 passed[39m[22m[90m (12)[39m
+[2m   Start at [22m 07:29:14
+[2m   Duration [22m 2.37s[2m (transform 786ms, setup 0ms, collect 2.50s, tests 570ms, environment 4ms, prepare 3.41s)[22m
+
+[31m+     },[39m
+[31m+ [7m    "text": "縺疲｡亥・縺ｮ繝・く繧ｹ繝医〒縺吶・[27m",[39m
+[2m    },[22m
+[2m    "ok": true,[22m
+[32m-   "output": "[7mMOCK_OUTPUT[27m",[39m
+[31m+   "output": "[7m縺疲｡亥・縺ｮ繝・く繧ｹ繝医〒縺吶・[27m",[39m
+[2m  }[22m
+
+[36m [2m笶ｯ[22m tests/api/writer.snapshot.test.ts:[2m86:18[22m[39m
+    [90m 84| [39m
+    [90m 85| [39m    [90m// 繧ｹ繝翫ャ繝励す繝ｧ繝・ヨ[39m
+    [90m 86| [39m    [34mexpect[39m(json)[33m.[39m[34mtoMatchSnapshot[39m()[33m;[39m
+    [90m   | [39m                 [31m^[39m
+    [90m 87| [39m  })[33m;[39m
+    [90m 88| [39m})[33m;[39m
+
+[31m[2m竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ[8/8]竡ｯ[22m[39m
+

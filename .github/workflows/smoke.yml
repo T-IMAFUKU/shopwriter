@@ -18,13 +18,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ここでは cache: pnpm を付けない（付けると pnpm が PATH に無くて失敗する）
+      # 縺薙％縺ｧ縺ｯ cache: pnpm 繧剃ｻ倥￠縺ｪ縺・ｼ井ｻ倥￠繧九→ pnpm 縺・PATH 縺ｫ辟｡縺上※螟ｱ謨励☆繧具ｼ・
       - name: Setup Node 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      # pnpm を明示インストール（10系に固定）
+      # pnpm 繧呈・遉ｺ繧､繝ｳ繧ｹ繝医・繝ｫ・・0邉ｻ縺ｫ蝗ｺ螳夲ｼ・
       - name: Setup pnpm (10.x)
         uses: pnpm/action-setup@v4
         with:

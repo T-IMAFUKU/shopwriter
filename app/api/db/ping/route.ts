@@ -2,20 +2,20 @@
 import { NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
 
-// 重要: API ルートをビルド時の事前レンダリング対象から外す
+// 驥崎ｦ・ API 繝ｫ繝ｼ繝医ｒ繝薙Ν繝画凾縺ｮ莠句燕繝ｬ繝ｳ繝繝ｪ繝ｳ繧ｰ蟇ｾ雎｡縺九ｉ螟悶☆
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function GET() {
-  // CI など DATABASE_URL が無い環境では DB チェックをスキップ
+  // CI 縺ｪ縺ｩ DATABASE_URL 縺檎┌縺・腸蠅・〒縺ｯ DB 繝√ぉ繝・け繧偵せ繧ｭ繝・・
   if (!process.env.DATABASE_URL) {
     return NextResponse.json({ ok: true, skipped: "no DATABASE_URL" });
   }
 
   const prisma = new PrismaClient();
   try {
-    // 接続確認（安全なクエリ）
+    // 謗･邯夂｢ｺ隱搾ｼ亥ｮ牙・縺ｪ繧ｯ繧ｨ繝ｪ・・
     await prisma.$queryRawUnsafe("SELECT 1");
     return NextResponse.json({ ok: true });
   } catch (err: any) {

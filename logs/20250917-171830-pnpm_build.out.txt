@@ -1,0 +1,61 @@
+===== CMD =====
+pnpm build
+===== EXIT =====
+0
+===== STDOUT =====
+
+> shopwriter-app@0.1.0 build C:\Users\81905\shopwriter-new
+> next build
+
+  笆ｲ Next.js 14.2.5
+  - Environments: .env.local, .env
+
+   Creating an optimized production build ...
+ 笨・Compiled successfully
+   Linting and checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/15) ...
+   Generating static pages (3/15) 
+   Generating static pages (7/15) 
+   Generating static pages (11/15) 
+ 笨・Generating static pages (15/15)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                              Size     First Load JS
+笏・笳・/                                    893 B          94.8 kB
+笏・笳・/_not-found                          872 B          87.9 kB
+笏・ﾆ・/api/auth/[...nextauth]              0 B                0 B
+笏・笳・/api/db/ping                         0 B                0 B
+笏・ﾆ・/api/debug/echo                      0 B                0 B
+笏・ﾆ・/api/dev-auth                        0 B                0 B
+笏・ﾆ・/api/drafts                          0 B                0 B
+笏・笳・/api/ping                            0 B                0 B
+笏・ﾆ・/api/shares                          0 B                0 B
+笏・ﾆ・/api/shares/[id]                     0 B                0 B
+笏・ﾆ・/api/shares/seed                     0 B                0 B
+笏・ﾆ・/api/writer                          0 B                0 B
+笏・ﾆ・/api/writer/stream                   0 B                0 B
+笏・ﾆ・/dashboard                           1.74 kB         103 kB
+笏・ﾆ・/dashboard/share/[id]                3.07 kB         114 kB
+笏・笳・/debug/drafts-post                   1.27 kB        88.3 kB
+笏・笳・/debug/session                       487 B          87.5 kB
+笏・笳・/debug/sharecard                     2.73 kB         114 kB
+笏・笳・/debug/textarea                      25.5 kB         130 kB
+笏・ﾆ・/share/[id]                          2.62 kB        89.7 kB
+笏・笳・/writer                              4.56 kB         109 kB
++ First Load JS shared by all            87 kB
+  笏・chunks/842-482dcb4b575cb7a7.js       31.5 kB
+  笏・chunks/94c12b52-249c6b5f8bf6c47a.js  53.6 kB
+  笏・other shared chunks (total)          1.89 kB
+
+
+ﾆ・Middleware                             49.9 kB
+
+笳・ (Static)   prerendered as static content
+ﾆ・ (Dynamic)  server-rendered on demand
+
+
+===== STDERR =====
+ 笞 Using edge runtime on a page currently disables static generation for that page
+

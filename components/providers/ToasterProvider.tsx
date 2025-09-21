@@ -4,15 +4,15 @@ import * as React from "react";
 import { Toaster, toast } from "sonner";
 
 /**
- * ShopWriter - Toast 統一ルール
- * - 成功:   緑 / 短め (2.0s)     → notify.success()
- * - 警告:   黄 / 中間 (3.5s)     → notify.warning()
- * - 失敗:   赤 / 長め (5.0s)     → notify.error()
- * - 情報:   既定 (3.0s)          → notify.info()
+ * ShopWriter - Toast 邨ｱ荳繝ｫ繝ｼ繝ｫ
+ * - 謌仙粥:   邱・/ 遏ｭ繧・(2.0s)     竊・notify.success()
+ * - 隴ｦ蜻・   鮟・/ 荳ｭ髢・(3.5s)     竊・notify.warning()
+ * - 螟ｱ謨・   襍､ / 髟ｷ繧・(5.0s)     竊・notify.error()
+ * - 諠・ｱ:   譌｢螳・(3.0s)          竊・notify.info()
  *
- * アクセシビリティ:
- * - Toaster は aria-live polite を内部で使用（画面読み上げ対応）
- * - タイトルは簡潔、説明は任意。行動ボタンは actionLabel/onAction を統一。
+ * 繧｢繧ｯ繧ｻ繧ｷ繝薙Μ繝・ぅ:
+ * - Toaster 縺ｯ aria-live polite 繧貞・驛ｨ縺ｧ菴ｿ逕ｨ・育判髱｢隱ｭ縺ｿ荳翫￡蟇ｾ蠢懶ｼ・
+ * - 繧ｿ繧､繝医Ν縺ｯ邁｡貎斐∬ｪｬ譏弱・莉ｻ諢上り｡悟虚繝懊ち繝ｳ縺ｯ actionLabel/onAction 繧堤ｵｱ荳縲・
  */
 
 type NotifyInput =
@@ -20,13 +20,13 @@ type NotifyInput =
   | {
       title?: string;
       description?: string;
-      /** 既定: success=2000, warning=3500, error=5000, info=3000 */
+      /** 譌｢螳・ success=2000, warning=3500, error=5000, info=3000 */
       duration?: number;
-      /** 任意の一意ID（重複抑止に使用可） */
+      /** 莉ｻ諢上・荳諢終D・磯㍾隍・椛豁｢縺ｫ菴ｿ逕ｨ蜿ｯ・・*/
       id?: string | number;
-      /** ボタン文言（例: "取り消し"） */
+      /** 繝懊ち繝ｳ譁・ｨ・井ｾ・ "蜿悶ｊ豸医＠"・・*/
       actionLabel?: string;
-      /** ボタン押下時ハンドラ */
+      /** 繝懊ち繝ｳ謚ｼ荳区凾繝上Φ繝峨Λ */
       onAction?: () => void;
     };
 
@@ -58,13 +58,13 @@ function build(input: NotifyInput, fallbackTitle: string, defaultDuration: numbe
   };
 }
 
-/** Sonner は warning をサポート（バージョンによっては .warning が無い場合に備えてフォールバック） */
+/** Sonner 縺ｯ warning 繧偵し繝昴・繝茨ｼ医ヰ繝ｼ繧ｸ繝ｧ繝ｳ縺ｫ繧医▲縺ｦ縺ｯ .warning 縺檎┌縺・ｴ蜷医↓蛯吶∴縺ｦ繝輔か繝ｼ繝ｫ繝舌ャ繧ｯ・・*/
 const hasWarning = (toast as any).warning instanceof Function;
 
 const notify = {
-  /** 成功: 緑 / 2.0s */
+  /** 謌仙粥: 邱・/ 2.0s */
   success(input: NotifyInput) {
-    const b = build(input, "完了しました", 2000);
+    const b = build(input, "螳御ｺ・＠縺ｾ縺励◆", 2000);
     toast.success(b.title, {
       id: b.id,
       description: b.description,
@@ -72,9 +72,9 @@ const notify = {
       action: b.action,
     });
   },
-  /** 警告: 黄 / 3.5s */
+  /** 隴ｦ蜻・ 鮟・/ 3.5s */
   warning(input: NotifyInput) {
-    const b = build(input, "ご確認ください", 3500);
+    const b = build(input, "縺皮｢ｺ隱阪￥縺縺輔＞", 3500);
     if (hasWarning) {
       (toast as any).warning(b.title, {
         id: b.id,
@@ -83,7 +83,7 @@ const notify = {
         action: b.action,
       });
     } else {
-      // フォールバック: 黄トーン風の className 付与（richColors と併用可）
+      // 繝輔か繝ｼ繝ｫ繝舌ャ繧ｯ: 鮟・ヨ繝ｼ繝ｳ鬚ｨ縺ｮ className 莉倅ｸ趣ｼ・ichColors 縺ｨ菴ｵ逕ｨ蜿ｯ・・
       toast.message(b.title, {
         id: b.id,
         description: b.description,
@@ -94,9 +94,9 @@ const notify = {
       });
     }
   },
-  /** 失敗: 赤 / 5.0s */
+  /** 螟ｱ謨・ 襍､ / 5.0s */
   error(input: NotifyInput) {
-    const b = build(input, "エラーが発生しました", 5000);
+    const b = build(input, "繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆", 5000);
     toast.error(b.title, {
       id: b.id,
       description: b.description,
@@ -104,9 +104,9 @@ const notify = {
       action: b.action,
     });
   },
-  /** 情報: 既定 / 3.0s */
+  /** 諠・ｱ: 譌｢螳・/ 3.0s */
   info(input: NotifyInput) {
-    const b = build(input, "お知らせ", 3000);
+    const b = build(input, "縺顔衍繧峨○", 3000);
     toast.message(b.title, {
       id: b.id,
       description: b.description,
@@ -117,13 +117,13 @@ const notify = {
 };
 
 /**
- * グローバル手動発火（検証用）
- * - DevTools から: window.__notify.success("コピーしました")
- * - 本番でも害はないが、将来的にフラグで制御可
+ * 繧ｰ繝ｭ繝ｼ繝舌Ν謇句虚逋ｺ轣ｫ・域､懆ｨｼ逕ｨ・・
+ * - DevTools 縺九ｉ: window.__notify.success("繧ｳ繝斐・縺励∪縺励◆")
+ * - 譛ｬ逡ｪ縺ｧ繧ょｮｳ縺ｯ縺ｪ縺・′縲∝ｰ・擂逧・↓繝輔Λ繧ｰ縺ｧ蛻ｶ蠕｡蜿ｯ
  */
 function exposeToWindow() {
   if (typeof window !== "undefined") {
-    // @ts-expect-error - 動的プロパティ
+    // @ts-expect-error - 蜍慕噪繝励Ο繝代ユ繧｣
     window.__notify = notify;
   }
 }
@@ -135,10 +135,10 @@ export function useNotify() {
 }
 
 /**
- * 既存の Provider を置換え
- * - アプリ共通で Toaster を 1 箇所に集約
- * - richColors / closeButton を有効化
- * - 位置は UX 認知負荷の低い "top-right"
+ * 譌｢蟄倥・ Provider 繧堤ｽｮ謠帙∴
+ * - 繧｢繝励Μ蜈ｱ騾壹〒 Toaster 繧・1 邂・園縺ｫ髮・ｴ・
+ * - richColors / closeButton 繧呈怏蜉ｹ蛹・
+ * - 菴咲ｽｮ縺ｯ UX 隱咲衍雋闕ｷ縺ｮ菴弱＞ "top-right"
  */
 export default function ToasterProvider({
   children,
@@ -153,7 +153,7 @@ export default function ToasterProvider({
         richColors
         closeButton
         toastOptions={{
-          // グローバル既定（各通知で上書き）
+          // 繧ｰ繝ｭ繝ｼ繝舌Ν譌｢螳夲ｼ亥推騾夂衍縺ｧ荳頑嶌縺搾ｼ・
           duration: 3000,
         }}
       />
