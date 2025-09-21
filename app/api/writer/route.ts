@@ -1,4 +1,10 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+﻿/**
+ * /api/writer — Request 対応（NextRequest 非依存）
+ * - 受け取り: Fetch API の Request
+ * - 返却: Fetch API の Response
+ * - クエリは new URL(req.url) で取得
+ * - style/tone/locale をクエリ or ボディから安全に抽出
+ */
 
 type WriterStyle =
   | "email"
@@ -10,6 +16,7 @@ type WriterStyle =
 type WriterTone = "neutral" | "friendly" | "formal" | "casual";
 type WriterLocale = "ja-JP" | "en-US";
 
+/** 正規スタイル集合 */
 const STYLE_SET = new Set<WriterStyle>([
   "email",
   "lp",
@@ -18,11 +25,14 @@ const STYLE_SET = new Set<WriterStyle>([
   "product_card",
 ]);
 
+const TONE_SET = new Set<WriterTone>(["neutral", "friendly", "formal", "casual"]);
+const LOCALE_SET = new Set<WriterLocale>(["ja-JP", "en-US"]);
+
 function norm(v: unknown) {
   return typeof v === "string" ? v.trim() : "";
 }
 
-/** id などから style を推定（lp.basic.json → "lp" 等） */
+/** id/テンプレ名等から style を推定（lp.basic.json → "lp" 等） */
 function inferStyleFromIdLike(v: unknown): WriterStyle | null {
   const s = norm(v).toLowerCase();
   if (!s) return null;
@@ -34,7 +44,7 @@ function inferStyleFromIdLike(v: unknown): WriterStyle | null {
   return null;
 }
 
-/** 任意のオブジェクト全体から allowed style を深さ優先で探索（最大6段） */
+/** 任意のオブジェクト全体から allowed style を探索（最大6段） */
 function findStyleDeep(input: unknown, maxDepth = 6): WriterStyle | null {
   const seen = new WeakSet<object>();
   const q: Array<{ v: unknown; d: number }> = [{ v: input, d: 0 }];
@@ -45,7 +55,6 @@ function findStyleDeep(input: unknown, maxDepth = 6): WriterStyle | null {
     if (typeof v === "string") {
       const s = norm(v) as WriterStyle;
       if (STYLE_SET.has(s)) return s;
-      // 文字列なら id 由来の推定も試す
       const inf = inferStyleFromIdLike(s);
       if (inf) return inf;
       continue;
@@ -59,7 +68,6 @@ function findStyleDeep(input: unknown, maxDepth = 6): WriterStyle | null {
         for (const item of v) q.push({ v: item, d: d + 1 });
       } else {
         for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
-          // ヒントになりやすいキーを先に確認
           if (typeof val === "string") {
             const s = norm(val) as WriterStyle;
             if (STYLE_SET.has(s)) return s;
@@ -68,7 +76,6 @@ function findStyleDeep(input: unknown, maxDepth = 6): WriterStyle | null {
               if (inf) return inf;
             }
           }
-          // id 系からの推定
           if (/id$/i.test(k) || /^(id|templateId|sample|name)$/i.test(k)) {
             const inf = inferStyleFromIdLike(val);
             if (inf) return inf;
@@ -81,19 +88,23 @@ function findStyleDeep(input: unknown, maxDepth = 6): WriterStyle | null {
   return null;
 }
 
-function pickStyle(input: any, req: NextRequest): WriterStyle | "generic" {
-  // 1) クエリ優先（?style=lp など）
-  const qp = req.nextUrl.searchParams.get("style");
+/** クエリ取得（Request ベース） */
+function getSearchParams(req: Request): URLSearchParams {
+  const { searchParams } = new URL(req.url);
+  return searchParams;
+}
+
+/** style / tone / locale の決定ロジック */
+function pickStyle(input: any, req: Request): WriterStyle | "generic" {
+  const qp = getSearchParams(req).get("style");
   if (qp && STYLE_SET.has(norm(qp) as WriterStyle)) return norm(qp) as WriterStyle;
 
-  // 2) よくある場所を順に確認
   const candList: Array<unknown> = [
     input?.style,
     input?.template?.style,
     input?.params?.style,
     input?.input?.style,
     input?.meta?.style,
-    // id/テンプレID/ファイル名などからの推定
     input?.id,
     input?.template?.id,
     input?.params?.id,
@@ -101,8 +112,7 @@ function pickStyle(input: any, req: NextRequest): WriterStyle | "generic" {
     input?.meta?.id,
     input?.file,
     input?.template?.name,
-    // 3) 最後に全体探索
-    input,
+    input, // 最後に全体探索
   ];
 
   for (const c of candList) {
@@ -116,25 +126,31 @@ function pickStyle(input: any, req: NextRequest): WriterStyle | "generic" {
     const deep = findStyleDeep(c);
     if (deep) return deep;
   }
-
   return "generic";
 }
 
-function pickTone(input: any, req: NextRequest): WriterTone {
-  const qp = req.nextUrl.searchParams.get("tone");
+function pickTone(input: any, req: Request): WriterTone {
+  const qp = getSearchParams(req).get("tone");
   const cand = (input?.tone ?? input?.template?.tone ?? input?.params?.tone ?? qp ?? "neutral") as WriterTone;
-  const allowed = new Set<WriterTone>(["neutral", "friendly", "formal", "casual"]);
-  return allowed.has(cand) ? cand : "neutral";
+  return TONE_SET.has(cand) ? cand : "neutral";
 }
 
-function pickLocale(input: any, req: NextRequest): WriterLocale {
-  const qp = req.nextUrl.searchParams.get("locale");
+function pickLocale(input: any, req: Request): WriterLocale {
+  const qp = getSearchParams(req).get("locale");
   const cand = (input?.locale ?? input?.template?.locale ?? input?.params?.locale ?? qp ?? "ja-JP") as WriterLocale;
-  const allowed = new Set<WriterLocale>(["ja-JP", "en-US"]);
-  return allowed.has(cand) ? cand : "ja-JP";
+  return LOCALE_SET.has(cand) ? cand : "ja-JP";
 }
 
-export async function POST(req: NextRequest) {
+/** 共通レスポンス生成 */
+function json(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
+}
+
+/** POST: 本体 */
+export async function POST(req: Request): Promise<Response> {
   let body: any = {};
   try {
     body = await req.json();
@@ -146,35 +162,30 @@ export async function POST(req: NextRequest) {
   const tone = pickTone(body, req);
   const locale = pickLocale(body, req);
 
-  // ここではモック/簡易生成（テスト安定化）
   const text: string =
     (typeof body?.text === "string" && body.text.trim().length > 0)
       ? body.text
       : "ご案内のテキストです。";
 
-  const json = {
+  return json({
     ok: true,
     data: {
       text,
       meta: { style, tone, locale },
     },
     meta: { model: "gpt-4o-mini" },
-  };
-
-  return NextResponse.json(json, { status: 200 });
+  });
 }
 
-// 任意：GET でも疎通確認
-export async function GET(req: NextRequest) {
+/** GET: クエリだけで簡易確認できる疎通用 */
+export async function GET(req: Request): Promise<Response> {
   const style = pickStyle({}, req);
   const tone = pickTone({}, req);
   const locale = pickLocale({}, req);
-  return NextResponse.json(
-    {
-      ok: true,
-      data: { text: "ご案内のテキストです.", meta: { style, tone, locale } },
-      meta: { model: "gpt-4o-mini" },
-    },
-    { status: 200 }
-  );
+
+  return json({
+    ok: true,
+    data: { text: "ご案内のテキストです。", meta: { style, tone, locale } },
+    meta: { model: "gpt-4o-mini" },
+  });
 }
