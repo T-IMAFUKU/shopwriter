@@ -1,25 +1,26 @@
-﻿// app/layout.tsx
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import type { Metadata } from "next";
-import * as React from "react";
-import ToasterProvider from "@/components/providers/ToasterProvider";
+import { Toaster } from "@/components/ui/sonner";
 
 export const metadata: Metadata = {
-  title: "ShopWriter",
-  description: "AI-powered e-commerce copywriting tool",
+  title: { default: "ShopWriter", template: "%s | ShopWriter" },
+  description: "日本語EC向けAIライティング支援ツール",
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export const viewport: Viewport = {
+  themeColor: "#0b1736",
+  colorScheme: "light dark",
+  width: "device-width",
+  initialScale: 1,
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ja">
-      <body>
-        <ToasterProvider>{children}</ToasterProvider>
+    <html lang="ja" suppressHydrationWarning>
+      <body className="min-h-dvh bg-background text-foreground antialiased">
+        {children}
+        <Toaster />
       </body>
     </html>
   );
 }
-

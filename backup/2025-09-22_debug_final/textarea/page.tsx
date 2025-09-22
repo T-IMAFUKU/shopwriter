@@ -3,7 +3,7 @@ import Link from "next/link";
 
 export const metadata: Metadata = {
   title: "Debug: Textarea (safe)",
-  description: "文字化け復旧のための一時的プレーンページ（安全版）",
+  description: "文字化け復旧のためのプレーン表示（安全版）",
 };
 
 export default function Page() {
@@ -11,6 +11,9 @@ export default function Page() {
     <main className="p-6 space-y-6">
       <header className="space-y-2">
         <h1 className="text-2xl font-bold tracking-tight">Debug: Textarea（安全版）</h1>
+        <p className="text-sm text-muted-foreground">
+          文字化け復旧のため、外部依存を外した最小ページです（表示確認用）。
+        </p>
         <nav className="flex gap-4">
           <Link href="/" className="underline underline-offset-4">トップへ</Link>
           <Link href="/dashboard" className="underline underline-offset-4">ダッシュボード</Link>
