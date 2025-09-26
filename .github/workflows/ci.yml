@@ -26,26 +26,26 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 先に pnpm を入れる（10.x に固定）
+      # 蜈医↓ pnpm 繧貞・繧後ｋ・・0.x 縺ｫ蝗ｺ螳夲ｼ・
       - name: Setup pnpm (10.x)
         uses: pnpm/action-setup@v4
         with:
           version: 10.14.0
           run_install: false
 
-      # Node セットアップ（cache:pnpm は使わず、後段で手動キャッシュ）
+      # Node 繧ｻ繝・ヨ繧｢繝・・・・ache:pnpm 縺ｯ菴ｿ繧上★縲∝ｾ梧ｮｵ縺ｧ謇句虚繧ｭ繝｣繝・す繝･・・
       - name: Setup Node 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      # pnpm ストアパスを取得
+      # pnpm 繧ｹ繝医い繝代せ繧貞叙蠕・
       - name: Resolve pnpm store path
         id: pnpm-cache
         shell: bash
         run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
 
-      # pnpm ストアをキャッシュ
+      # pnpm 繧ｹ繝医い繧偵く繝｣繝・す繝･
       - name: Restore pnpm cache
         uses: actions/cache@v4
         with:
@@ -62,7 +62,7 @@ jobs:
       - name: Install deps
         run: pnpm install --frozen-lockfile
 
-      # Prisma は generate だけ。DB接続は発生しないのでダミーURLでOK
+      # Prisma 縺ｯ generate 縺縺代・B謗･邯壹・逋ｺ逕溘＠縺ｪ縺・・縺ｧ繝繝溘・URL縺ｧOK
       - name: Prisma generate
         env:
           NEXT_TELEMETRY_DISABLED: "1"
@@ -75,7 +75,7 @@ jobs:
       - name: Test
         run: pnpm vitest run --reporter=dot
 
-      # ← ここが今回のFix：Build にもダミーの DATABASE_URL を渡す
+      # 竊・縺薙％縺御ｻ雁屓縺ｮFix・咤uild 縺ｫ繧ゅム繝溘・縺ｮ DATABASE_URL 繧呈ｸ｡縺・
       - name: Build
         env:
           NEXT_TELEMETRY_DISABLED: "1"

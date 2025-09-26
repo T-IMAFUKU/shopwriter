@@ -1,6 +1,6 @@
 // lib/shareStore.ts
-// 開発用のメモリ共有ストア
-// ※ Vercel等のServerless環境では再起動時にリセットされるため、本番ではDB管理を推奨
+// 髢狗匱逕ｨ縺ｮ繝｡繝｢繝ｪ蜈ｱ譛峨せ繝医い
+// 窶ｻ Vercel遲峨・Serverless迺ｰ蠅・〒縺ｯ蜀崎ｵｷ蜍墓凾縺ｫ繝ｪ繧ｻ繝・ヨ縺輔ｌ繧九◆繧√∵悽逡ｪ縺ｧ縺ｯDB邂｡逅・ｒ謗ｨ螂ｨ
 
 const _store = new Set<string>();
 

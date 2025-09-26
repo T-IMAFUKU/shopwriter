@@ -1,4 +1,3 @@
-// prisma/schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,23 +7,21 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/**
- * NextAuth 基本モデル
- */
+/// *
+///  * NextAuth 基本モデル
 model User {
-  id            String    @id @default(cuid())
+  id            String        @id @default(cuid())
   name          String?
-  email         String?   @unique
+  email         String?       @unique
   emailVerified DateTime?
   image         String?
-
-  accounts Account[]
-  sessions Session[]
-  shares   Share[]
-  events   MetricEvent[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  accounts      Account[]
+  events        MetricEvent[]
+  sessions      Session[]
+  shares        Share[]
+  Template      Template[]
 }
 
 model Account {
@@ -33,16 +30,14 @@ model Account {
   type              String
   provider          String
   providerAccountId String
-
-  refresh_token String? @db.Text
-  access_token  String? @db.Text
-  expires_at    Int?
-  token_type    String?
-  scope         String?
-  id_token      String? @db.Text
-  session_state String?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
 }
@@ -52,8 +47,7 @@ model Session {
   sessionToken String   @unique
   userId       String
   expires      DateTime
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model VerificationToken {
@@ -64,50 +58,56 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
-/**
- * 共有（既存機能）
- */
+/// *
+///  * 共有（既存機能）
 model Share {
-  id        String   @id @default(cuid())
+  id        String        @id @default(cuid())
   title     String
-  body      String?  @db.Text
-  isPublic  Boolean  @default(false)
-
+  body      String?
+  isPublic  Boolean       @default(false)
   ownerId   String?
-  owner     User?    @relation(fields: [ownerId], references: [id], onDelete: SetNull)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
   events    MetricEvent[]
+  owner     User?         @relation(fields: [ownerId], references: [id])
 
   @@index([ownerId, isPublic])
 }
 
-/**
- * 新規：メトリクスイベント（最小版）
- * - ts: クライアント送信の元時刻（ms/秒は後続で正規化）
- * - receivedAt: サーバ受領時刻（集計キー）
- * - props: 任意メタ（JSONB）
- * - user/ share は将来の結合用に任意紐付け
- */
+/// *
+///  * 新規：メトリクスイベント（最小版）
+///  * - ts: クライアント送信の元時刻（ms/秒は後続で正規化）
+///  * - receivedAt: サーバ受領時刻（集計キー）
+///  * - props: 任意メタ（JSONB）
+///  * - user/ share は将来の結合用に任意紐付け
 model MetricEvent {
   id         String   @id @default(cuid())
   event      String
   props      Json?
   ts         BigInt?
-
   receivedAt DateTime @default(now())
   ip         String?
   ua         String?
-
   userId     String?
   shareId    String?
-
-  user  User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
-  share Share? @relation(fields: [shareId], references: [id], onDelete: SetNull)
+  share      Share?   @relation(fields: [shareId], references: [id])
+  user       User?    @relation(fields: [userId], references: [id])
 
   @@index([event, receivedAt])
   @@index([userId, receivedAt])
   @@index([shareId, receivedAt])
+}
+
+/// === Template: ユーザーのテンプレ文面を保存 ===
+/// Note: userId は User.id（String想定）に外部キーで紐付け
+model Template {
+  id        String   @id @default(cuid())
+  title     String   @db.VarChar(255)
+  body      String
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "idx_template_user_id")
 }

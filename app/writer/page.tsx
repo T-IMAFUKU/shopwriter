@@ -1,230 +1,192 @@
 "use client";
 
 import * as React from "react";
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Separator } from "@/components/ui/separator";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectTrigger,
+  SelectContent,
+  SelectItem,
+  SelectValue,
+} from "@/components/ui/select";
 
-type Lang = "ja" | "en";
+type WriterMeta = {
+  style?: string;
+  tone?: string;
+  locale?: string;
+};
 
-export default function Page() {
-  const [prompt, setPrompt] = useState("");
-  const [language, setLanguage] = useState<Lang>("ja");
-  const [result, setResult] = useState("");
-  const [model, setModel] = useState<string | undefined>(undefined);
-  const [mock, setMock] = useState<boolean | undefined>(undefined);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
+type WriterResult = {
+  ok: boolean;
+  data?: {
+    meta?: WriterMeta;
+    text?: string;
+  };
+  error?: { message?: string };
+};
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+export default function WriterPage() {
+  const [prompt, setPrompt] = useState("新商品の紹介文を、要点を3つにまとめて作成してください。");
+  const [mode, setMode] = useState("product_card");
+  const [tone, setTone] = useState("friendly");   // 仕様：既定 friendly
+  const [locale, setLocale] = useState("ja");     // 仕様：既定 ja
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<string>("");
 
-    const trimmed = prompt.trim();
-    if (trimmed.length < 8) {
-      toast.error("入力は8文字以上にしてください（スナップショット前提）");
+  async function runWriter() {
+    if (!prompt.trim()) {
+      toast.error("プロンプトを入力してください。", { id: "writer" });
       return;
     }
 
-    // 既存ストリームを停止
-    if (abortRef.current) abortRef.current.abort();
-    abortRef.current = new AbortController();
-
+    setLoading(true);
     setResult("");
-    setModel(undefined);
-    setMock(undefined);
-    setIsStreaming(true);
-    toast.loading("ストリーミング開始...", { id: "writer" });
 
     try {
-      // 1st: /api/writer/stream（SSE/Chunk）を期待
-      let res = await fetch("/api/writer/stream", {
+      const res = await fetch("/api/writer", {
         method: "POST",
-        headers: { "Content-Type": "application/json; charset=utf-8" },
-        body: JSON.stringify({ prompt: trimmed, language }),
-        signal: abortRef.current.signal,
+        headers: { "content-type": "application/json; charset=utf-8" },
+        body: JSON.stringify({
+          mode,
+          input: { prompt },
+          options: { tone, locale },
+        }),
       });
 
-      // フォールバック: 404/405/500 等なら /api/writer を単発呼び出し
-      if (!res.ok && res.status !== 200) {
-        // JSON API フォールバック
-        const res2 = await fetch("/api/writer", {
-          method: "POST",
-          headers: { "Content-Type": "application/json; charset=utf-8" },
-          body: JSON.stringify({ prompt: trimmed, language }),
-          signal: abortRef.current.signal,
-        });
-        if (!res2.ok) {
-          const msg = await res2.text();
-          throw new Error(`/api/writer: ${res2.status} ${res2.statusText} — ${msg}`);
-        }
-        const payload = await res2.json().catch(async () => ({ text: await res2.text() }));
-        const text =
-          typeof payload?.text === "string" && payload.text.length > 0
-            ? payload.text
-            : JSON.stringify(payload, null, 2);
-        setResult(text);
-        setModel(typeof payload?.model === "string" ? payload.model : undefined);
-        setMock(typeof payload?.mock === "boolean" ? payload.mock : undefined);
-        toast.success("フォールバックで完了（/api/writer）", { id: "writer" });
+      const isJSON = res.headers.get("content-type")?.includes("application/json");
+      const data: WriterResult = isJSON ? await res.json().catch(() => ({ ok: false })) : { ok: false };
+
+      if (!res.ok || !data?.ok) {
+        const msg = data?.error?.message ?? `HTTP ${res.status}`;
+        toast.error(`生成に失敗しました: ${msg}`, { id: "writer" });
         return;
       }
 
-      // レスポンスヘッダに model 等があれば拾う
-      const hdrModel = res.headers.get("x-model") || res.headers.get("X-Model") || undefined;
-      if (hdrModel) setModel(hdrModel);
+      const text = data?.data?.text ?? "";
+      setResult(text);
 
-      const contentType = res.headers.get("content-type") || "";
-
-      // 逐次読み取り
-      const reader = res.body?.getReader();
-      if (!reader) {
-        throw new Error("ReadableStream が利用できません");
-      }
-
-      const decoder = new TextDecoder();
-      let buffered = "";
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-
-        // SSE 形式（`data:` 行）にも素直なテキストにも対応
-        buffered += chunk;
-
-        // 行単位で処理
-        const lines = buffered.split(/\r?\n/);
-        buffered = lines.pop() ?? ""; // 最後の未完はバッファに戻す
-
-        for (const line of lines) {
-          if (!line) continue;
-
-          // SSEのコメント/keepalive
-          if (line.startsWith(":")) continue;
-
-          if (line.startsWith("data:")) {
-            const data = line.replace(/^data:\s?/, "");
-            // JSONライン { "text": "...", "model": "...", "mock": true } にも対応
-            try {
-              const obj = JSON.parse(data);
-              if (typeof obj?.text === "string") {
-                setResult((prev) => prev + obj.text);
-              } else if (typeof obj === "string") {
-                setResult((prev) => prev + obj);
-              } else {
-                setResult((prev) => prev + JSON.stringify(obj));
-              }
-              if (typeof obj?.model === "string") setModel(obj.model);
-              if (typeof obj?.mock === "boolean") setMock(obj.mock);
-            } catch {
-              // 素のテキスト
-              setResult((prev) => prev + data);
-            }
-          } else {
-            // 非SSE（純テキスト/NDJSON等）
-            // NDJSON の場合は JSON なら text を拾う
-            try {
-              const obj = JSON.parse(line);
-              if (typeof obj?.text === "string") setResult((prev) => prev + obj.text);
-              else setResult((prev) => prev + JSON.stringify(obj));
-            } catch {
-              setResult((prev) => prev + line);
-            }
-          }
-        }
-      }
-
-      toast.success("ストリーミング完了", { id: "writer" });
-    } catch (err: any) {
-      if (err?.name === "AbortError") {
-        toast.message("ストリーミングを停止しました", { id: "writer" });
-      } else {
-        console.error(err);
-        toast.error(String(err?.message ?? err), { id: "writer" });
-      }
+      const meta = data?.data?.meta ?? {};
+      toast.success("生成に成功しました", {
+        id: "writer",
+        description: `style=${meta.style ?? "-"}, tone=${meta.tone ?? "-"}, locale=${meta.locale ?? "-"}`,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(`ネットワークエラー: ${msg}`, { id: "writer" });
     } finally {
-      setIsStreaming(false);
+      setLoading(false);
     }
-  }
-
-  function handleStop() {
-    abortRef.current?.abort();
-    setIsStreaming(false);
-  }
-
-  function handleClear() {
-    setPrompt("");
-    setResult("");
-    setModel(undefined);
-    setMock(undefined);
   }
 
   return (
     <main className="container mx-auto max-w-3xl px-4 py-8 space-y-6">
+      <header className="space-y-2">
+        <h1 className="text-2xl font-semibold tracking-tight">Writer — 生成テスト</h1>
+        <p className="text-sm text-muted-foreground">
+          /api/writer を呼び出してサンプル文面を生成します（既定: tone=friendly / locale=ja）。
+        </p>
+      </header>
+
       <Card>
         <CardHeader>
-          <CardTitle>Writer（Step 4/4：ストリーミング UI）</CardTitle>
+          <CardTitle>入力</CardTitle>
+          <CardDescription>プロンプトとオプションを設定して実行します。</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <form onSubmit={handleSubmit} className="space-y-4">
+        <CardContent className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="prompt">入力（8文字以上）</Label>
-              <Textarea
-                id="prompt"
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="例）春の新作ニットの魅力を、ECサイト向けに紹介してください。"
-                minLength={8}
-                required
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="language">言語コード</Label>
+              <Label htmlFor="mode">スタイル（mode）</Label>
               <Input
-                id="language"
-                value={language}
-                onChange={(e) => setLanguage((e.target.value as Lang) || "ja")}
-                placeholder="ja または en"
+                id="mode"
+                value={mode}
+                onChange={(e) => setMode(e.target.value)}
+                placeholder="例）product_card"
               />
             </div>
 
-            <div className="flex items-center gap-3">
-              <Button type="submit" disabled={isStreaming}>
-                {isStreaming ? "配信中…" : "生成（ストリーム）"}
-              </Button>
-              <Button type="button" variant="destructive" onClick={handleStop} disabled={!isStreaming}>
-                停止
-              </Button>
-              <Button type="button" variant="secondary" onClick={handleClear} disabled={isStreaming}>
-                クリア
-              </Button>
+            <div className="space-y-2">
+              <Label htmlFor="tone">トーン（tone）</Label>
+              <Select value={tone} onValueChange={setTone}>
+                <SelectTrigger id="tone" aria-label="tone">
+                  <SelectValue placeholder="選択…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="friendly">friendly（推奨）</SelectItem>
+                  <SelectItem value="neutral">neutral</SelectItem>
+                  <SelectItem value="professional">professional</SelectItem>
+                  <SelectItem value="casual">casual</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-          </form>
 
-          <Separator />
+            <div className="space-y-2">
+              <Label htmlFor="locale">ロケール（locale）</Label>
+              <Select value={locale} onValueChange={setLocale}>
+                <SelectTrigger id="locale" aria-label="locale">
+                  <SelectValue placeholder="選択…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ja">ja（推奨）</SelectItem>
+                  <SelectItem value="ja-JP">ja-JP</SelectItem>
+                  <SelectItem value="en">en</SelectItem>
+                  <SelectItem value="en-US">en-US</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
 
           <div className="space-y-2">
-            <Label>結果（リアルタイム）</Label>
-            <Card className="bg-muted/30">
-              <CardContent className="py-4">
-                {(model || mock !== undefined) && (
-                  <div className="mb-2 text-sm text-muted-foreground">
-                    {model ? `model: ${model}` : ""}
-                    {mock !== undefined ? `  mock: ${mock}` : ""}
-                  </div>
-                )}
-                <pre className="whitespace-pre-wrap text-sm leading-6 min-h-[120px]">
-                  {result || "（まだ結果はありません）"}
-                </pre>
-              </CardContent>
-            </Card>
+            <Label htmlFor="prompt">プロンプト</Label>
+            <Textarea
+              id="prompt"
+              rows={6}
+              placeholder="出力してほしい内容を入力…"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              aria-describedby="prompt-help"
+            />
+            <p id="prompt-help" className="text-xs text-muted-foreground">
+              例）新商品の特徴（素材・サイズ・使い方など）を要点で盛り込み、最後にCTAを1行入れてください。
+            </p>
           </div>
+        </CardContent>
+        <CardFooter className="flex items-center justify-between gap-3">
+          <Button type="button" onClick={runWriter} disabled={loading}>
+            {loading ? "生成中…" : "生成する"}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={loading}
+            onClick={() => {
+              setPrompt("");
+              setResult("");
+              toast.message("入力をクリアしました");
+            }}
+          >
+            クリア
+          </Button>
+        </CardFooter>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>出力</CardTitle>
+          <CardDescription>生成結果の本文とメタ情報を確認できます。</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="text-xs text-muted-foreground">
+            生成後、右上トーストに style / tone / locale が表示されます。
+          </div>
+          <pre className="min-h-40 whitespace-pre-wrap rounded-lg border bg-muted p-3 text-sm">
+            {result || "（まだ生成は実行されていません）"}
+          </pre>
         </CardContent>
       </Card>
     </main>

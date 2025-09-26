@@ -1,150 +1,70 @@
-// app/dashboard/share/[id]/page.tsx
-"use client";
+// app/dashboard/share/[id]/page.tsx  ———— 〈全文置換〉
+import { Metadata } from "next";
+import ShareCard from "@/components/share/ShareCard";
 
-import * as React from "react";
-import { useRouter, useParams } from "next/navigation";
+type ShareStatus = "public" | "draft";
 
-// ShareCard: default export。型を合わせるため ShareData も利用
-import ShareCard, { type ShareData } from "@/components/share/ShareCard";
+type ShareDetail = {
+  id: string;
+  title: string;
+  description: string | null;
+  status: ShareStatus; // 小文字で返る前提
+  createdAtISO: string;
+  updatedAtISO: string;
+};
 
-import { useNotify } from "@/components/providers/ToasterProvider";
+export const metadata: Metadata = {
+  title: "Share Detail",
+};
 
-export default function DashboardShareDetailPage() {
-  const router = useRouter();
-  const params = useParams<{ id: string }>();
-  const notify = useNotify();
+function mapStatusToCard(status: ShareStatus): "Public" | "Draft" {
+  return status === "public" ? "Public" : "Draft";
+}
 
-  const shareId = React.useMemo(() => String(params.id), [params.id]);
+async function getShare(id: string): Promise<ShareDetail> {
+  // 相対パス fetch（App Router のサーバー環境で可）
+  const url =
+    (process.env.NEXT_PUBLIC_APP_URL ?? "") + `/api/shares/${encodeURIComponent(id)}`;
+  const res = await fetch(url, {
+    // ビルド時キャッシュを抑止（常に最新）
+    cache: "no-store",
+    // Next.js の再検証ヒント（0=都度）
+    next: { revalidate: 0 },
+    headers: {
+      // ここで認証ヘッダが必要なら追加（DEV 用など）
+      // "X-User-Id": process.env.ALLOW_DEV_HEADER ? "dev-user" : "",
+    },
+  });
 
-  // 状態は ShareCard 側の型に統一
-  const [share, setShare] = React.useState<ShareData | null>(null);
-  const [loading, setLoading] = React.useState<boolean>(true);
-  // 親側でのビジー管理（UI抑止に使う場合はこのページ内で制御）
-  const [busy, setBusy] = React.useState<false | "generate" | "delete">(false);
-
-  // ---- 初回ロード -----------------------------------------------------------
-  const load = React.useCallback(async () => {
-    try {
-      setLoading(true);
-      const res = await fetch(`/api/shares/${shareId}`, {
-        method: "GET",
-        headers: { Accept: "application/json" },
-      });
-      if (!res.ok) {
-        notify.error("共有情報の取得に失敗しました");
-        setShare(null);
-        return;
-      }
-      const data = (await res.json()) as ShareData;
-      setShare(data);
-    } catch (e) {
-      console.error(e);
-      notify.error("共有情報の取得でエラーが発生しました");
-    } finally {
-      setLoading(false);
-    }
-  }, [shareId, notify]);
-
-  React.useEffect(() => {
-    load();
-  }, [load]);
-
-  // ---- onGenerate: 公開URLの生成/再生成 -------------------------------------
-  const handleGenerate = React.useCallback(async () => {
-    if (!share) return;
-    try {
-      setBusy("generate");
-      const res = await fetch(`/api/shares/${share.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ op: "regenerate", isPublic: true }),
-      });
-      if (!res.ok) {
-        notify.error("公開URLの生成に失敗しました");
-        return;
-      }
-      const data = (await res.json()) as ShareData;
-      setShare(data);
-      notify.success("公開URLを生成しました");
-    } catch (e) {
-      console.error(e);
-      notify.error("公開URLの生成でエラーが発生しました");
-    } finally {
-      setBusy(false);
-    }
-  }, [share, notify]);
-
-  // ---- onDelete: 共有レコード削除 -------------------------------------------
-  const handleDelete = React.useCallback(async () => {
-    if (!share) return;
-    const ok = window.confirm("この共有リンクを削除します。よろしいですか？");
-    if (!ok) return;
-
-    try {
-      setBusy("delete");
-      const res = await fetch(`/api/shares/${share.id}`, {
-        method: "DELETE",
-        headers: { Accept: "application/json" },
-      });
-      if (!res.ok) {
-        notify.error("削除に失敗しました");
-        return;
-      }
-      notify.success("削除しました");
-      router.push("/dashboard");
-    } catch (e) {
-      console.error(e);
-      notify.error("削除処理でエラーが発生しました");
-    } finally {
-      setBusy(false);
-    }
-  }, [share, notify, router]);
-
-  // ---- onChanged: ShareCard のシグネチャに厳密一致 (next?: ShareData) -------
-  const handleChanged = React.useCallback((next?: ShareData) => {
-    if (!next) return;
-    setShare((prev) => (prev ? { ...prev, ...next } : prev));
-  }, []);
-
-  // ---- レンダリング ---------------------------------------------------------
-  if (loading) {
-    return (
-      <div className="p-6">
-        <div className="animate-pulse h-6 w-40 rounded bg-muted mb-4" />
-        <div className="animate-pulse h-24 w-full rounded bg-muted" />
-      </div>
-    );
+  if (!res.ok) {
+    // 404/401 などは例外に
+    throw new Error(`Failed to fetch /api/shares/${id}: ${res.status}`);
   }
+  const data = (await res.json()) as ShareDetail;
+  return data;
+}
 
-  if (!share) {
-    return (
-      <div className="p-6">
-        <p className="text-sm text-muted-foreground">共有情報が見つかりませんでした。</p>
-      </div>
-    );
-  }
+export default async function Page({
+  params,
+}: {
+  params: { id: string };
+}) {
+  const id = params.id;
+  const item = await getShare(id);
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
-      <div className="mb-4">
-        <h1 className="text-xl font-semibold">共有リンクの管理</h1>
-        <p className="text-sm text-muted-foreground">ID: {share.id}</p>
-      </div>
+    <main className="container mx-auto max-w-4xl py-6">
+      <h1 className="mb-4 text-xl font-semibold">共有詳細</h1>
 
-      {/* ❌ loading プロップを渡さない（ShareCardProps に存在しないため） */}
       <ShareCard
-        share={share}
-        onGenerate={handleGenerate}
-        onDelete={handleDelete}
-        onChanged={handleChanged}
+        id={item.id}
+        title={item.title}
+        description={item.description ?? undefined}
+        // ★ 小文字 → 大文字マッピングで型を満たす
+        status={mapStatusToCard(item.status)}
+        createdAtISO={item.createdAtISO}
+        updatedAtISO={item.updatedAtISO}
       />
-
-      {/* 親側 busy を UI に反映したい場合は、必要に応じてここでボタンなどを無効化 */}
-      {busy && (
-        <p className="mt-4 text-xs text-muted-foreground">
-          実行中: {busy === "generate" ? "生成中" : "削除中"}…
-        </p>
-      )}
-    </div>
+    </main>
   );
 }

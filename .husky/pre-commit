@@ -1,0 +1,20 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+set -e
+
+# リポジトリルートへ
+cd "$(git rev-parse --show-toplevel)"
+
+echo "husky: pre-commit start"
+
+# package.json に test スクリプトが定義されているか判定（あれば 0、なければ 1）
+if node -e "const s=require('./package.json').scripts||{}; process.exit(s.test?0:1)"; then
+  echo "→ Running tests (pre-commit)"
+  # pnpm があれば pnpm、なければ npm を試行
+  (command -v pnpm >/dev/null 2>&1 && pnpm -s test) || npm -s test
+else
+  echo "→ No test script found. Skipping tests."
+fi
+
+echo "husky: pre-commit done"

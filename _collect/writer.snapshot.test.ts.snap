@@ -1,0 +1,11 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`/api/writer snapshot > 固定入力(>=8文字) → 安定スナップショット 1`] = `
+{
+  "meta": {
+    "model": "gpt-4o-mini",
+  },
+  "ok": true,
+  "output": "MOCK_OUTPUT",
+}
+`;

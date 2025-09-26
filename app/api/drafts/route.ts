@@ -5,9 +5,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * TEMP: Draft モデル廃止に伴うビルドエラー回避用スタブ。
- * - 旧 /api/drafts は 410 Gone を返す
- * - 今後は /api/shares 等に集約予定
+ * TEMP: Draft 繝｢繝・Ν蟒・ｭ｢縺ｫ莨ｴ縺・ン繝ｫ繝峨お繝ｩ繝ｼ蝗樣∩逕ｨ繧ｹ繧ｿ繝悶・
+ * - 譌ｧ /api/drafts 縺ｯ 410 Gone 繧定ｿ斐☆
+ * - 莉雁ｾ後・ /api/shares 遲峨↓髮・ｴ・ｺ亥ｮ・
  */
 
 function j(data: unknown, init?: number | ResponseInit) {

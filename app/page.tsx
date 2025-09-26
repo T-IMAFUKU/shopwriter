@@ -1,56 +1,32 @@
-﻿"use client";
-
+// app/page.tsx
 import Link from "next/link";
 
 export default function Home() {
   return (
-    <main className="p-6 max-w-5xl mx-auto space-y-10">
-      <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">ShopWriter</h1>
-        <nav className="flex gap-3">
-          {/* ← ここがポイント：callbackUrl=/writer を明示 */}
-          <Link
-            href="/api/auth/signin?callbackUrl=/writer"
-            className="px-4 py-2 rounded-md border shadow-sm"
-          >
-            GitHubでサインイン
-          </Link>
-        </nav>
-      </header>
+    <main className="mx-auto max-w-5xl px-6 py-8 space-y-6">
+      <h1 className="text-2xl font-bold">ShopWriter</h1>
 
-      <section className="space-y-3">
-        <h2 className="text-3xl font-extrabold leading-tight">
-          ShopWriter — 商品説明を、一瞬で。
-        </h2>
-        <p className="text-muted-foreground">
-          Next.js + Prisma 構成のライティング支援SaaS。ヒーロー＋3カードのトップページです。
-        </p>
+      <p className="text-sm leading-7">
+        日本語EC向けAIライティングのための実務特化アプリケーション。Zod契約・型チェック・テストで「生成精度アップ（Bプラン）」を継続改善中です。
+      </p>
 
-        <div className="flex gap-3">
-          <Link
-            href="/writer"
-            className="px-4 py-2 rounded-md border shadow-sm"
-          >
-            無料で試す
-          </Link>
-          <Link
-            href="/api/auth/signin?callbackUrl=/writer"
-            className="px-4 py-2 rounded-md border shadow-sm"
-          >
-            GitHubでサインイン
-          </Link>
-        </div>
+      <p className="space-x-3 text-sm">
+        <Link className="underline underline-offset-4" href="/dashboard">ダッシュボードへ</Link>
+        <Link className="underline underline-offset-4" href="/debug">デバッグツール</Link>
+      </p>
+
+      <section className="space-y-2">
+        <h2 className="text-xl font-semibold">開発メモ</h2>
+        <ul className="list-disc pl-6 space-y-1">
+          <li>UI基盤：shadcn/ui + Tailwind、Toaster = sonner</li>
+          <li>DB：Neon(PostgreSQL) / Prisma</li>
+          <li>ルール：小分け修正 → 検証 → 次へ</li>
+        </ul>
       </section>
 
-      {/* 以下はダミーUI（任意） */}
-      <section className="space-y-4">
-        <div className="rounded-xl border p-4 space-y-3">
-          <label className="block text-sm font-medium">商品名（例：速乾タオル）</label>
-          <input className="w-full border rounded-md px-3 py-2" placeholder="ShopWriter" />
-          <label className="block text-sm font-medium">想定読者</label>
-          <input className="w-full border rounded-md px-3 py-2" placeholder="WEBユーザー" />
-          <button className="px-4 py-2 rounded-md border shadow-sm">生成する</button>
-        </div>
+      <section className="pt-2">
+        <h2 className="text-xl font-semibold">次の一手</h2>
+        <p className="text-sm">共有・下書き・評価のフローを確認後、E2E検証を拡充します。</p>
       </section>
     </main>
   );

@@ -1,8 +1,9 @@
-// app/layout.tsx
 import "./globals.css";
 import type { Metadata } from "next";
-import * as React from "react";
-import ToasterProvider from "@/components/providers/ToasterProvider";
+import { Inter } from "next/font/google";
+import { ToasterProvider } from "@/components/providers/ToasterProvider";
+
+const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "ShopWriter",
@@ -16,8 +17,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ja">
-      <body>
-        <ToasterProvider>{children}</ToasterProvider>
+      <body className={inter.className}>
+        {children}
+        {/* グローバルに Toaster を1つだけ配置 */}
+        <ToasterProvider />
       </body>
     </html>
   );
