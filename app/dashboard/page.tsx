@@ -1,61 +1,78 @@
-﻿"use client"
+// app/dashboard/page.tsx  ———— 〈全文置換〉
+import { Metadata } from "next";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import ShareCard from "@/components/share/ShareCard";
 
-import * as React from "react"
-import Link from "next/link"
-import { PlusCircle } from "lucide-react"
-import ShareCard from "@/components/share/ShareCard"
-import { Button } from "@/components/ui/button"
+// ここは実際のデータ取得に置き換わる想定（例: fetch / prisma）
+// s.status は "public" | "draft" の小文字で返る想定
+type ShareStatus = "public" | "draft";
 
-// 仮のデータ型
-type Share = {
-  id: string
-  title: string
-  description?: string
-  status?: "public" | "private" | "draft"
-  createdAt?: string
-  updatedAt?: string
+type ShareItem = {
+  id: string;
+  title: string;
+  description?: string | null;
+  status: ShareStatus;
+  createdAtISO: string;
+  updatedAtISO: string;
+};
+
+export const metadata: Metadata = {
+  title: "Dashboard",
+};
+
+function mapStatusToCard(status: ShareStatus): "Public" | "Draft" {
+  return status === "public" ? "Public" : "Draft";
 }
 
-// ダッシュボードページ
-export default function DashboardPage() {
-  // ダミーデータ（本来はAPI呼び出しなど）
-  const [shares] = React.useState<Share[]>([
+async function getShares(): Promise<ShareItem[]> {
+  // TODO: 実装を差し替え
+  return [
     {
       id: "demo-1",
-      title: "サンプル共有1",
-      description: "これはサンプル説明です",
+      title: "デモ共有1",
+      description: "説明テキスト",
       status: "public",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAtISO: new Date().toISOString(),
+      updatedAtISO: new Date().toISOString(),
     },
     {
       id: "demo-2",
-      title: "サンプル共有2",
-      description: "別の説明文",
+      title: "デモ共有2",
+      description: null,
       status: "draft",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAtISO: new Date().toISOString(),
+      updatedAtISO: new Date().toISOString(),
     },
-  ])
-
-  return (
-    <div className="space-y-6 p-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">ダッシュボード</h1>
-        <Button asChild>
-          <Link href="/writer">
-            <PlusCircle className="mr-2 h-4 w-4" />
-            新規作成
-          </Link>
-        </Button>
-      </div>
-
-      <div className="grid gap-4">
-        {shares.map((s) => (
-          <ShareCard key={s.id} {...s} />
-        ))}
-      </div>
-    </div>
-  )
+  ];
 }
 
+export default async function Page() {
+  const shares = await getShares();
+
+  return (
+    <main className="container mx-auto max-w-5xl py-6">
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-xl font-semibold">Your Shares</h1>
+        <Link href="/dashboard/new">
+          <Button>新規作成</Button>
+        </Link>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        {shares.map((s) => (
+          <ShareCard
+            key={s.id}
+            id={s.id}
+            title={s.title}
+            description={s.description ?? undefined}
+            // ★ 小文字 → 大文字の型へマッピング
+            status={mapStatusToCard(s.status)}
+            createdAtISO={s.createdAtISO}
+            updatedAtISO={s.updatedAtISO}
+          />
+        ))}
+      </div>
+    </main>
+  );
+}

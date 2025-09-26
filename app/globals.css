@@ -1,4 +1,37 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-/* optional custom base */
-html, body { height: 100%; }
+/* =========================================
+   Base tokens（@apply を使わず CSS 変数直指定）
+   Tailwind v4 での unknown utility を回避
+   ========================================= */
+@layer base {
+  /* ここでは :root のトークン定義は触らず、既存の --background/--foreground/--border を利用 */
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+  }
+
+  /* 罫線色の統一（擬似要素も含む） */
+  *, *::before, *::after {
+    border-color: hsl(var(--border));
+  }
+
+  /* リスト系の背景ゆれ防止（必要最小限） */
+  ul, ol, li, menu {
+    background-color: hsl(var(--background));
+  }
+}
+
+/* =========================================
+   Components / Utilities は必要時のみ。@applyは禁止方針。
+   角丸・影・余白は JSX の className で指定する。
+   ========================================= */
+@layer components {
+  /* 例）必要になったらユーティリティ列挙で書く：.ui-card { border-radius: 1rem; } など */
+}
+
+@layer utilities {
+  /* 追加ユーティリティが必要になればここに */
+}

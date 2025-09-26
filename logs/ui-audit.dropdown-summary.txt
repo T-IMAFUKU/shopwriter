@@ -1,0 +1,12 @@
+
+Count Name
+----- ----
+   71 C:\Users\81905\shopwriter-new\components\ui\dropdown-menu.tsx
+   50 C:\Users\81905\shopwriter-new\node_modules\.pnpm\@radix-ui+react-dropdown-me_2f9d30c41a3f75b9d1b51e5e05592734\node_modules\@radix-ui\react-dropdown-menu\dist\index.d.ts
+   50 C:\Users\81905\shopwriter-new\node_modules\@radix-ui\react-dropdown-menu\dist\index.d.ts
+   23 C:\Users\81905\shopwriter-new\components\layout\Header.tsx
+   19 C:\Users\81905\shopwriter-new\backup\2025-09-22_components\ShareCard.tsx
+   19 C:\Users\81905\shopwriter-new\components\site\Header.tsx
+    9 C:\Users\81905\shopwriter-new\components\ui\dropdown-menu-trigger-button.tsx
+
+

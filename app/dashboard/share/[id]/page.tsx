@@ -1,43 +1,70 @@
-import * as React from "react"
-import Link from "next/link"
-import { ArrowLeft } from "lucide-react"
-import ShareCard from "@/components/share/ShareCard"
-import { Button } from "@/components/ui/button"
+// app/dashboard/share/[id]/page.tsx  ———— 〈全文置換〉
+import { Metadata } from "next";
+import ShareCard from "@/components/share/ShareCard";
 
-type Share = {
-  id: string
-  title: string
-  description?: string
-  status?: "public" | "private" | "draft"
-  createdAt?: string
-  updatedAt?: string
+type ShareStatus = "public" | "draft";
+
+type ShareDetail = {
+  id: string;
+  title: string;
+  description: string | null;
+  status: ShareStatus; // 小文字で返る前提
+  createdAtISO: string;
+  updatedAtISO: string;
+};
+
+export const metadata: Metadata = {
+  title: "Share Detail",
+};
+
+function mapStatusToCard(status: ShareStatus): "Public" | "Draft" {
+  return status === "public" ? "Public" : "Draft";
 }
 
-export default async function ShareDetailPage({ params }: { params: { id: string } }) {
-  const item: Share = {
-    id: params.id,
-    title: "共有の詳細",
-    description: "この画面は共有アイテムのプレビューです。",
-    status: "draft",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+async function getShare(id: string): Promise<ShareDetail> {
+  // 相対パス fetch（App Router のサーバー環境で可）
+  const url =
+    (process.env.NEXT_PUBLIC_APP_URL ?? "") + `/api/shares/${encodeURIComponent(id)}`;
+  const res = await fetch(url, {
+    // ビルド時キャッシュを抑止（常に最新）
+    cache: "no-store",
+    // Next.js の再検証ヒント（0=都度）
+    next: { revalidate: 0 },
+    headers: {
+      // ここで認証ヘッダが必要なら追加（DEV 用など）
+      // "X-User-Id": process.env.ALLOW_DEV_HEADER ? "dev-user" : "",
+    },
+  });
+
+  if (!res.ok) {
+    // 404/401 などは例外に
+    throw new Error(`Failed to fetch /api/shares/${id}: ${res.status}`);
   }
+  const data = (await res.json()) as ShareDetail;
+  return data;
+}
+
+export default async function Page({
+  params,
+}: {
+  params: { id: string };
+}) {
+  const id = params.id;
+  const item = await getShare(id);
 
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex items-center gap-3">
-        <Button asChild variant="ghost" size="sm">
-          <Link href="/dashboard">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            ダッシュボードへ戻る
-          </Link>
-        </Button>
-        <h1 className="text-xl font-semibold">共有の詳細</h1>
-      </div>
+    <main className="container mx-auto max-w-4xl py-6">
+      <h1 className="mb-4 text-xl font-semibold">共有詳細</h1>
 
-      <div className="max-w-3xl">
-        <ShareCard {...item} variant="card" />
-      </div>
-    </div>
-  )
+      <ShareCard
+        id={item.id}
+        title={item.title}
+        description={item.description ?? undefined}
+        // ★ 小文字 → 大文字マッピングで型を満たす
+        status={mapStatusToCard(item.status)}
+        createdAtISO={item.createdAtISO}
+        updatedAtISO={item.updatedAtISO}
+      />
+    </main>
+  );
 }

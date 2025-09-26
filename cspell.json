@@ -1,0 +1,28 @@
+{
+  "$schema": "https://raw.githubusercontent.com/streetsidesoftware/cspell/main/cspell.schema.json",
+  "version": "0.2",
+  "language": "en,ja",
+  "ignorePaths": [
+    "node_modules/**",
+    ".next/**",
+    "dist/**",
+    ".turbo/**",
+    "coverage/**"
+  ],
+  "allowCompoundWords": true,
+  "words": [
+    "ShopWriter",
+    "shadcn",
+    "NextAuth",
+    "RUNBOOK",
+    "pwsh",
+    "Vercel",
+    "Prisma",
+    "Neon",
+    "Zod",
+    "Vitest",
+    "Imafic",
+    "Inovista",
+    "sonner"
+  ]
+}

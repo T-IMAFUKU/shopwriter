@@ -1,88 +1,109 @@
-import * as React from "react";
+"use client";
 
-export type ShareStatus = "draft" | "public" | "private" | "archived";
+import Link from "next/link";
+import { useMemo } from "react";
 
-export type Share = {
+export type ShareCardProps = {
   id: string;
   title: string;
+  /** 本文：excerpt / description どちらでも可（後方互換） */
+  excerpt?: string;
   description?: string;
-  status?: ShareStatus;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-export type ShareCardProps = Share & {
-  /** 一部画面で指定される可変表示。未指定は "card" 扱い */
+  /** 呼び出し側が渡してくる公開状態（ダッシュボード互換） */
+  status?: "Public" | "Draft";
+  /** 明示リンク先（未指定なら /share/[id]） */
+  href?: string;
   variant?: "card" | "row";
-  className?: string;
+  /** ISO文字列（例: "2025-09-23T10:12:34.000Z"） */
+  createdAtISO?: string | null;
+  updatedAtISO?: string | null;
 };
 
-/**
- * 依存最小の安全版 ShareCard。
- * - 既存ページの `<ShareCard {...s} />` や `<ShareCard {...item} variant="card" />` に対応
- * - 文字化け復旧 / 型不整合の解消を優先し、UIはプレーンな div ベース
- */
+function useDateLabel(iso?: string | null) {
+  return useMemo(() => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    return new Intl.DateTimeFormat("ja-JP", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(d);
+  }, [iso]);
+}
+
 export default function ShareCard({
   id,
   title,
+  excerpt,
   description,
-  status = "draft",
-  createdAt,
-  updatedAt,
+  status,
+  href,
   variant = "card",
-  className,
+  createdAtISO,
+  updatedAtISO,
 }: ShareCardProps) {
-  const badge =
-    status === "public"
-      ? "bg-emerald-600 text-white"
-      : status === "private"
-      ? "bg-slate-600 text-white"
-      : status === "archived"
-      ? "bg-zinc-500 text-white"
-      : "bg-amber-500 text-white"; // draft
+  const created = useDateLabel(createdAtISO);
+  const updated = useDateLabel(updatedAtISO);
+  const link = href ?? `/share/${id}`;
+  const body = excerpt ?? description ?? "";
 
-  return (
-    <article
-      data-variant={variant}
-      className={
-        "rounded-xl border p-4 shadow-sm " +
-        (variant === "row" ? "flex items-center justify-between" : "space-y-2") +
-        (className ? " " + className : "")
-      }
+  const StatusChip = status ? (
+    <span
+      className="ml-2 inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] leading-none text-muted-foreground"
+      aria-label={`status: ${status}`}
+      title={status}
     >
-      <header className="flex items-start justify-between gap-4">
-        <h3 className="text-base font-semibold leading-tight">{title}</h3>
-        <span
-          className={
-            "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium " +
-            badge
-          }
-          aria-label={`status: ${status}`}
-        >
-          {status}
-        </span>
-      </header>
+      {status}
+    </span>
+  ) : null;
 
-      {description ? (
-        <p className="text-sm text-muted-foreground">{description}</p>
-      ) : null}
+  if (variant === "row") {
+    return (
+      <Link
+        href={link}
+        className="block w-full border rounded-xl p-4 hover:bg-accent transition"
+        data-testid="share-card-row"
+    >
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="font-medium line-clamp-1">
+            {title}
+            {StatusChip}
+          </h3>
+          <div className="text-xs text-muted-foreground shrink-0">
+            {updated || created}
+          </div>
+        </div>
+        {body ? (
+          <p className="mt-1 text-sm text-muted-foreground line-clamp-2">
+            {body}
+          </p>
+        ) : null}
+      </Link>
+    );
+  }
 
-      <dl className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-        {createdAt && (
-          <>
-            <dt className="opacity-70">Created</dt>
-            <dd>{createdAt}</dd>
-          </>
-        )}
-        {updatedAt && (
-          <>
-            <dt className="opacity-70">Updated</dt>
-            <dd>{updatedAt}</dd>
-          </>
-        )}
-        <dt className="opacity-70">ID</dt>
-        <dd>{id}</dd>
-      </dl>
-    </article>
+  // variant === "card"
+  return (
+    <Link
+      href={link}
+      className="block h-full border rounded-2xl p-5 hover:bg-accent transition"
+      data-testid="share-card-card"
+    >
+      <div className="space-y-2">
+        <h3 className="font-semibold text-base line-clamp-2">
+          {title}
+          {StatusChip}
+        </h3>
+        {body ? (
+          <p className="text-sm text-muted-foreground line-clamp-3">{body}</p>
+        ) : null}
+        <div className="pt-2 text-xs text-muted-foreground">
+          {updated ? `更新: ${updated}` : created ? `作成: ${created}` : ""}
+        </div>
+      </div>
+    </Link>
   );
 }

@@ -116,3 +116,14 @@ Set-Content -Path .\CONTEXT.md -Value @'
 - RUNBOOK / INDEX / CHANGELOG 更新トリガ: デプロイ / 仕様変更時
 - 週次点検: /api/writer E2E / KPI 確認 / 失敗時連絡先  
   '@
+
+## 14. API 検証の前提ルール
+
+- **User シード必須**: Template.userId は User.id への FK。開発時は `dev-user-1` を事前に DB へ投入。
+- **環境変数**:
+  - `ALLOW_DEV_HEADER=1` （開発時のみ）
+  - `DEBUG_TEMPLATE_API` は常時 OFF（診断時のみ一時的に ON）
+- **PowerShell の注意**: URL 変数展開は必ず `${id}` を使用すること。
+- **API 返却**: `{ ok, item:{ id,... } }` が基本形。id 取得は `$created.item.id`。
+- **プリフライト必須**: PATCH/DELETE の前に `OPTIONS` で `Allow` を確認。想定メソッドが無い場合はルーティング/認証/リダイレクト問題を疑う。
+- **検証ユーティリティ**: `scripts/api-test.ps1` を用い、POST→OPTIONS→PATCH→DELETE をワンショットで確認すること。
