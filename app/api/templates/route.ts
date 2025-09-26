@@ -1,125 +1,122 @@
 // app/api/templates/route.ts
-// Runtime: Node.js 固定（Edgeでは実行しない）
+import { NextRequest, NextResponse } from "next/server";
+import { getToken } from "next-auth/jwt";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { prisma } from "@/lib/prisma";
+
+// NextAuth を安定させるため Node ランタイムで固定（Edge だと Cookie/Session 取得が不安定なケース対策）
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-import { NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
-import { z } from "zod";
+// ★ 新ビルド反映の判定用（この文字がレスポンスに出れば新コード）
+const API_VER = "B2v7-templates-2025-09-27T04:30JST";
 
-const prisma = new PrismaClient();
+// JWT 復号（未設定でも email フォールバックで動作継続）
+const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET ?? undefined;
 
-// --- Schemas ---------------------------------------------------------------
-const TemplateCreateSchema = z.object({
-  title: z.string().min(1, "title は必須です").max(255),
-  body: z.string().min(1, "body は必須です"),
-});
-
-const TemplateListQuerySchema = z.object({
-  limit: z
-    .string()
-    .optional()
-    .transform((v) => (v ? Number(v) : 20))
-    .pipe(z.number().int().min(1).max(100)),
-});
-
-// --- Helpers ---------------------------------------------------------------
-function json(data: unknown, init?: ResponseInit) {
-  return NextResponse.json(data, init);
-}
-function err(status: number, message: string, issues?: unknown) {
-  return json({ ok: false, message, issues }, { status });
-}
-
-// --- Dev Auth（型安全・互換版）-------------------------------------------
-// ・本番(VERCEL=1 && NODE_ENV=production)では常に null（=401）
-// ・開発は ALLOW_DEV_HEADER=1 のときのみ以下を許可：
-//    1) ヘッダ x-user-id / X-User-Id（大小どちらでも）
-//    2) 予備: ?dev_user_id=... クエリ
-function getDevUserId(req: Request): string | null {
-  const isProd = process.env.VERCEL === "1" && process.env.NODE_ENV === "production";
-  if (isProd) return null;
-
-  if (process.env.ALLOW_DEV_HEADER !== "1") return null;
-
-  // まずは通常の get（大小2通り）
-  let fromHeader = req.headers.get("x-user-id") ?? req.headers.get("X-User-Id");
-
-  // 一部の環境で型定義差異があるため、イテレータを any 扱いでフォールバック
-  if (!fromHeader) {
+/**
+ * 認証ユーザーIDの確定（確実化）
+ * 優先: JWT.sub → session.user.email →（開発のみ）X-User-Id
+ */
+async function resolveUserId(req: NextRequest): Promise<string | null> {
+  // 1) JWT（__Secure-next-auth.session-token / next-auth.session-token）
+  if (NEXTAUTH_SECRET) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      for (const pair of req.headers as any) {
-        const [k, v] = pair as [unknown, unknown];
-        if (typeof k === "string" && k.toLowerCase() === "x-user-id" && typeof v === "string") {
-          fromHeader = v.trim();
-          break;
-        }
-      }
-    } catch {
-      // 何もしない（フォールバック失敗時は null のまま）
+      const token = await getToken({ req, secret: NEXTAUTH_SECRET });
+      const sub = (token?.sub as string | undefined) ?? null;
+      if (sub) return `gh:${sub}`;
+    } catch (e) {
+      console.warn("[templates] getToken failed:", e);
     }
   }
 
-  if (fromHeader && fromHeader.trim().length > 0) return fromHeader.trim();
+  // 2) NextAuth セッション（/api/auth/session で email が出ている事実に合わせる）
+  const session = await getServerSession(authOptions);
+  const email =
+    (session?.user as { email?: string } | null | undefined)?.email ?? null;
+  if (email) return `mail:${email.toLowerCase()}`;
 
-  const url = new URL(req.url);
-  const q = url.searchParams.get("dev_user_id");
-  if (q && q.trim().length > 0) return q.trim();
+  // 3) 本番はバイパス禁止
+  if (process.env.NODE_ENV === "production") return null;
+
+  // 4) 開発のみヘッダバイパス可（既存互換）
+  if (process.env.ALLOW_DEV_HEADER === "1") {
+    const id = req.headers.get("x-user-id");
+    if (id && id.trim()) return id.trim();
+  }
 
   return null;
 }
 
-// --- GET /api/templates ----------------------------------------------------
-// 一覧（ユーザー毎）: ?limit=20
-export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const qs = Object.fromEntries(url.searchParams.entries());
-  const parsed = TemplateListQuerySchema.safeParse(qs);
-  if (!parsed.success) {
-    return err(400, "クエリが不正です", parsed.error.flatten());
+// GET /api/templates?limit=50
+export async function GET(req: NextRequest) {
+  try {
+    const userId = await resolveUserId(req);
+    if (!userId) {
+      return NextResponse.json(
+        { ok: false, code: "UNAUTHORIZED", ver: API_VER },
+        { status: 401, headers: { "Cache-Control": "no-store" } }
+      );
+    }
+
+    const { searchParams } = new URL(req.url);
+    const limit = Math.min(
+      Math.max(parseInt(searchParams.get("limit") || "50", 10) || 50, 1),
+      100
+    );
+
+    const items = await prisma.template.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+    });
+
+    return NextResponse.json(
+      { ok: true, ver: API_VER, items },
+      { status: 200, headers: { "Cache-Control": "private, no-store" } }
+    );
+  } catch (err) {
+    console.error("[GET /api/templates] error:", err);
+    return NextResponse.json(
+      { ok: false, ver: API_VER, error: "Internal Server Error" },
+      { status: 500 }
+    );
   }
-
-  const userId = getDevUserId(req);
-  if (!userId) {
-    return err(401, "未認証です（開発は ALLOW_DEV_HEADER=1 + X-User-Id か ?dev_user_id=）");
-  }
-
-  const items = await prisma.template.findMany({
-    where: { userId },
-    orderBy: { createdAt: "desc" },
-    take: parsed.data.limit,
-    select: { id: true, title: true, body: true, userId: true, createdAt: true, updatedAt: true },
-  });
-
-  return json({ ok: true, items });
 }
 
-// --- POST /api/templates ---------------------------------------------------
-// 作成: { title, body }
-export async function POST(req: Request) {
-  const userId = getDevUserId(req);
-  if (!userId) {
-    return err(401, "未認証です（開発は ALLOW_DEV_HEADER=1 + X-User-Id か ?dev_user_id=）");
-  }
-
-  let jsonBody: unknown;
+// POST /api/templates
+// 期待入力: { title?: string, body?: string } ※ Prismaで body が必須なら空文字で埋める
+export async function POST(req: NextRequest) {
   try {
-    jsonBody = await req.json();
-  } catch {
-    return err(400, "JSON ではありません");
+    const userId = await resolveUserId(req);
+    if (!userId) {
+      return NextResponse.json(
+        { ok: false, code: "UNAUTHORIZED", ver: API_VER },
+        { status: 401, headers: { "Cache-Control": "no-store" } }
+      );
+    }
+
+    const payload = await req.json().catch(() => ({} as any));
+    const title: string =
+      typeof payload?.title === "string" && payload.title.trim()
+        ? payload.title.trim()
+        : "Untitled";
+    const body: string = typeof payload?.body === "string" ? payload.body : "";
+
+    const created = await prisma.template.create({
+      data: { userId, title, body },
+    });
+
+    return NextResponse.json(
+      { ok: true, ver: API_VER, item: created },
+      { status: 200 }
+    );
+  } catch (err) {
+    console.error("[POST /api/templates] error:", err);
+    return NextResponse.json(
+      { ok: false, ver: API_VER, error: "Internal Server Error" },
+      { status: 500 }
+    );
   }
-
-  const parsed = TemplateCreateSchema.safeParse(jsonBody);
-  if (!parsed.success) {
-    return err(400, "入力が不正です", parsed.error.flatten());
-  }
-
-  const { title, body } = parsed.data;
-
-  const created = await prisma.template.create({
-    data: { title, body, userId },
-    select: { id: true, title: true, body: true, userId: true, createdAt: true, updatedAt: true },
-  });
-
-  return json({ ok: true, item: created }, { status: 201 });
 }
