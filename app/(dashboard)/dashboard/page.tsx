@@ -35,12 +35,11 @@ export default function DashboardPage({
 
   return (
     <>
-      {/* Chart：range のみ連動（集計は全体） */}
+      {/* Chart：range のみ連動 */}
       <EventLogChart key={`chart-${days}`} days={days} />
 
-      {/* Table：range + level を連動 */}
-      {/* 型宣言が未対応でもブロックしないために一時的に as any で受け渡し */}
-      <EventLogTable key={`table-${days}-${level}`} {...({ days, level } as any)} />
+      {/* Table：range + level を連動（厳格型・as any 撤去） */}
+      <EventLogTable key={`table-${days}-${level}`} days={days} level={level} />
     </>
   );
 }
