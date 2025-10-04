@@ -1,7 +1,30 @@
 // app/(dashboard)/dashboard/layout.tsx
+"use client";
+
 import * as React from "react";
+import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
+
+const TABS = [
+  { key: "7d", label: "7日" },
+  { key: "14d", label: "14日" },
+  { key: "30d", label: "30日" },
+] as const;
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // range クエリ（未指定は 14d）
+  const current = (searchParams.get("range") ?? "14d").toLowerCase();
+
+  // href を安全に生成
+  const hrefOf = (k: string) => {
+    const sp = new URLSearchParams(searchParams?.toString() ?? "");
+    sp.set("range", k);
+    return `${pathname}?${sp.toString()}`;
+  };
+
   return (
     <section
       className="
@@ -19,11 +42,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           EventLog の集計を、表と簡易グラフで確認できます。
         </p>
 
-        {/* サブナビ（土台／見た目のみ） */}
-        <nav
-          aria-label="期間フィルタ"
-          className="mt-[var(--spacing-4)]"
-        >
+        {/* サブナビ（URL クエリ range と連動） */}
+        <nav aria-label="期間フィルタ" className="mt-[var(--spacing-4)]">
           <ul
             className="
               inline-flex
@@ -34,19 +54,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             "
             role="tablist"
           >
-            {[
-              { key: "7d", label: "7日" },
-              { key: "14d", label: "14日" },
-              { key: "30d", label: "30日" },
-            ].map((t, i) => {
-              const isActive = i === 1; // 仮：デフォルト14日
+            {TABS.map((t) => {
+              const isActive = current === t.key;
               return (
                 <li key={t.key} role="presentation">
-                  <button
+                  <Link
+                    href={hrefOf(t.key)}
                     role="tab"
                     aria-selected={isActive}
                     data-state={isActive ? "active" : "inactive"}
                     className="
+                      inline-flex items-center justify-center
                       min-w-[4.5rem]
                       px-[var(--spacing-3)]
                       py-[calc(var(--spacing-2)*0.9)]
@@ -64,7 +82,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     "
                   >
                     {t.label}
-                  </button>
+                  </Link>
                 </li>
               );
             })}
