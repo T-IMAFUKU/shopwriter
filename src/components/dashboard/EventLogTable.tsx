@@ -1,126 +1,198 @@
 // src/components/dashboard/EventLogTable.tsx
-import { type EventLog, EventLevel } from "@prisma/client";
+import * as React from "react";
+import type { EventLog } from "@prisma/client";
+import { cn } from "@/lib/utils";
 
 /**
- * EventLog を一覧表示するテーブル（サーバコンポーネント）
- * - 純HTMLテーブル + Tailwind（shadcn/ui 依存なし）
- * - 表示カラム：日時 / レベル / カテゴリ / イベント / URL / 参照 / ユーザー / セッション / ペイロード
+ * EventLog の最小テーブル
+ * - 最大10行（page.tsx 側で take:10）
+ * - 空データ時は「データがありません」
+ * - ペイロードは横スクロール
+ * - Badge 色は UIトークンのみ（INFO / WARN / ERROR）
+ * - 型対応:
+ *   - th/td はネイティブ属性(title 等)を許可
+ *   - 「参照」列はスキーマ差異に耐える安全アクセサ（refType/referer/referrer/refId/ref など探査）
  */
-export default function EventLogTable({ logs }: { logs: EventLog[] }) {
-  if (!logs?.length) {
+
+type Props = {
+  logs: EventLog[] | null | undefined;
+};
+
+export default function EventLogTable({ logs }: Props) {
+  const rows = Array.isArray(logs) ? logs : [];
+
+  if (rows.length === 0) {
     return (
       <div
-        className="text-sm text-muted-foreground border"
+        className="border bg-muted/40 text-muted-foreground"
         style={{
+          borderRadius: "var(--ui-radius-xl)",
           padding: "var(--spacing-4)",
-          borderRadius: "var(--ui-radius-lg)",
         }}
       >
-        EventLog はまだありません。
+        データがありません。
       </div>
     );
   }
 
   return (
     <div
-      className="border overflow-x-auto"
-      style={{ borderRadius: "var(--ui-radius-lg)" }}
+      className="border bg-background"
+      style={{
+        borderRadius: "var(--ui-radius-xl)",
+        padding: "var(--spacing-3)",
+      }}
     >
-      <table className="w-full text-sm">
-        <thead className="bg-muted/50 text-left">
-          <tr>
-            <th style={{ padding: "var(--spacing-2) var(--spacing-3)" }}>日時</th>
-            <th style={{ padding: "var(--spacing-2) var(--spacing-3)" }}>Lv</th>
-            <th style={{ padding: "var(--spacing-2) var(--spacing-3)" }}>カテゴリ</th>
-            <th style={{ padding: "var(--spacing-2) var(--spacing-3)" }}>イベント</th>
-            <th style={{ padding: "var(--spacing-2) var(--spacing-3)" }}>URL</th>
-            <th style={{ padding: "var(--spacing-2) var(--spacing-3)" }}>参照</th>
-            <th style={{ padding: "var(--spacing-2) var(--spacing-3)" }}>ユーザー</th>
-            <th style={{ padding: "var(--spacing-2) var(--spacing-3)" }}>セッション</th>
-            <th style={{ padding: "var(--spacing-2) var(--spacing-3)" }}>ペイロード</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y">
-          {logs.map((row) => (
-            <tr key={row.id} className="align-top">
-              <td className="whitespace-nowrap" style={{ padding: "var(--spacing-2) var(--spacing-3)" }}>
-                {formatJST(row.createdAt)}
-              </td>
-              <td className="whitespace-nowrap" style={{ padding: "var(--spacing-2) var(--spacing-3)" }}>
-                <LevelBadge level={row.level} />
-              </td>
-              <td className="whitespace-nowrap" style={{ padding: "var(--spacing-2) var(--spacing-3)" }}>
-                {row.category ?? "-"}
-              </td>
-              <td className="whitespace-nowrap font-medium" style={{ padding: "var(--spacing-2) var(--spacing-3)" }}>
-                {row.event}
-              </td>
-              <td className="whitespace-nowrap" style={{ padding: "var(--spacing-2) var(--spacing-3)" }}>
-                {row.url ?? "-"}
-              </td>
-              <td className="whitespace-nowrap" style={{ padding: "var(--spacing-2) var(--spacing-3)" }}>
-                {row.refType ? `${row.refType}${row.refId ? `:${row.refId}` : ""}` : "-"}
-              </td>
-              <td className="whitespace-nowrap" style={{ padding: "var(--spacing-2) var(--spacing-3)" }}>
-                {row.userId ?? "-"}
-              </td>
-              <td className="whitespace-nowrap" style={{ padding: "var(--spacing-2) var(--spacing-3)" }}>
-                {row.sessionId ?? "-"}
-              </td>
-              <td style={{ padding: "var(--spacing-2) var(--spacing-3)" }}>
-                <code className="text-xs">{shortJson(row.payload) ?? "-"}</code>
-              </td>
+      <div className="w-full overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="text-muted-foreground">
+            <tr>
+              <Th>日時</Th>
+              <Th className="w-[80px]">Lv</Th>
+              <Th className="min-w-[110px]">カテゴリ</Th>
+              <Th className="min-w-[140px]">イベント</Th>
+              <Th className="min-w-[120px]">URL</Th>
+              <Th className="w-[120px]">参照</Th>
+              <Th className="w-[110px]">ユーザー</Th>
+              <Th className="w-[120px]">セッション</Th>
+              <Th className="min-w-[360px]">ペイロード</Th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id} className="border-t">
+                <Td className="whitespace-nowrap">{fmtDateTime(r.createdAt)}</Td>
+                <Td>
+                  <LevelBadge level={(r as any).level} />
+                </Td>
+                <Td className="truncate" title={(r as any).category ?? ""}>
+                  {(r as any).category ?? "-"}
+                </Td>
+                <Td className="truncate" title={(r as any).event ?? ""}>
+                  {(r as any).event ?? "-"}
+                </Td>
+                <Td className="truncate" title={(r as any).url ?? ""}>
+                  {(r as any).url ?? "-"}
+                </Td>
+                <Td className="truncate" title={getReference(r)}>
+                  {getReference(r)}
+                </Td>
+                <Td className="truncate" title={String((r as any).userId ?? "")}>
+                  {(r as any).userId ?? "-"}
+                </Td>
+                <Td className="truncate" title={String((r as any).sessionId ?? "")}>
+                  {(r as any).sessionId ?? "-"}
+                </Td>
+                <Td>
+                  <div
+                    className="rounded border bg-muted/30"
+                    style={{
+                      padding: "var(--spacing-2)",
+                      maxHeight: 80,
+                      overflowX: "auto",
+                      overflowY: "auto",
+                      whiteSpace: "nowrap",
+                    }}
+                    title={toPreview((r as any).payload)}
+                  >
+                    <code className="text-xs">{toPreview((r as any).payload)}</code>
+                  </div>
+                </Td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
 
-function LevelBadge({ level }: { level: EventLevel }) {
-  const styles =
-    level === "ERROR"
-      ? "bg-destructive/15 text-destructive border-destructive/30"
-      : level === "WARN"
-      ? "bg-amber-500/15 text-amber-700 border-amber-500/30"
-      : "bg-muted text-foreground/80 border-border";
+/* ---------- UI 部品（th/td にネイティブ属性を許可） ---------- */
+
+function Th(
+  { children, className, ...rest }: React.PropsWithChildren<
+    React.ThHTMLAttributes<HTMLTableCellElement>
+  >
+) {
+  return (
+    <th className={cn("text-left font-medium px-3 py-2", className)} {...rest}>
+      {children}
+    </th>
+  );
+}
+
+function Td(
+  { children, className, ...rest }: React.PropsWithChildren<
+    React.TdHTMLAttributes<HTMLTableCellElement>
+  >
+) {
+  return (
+    <td className={cn("align-top px-3 py-2", className)} {...rest}>
+      {children}
+    </td>
+  );
+}
+
+function LevelBadge({ level }: { level?: string | null }) {
+  const lv = String(level ?? "INFO").toUpperCase();
+  const styleMap: Record<string, { cls: string }> = {
+    INFO: { cls: "bg-secondary text-secondary-foreground" },
+    WARN: { cls: "bg-primary/10 text-primary" },
+    WARNING: { cls: "bg-primary/10 text-primary" },
+    ERROR: { cls: "bg-destructive/10 text-destructive" },
+  };
+  const sty = styleMap[lv] ?? styleMap.INFO;
 
   return (
     <span
-      className={`inline-flex items-center border text-xs ${styles}`}
-      style={{
-        borderRadius: "var(--ui-radius-md)",
-        padding: "0 var(--spacing-2)",
-        lineHeight: "var(--spacing-4)",
-      }}
+      className={cn(
+        "inline-flex items-center justify-center text-[11px] font-semibold",
+        "px-2 py-[3px] rounded-full border",
+        sty.cls
+      )}
+      style={{ borderColor: "transparent", minWidth: 44 }}
     >
-      {level}
+      {lv}
     </span>
   );
 }
 
-function shortJson(data: unknown, max = 80): string | null {
-  if (!data) return null;
-  try {
-    const s = JSON.stringify(data);
-    return s.length > max ? s.slice(0, max - 1) + "…" : s;
-  } catch {
-    return String(data);
-  }
+/* ---------- helper ---------- */
+
+// 参照情報：スキーマ差異に耐える（存在するキーを順に採用）
+function getReference(r: EventLog): string {
+  const x = r as any;
+  return (
+    x.referrer ??           // 一般
+    x.referer ??            // 拼写ゆれ
+    x.ref ??                // 短縮
+    x.refId ??              // ID
+    x.refType ??            // 種別
+    "-"
+  );
 }
 
-function formatJST(date: Date) {
-  const d = new Date(date);
-  return new Intl.DateTimeFormat("ja-JP", {
-    timeZone: "Asia/Tokyo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  })
-    .format(d)
-    .replaceAll("/", "-");
+function fmtDateTime(input: Date | string): string {
+  const d = new Date(input);
+  // 例: 2025-10-03 12:59
+  return d
+    .toLocaleString("ja-JP", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    })
+    .replace(/\//g, "-");
+}
+
+function toPreview(payload: unknown): string {
+  try {
+    if (payload == null) return "-";
+    if (typeof payload === "string") return payload;
+    return JSON.stringify(payload);
+  } catch {
+    return "-";
+  }
 }
