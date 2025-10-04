@@ -1,0 +1,54 @@
+app/api/templates/[id]/route.ts:79:    title: z.string().min(1).max(120), // title蠢・茨ｼ・I縺系otify縺励ｄ縺吶＞遒ｺ螳壼梛・・
+app/api/templates/route.ts:146:      status: 200, // 繝輔Ο繝ｳ繝医・ status 縺ｫ萓晏ｭ倥○縺・ok:true 繧定ｦ九※ notify 縺吶ｋ險ｭ險・
+app/debug/drafts-post/page.tsx:9:// 笘・sonner逶ｴ蜻ｼ縺ｳ蜃ｺ縺励・遖∵ｭ｢縲Ｏotify邨檎罰縺ｫ邨ｱ荳・育嶌蟇ｾ繝代せ縺ｧ遒ｺ螳溯ｧ｣豎ｺ・・
+app/debug/drafts-post/page.tsx:10:import { notifySuccess, notifyError } from "../../../src/lib/notify";
+app/debug/drafts-post/page.tsx:30:      notifyError("蜈･蜉帙お繝ｩ繝ｼ 窶・繧ｿ繧､繝医Ν縺ｨ蜀・ｮｹ縺ｯ蠢・医〒縺吶・);
+app/debug/drafts-post/page.tsx:46:        notifyError(`菴懈・縺ｫ螟ｱ謨励＠縺ｾ縺励◆: ${msg}`);
+app/debug/drafts-post/page.tsx:51:      notifySuccess(`荳区嶌縺阪ｒ菴懈・縺励∪縺励◆・・d: ${id}・荏);
+app/debug/drafts-post/page.tsx:55:      notifyError(`繝阪ャ繝医Ρ繝ｼ繧ｯ繧ｨ繝ｩ繝ｼ: ${msg}`);
+app/page.tsx:5:import { notify } from "@/lib/notify"; // 竊・named import 縺ｫ邨ｱ荳
+app/page.tsx:10:    notify("debug ping", "info");
+app/page.tsx:18:          繝医・繧ｹ繝域､懆ｨｼ逕ｨ・壼承荳翫↓陦ｨ遉ｺ縺輔ｌ繧後・OK・・onner / notify 邨檎罰・峨・app/page.tsx:22:          <Button onClick={() => notify("manual ping", "info")} variant="default">
+app/page.tsx:25:          <Button onClick={() => notify("謫堺ｽ懈・蜉溘・萓・, "success")} variant="secondary">
+app/page.tsx:28:          <Button onClick={() => notify("謫堺ｽ懷､ｱ謨励・萓・, "error")} variant="destructive">
+app/providers.tsx:16: * - duration 縺ｯ src/lib/notify.ts 蛛ｴ縺ｧ邨ｱ荳・・uccess=2600ms / error=4000ms / info=2600ms・・
+backup/2025-09-22_components/ShareCard.tsx:20:// 笘・sonner逶ｴ蜻ｼ縺ｳ蜃ｺ縺励・遖∵ｭ｢縲る夂衍縺ｯ縺吶∋縺ｦ notify 邨檎罰縺ｫ邨ｱ荳・育嶌蟇ｾ繝代せ縺ｧ遒ｺ螳溯ｧ｣豎ｺ・・
+backup/2025-09-22_components/ShareCard.tsx:22:  notifySuccess,
+backup/2025-09-22_components/ShareCard.tsx:23:  notifyError,
+backup/2025-09-22_components/ShareCard.tsx:24:  notifyInfo,
+backup/2025-09-22_components/ShareCard.tsx:25:} from "../../src/lib/notify";
+backup/2025-09-22_components/ShareCard.tsx:80:      notifySuccess("蜈ｱ譛蔚RL繧偵さ繝斐・縺励∪縺励◆", { description: url, id: "share-copy" });
+backup/2025-09-22_components/ShareCard.tsx:82:      notifyError("繧ｳ繝斐・縺ｫ螟ｱ謨励＠縺ｾ縺励◆", { id: "share-copy" });
+backup/2025-09-22_components/ShareCard.tsx:89:    notifyInfo("蜈ｱ譛峨・繝ｼ繧ｸ繧呈眠縺励＞繧ｿ繝悶〒髢九″縺ｾ縺励◆", { id: "share-open", duration: 2600 });
+backup/2025-09-22_components/ShareCard.tsx:95:      notifySuccess("蜀・ｮｹ繧貞・逕滓・縺励∪縺励◆", { id: "share-regenerate" });
+backup/2025-09-22_components/ShareCard.tsx:97:      notifyError("蜀咲函謌舌↓螟ｱ謨励＠縺ｾ縺励◆", { id: "share-regenerate" });
+backup/2025-09-22_components/ShareCard.tsx:104:      notifySuccess("蜑企勁縺励∪縺励◆", { id: "share-delete" });
+backup/2025-09-22_components/ShareCard.tsx:107:      notifyError("蜑企勁縺ｫ螟ｱ謨励＠縺ｾ縺励◆", { id: "share-delete" });
+backup/2025-09-22_debug/textarea.page.tsx:13:// 笘・sonner 逶ｴ蜻ｼ縺ｳ蜃ｺ縺励・遖∵ｭ｢縲る夂衍縺ｯ notify 邨檎罰縺ｫ邨ｱ荳
+backup/2025-09-22_debug/textarea.page.tsx:14:import { notifySuccess, notifyError } from "../../src/lib/notify";
+backup/2025-09-22_debug/textarea.page.tsx:46:      notifySuccess("騾∽ｿ｡縺励∪縺励◆", {
+backup/2025-09-22_debug/textarea.page.tsx:52:      notifyError("騾∽ｿ｡荳ｭ縺ｫ繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆");
+hooks/use-toast.ts:4: * useToast 繝輔ャ繧ｯ・・otify.ts 邨檎罰縺ｫ荳譛ｬ蛹悶・逶ｸ蟇ｾ繝代せ迚茨ｼ・
+hooks/use-toast.ts:5: * - sonner 繧堤峩謗･ import 縺帙★縲《rc/lib/notify.ts 縺ｫ邨ｱ荳
+hooks/use-toast.ts:6: * - 蜿ｳ荳雁崋螳夲ｼ修UD豺｡濶ｲ・重uration・域・蜉・2600ms, 螟ｱ謨・4000ms・峨・ notify 蛛ｴ縺ｧ諡・ｿ・
+hooks/use-toast.ts:7: * - 繧ｨ繧､繝ｪ繧｢繧ｹ隗｣豎ｺ縺ｮ謠ｺ繧後ｒ驕ｿ縺代ｋ縺溘ａ縲∫嶌蟇ｾ繝代せ・・./src/lib/notify・峨ｒ菴ｿ逕ｨ
+hooks/use-toast.ts:11:  notify,
+hooks/use-toast.ts:12:  notifySuccess,
+hooks/use-toast.ts:13:  notifyError,
+hooks/use-toast.ts:14:  notifyInfo,
+hooks/use-toast.ts:15:  notifySaved,
+hooks/use-toast.ts:16:} from "../src/lib/notify";
+hooks/use-toast.ts:20:    toast: notify, // 譌ｧAPI莠呈鋤
+hooks/use-toast.ts:21:    notify,
+hooks/use-toast.ts:22:    notifySuccess,
+hooks/use-toast.ts:23:    notifyError,
+hooks/use-toast.ts:24:    notifyInfo,
+hooks/use-toast.ts:25:    notifySaved,
+hooks/use-toast.ts:30:export const toast = notify;
+lib/notify.ts:4: * notify・井ｺ呈鋤繝ｬ繧､繝､・・
+lib/notify.ts:23:export const notify = {
+lib/notify.ts:46:   * 譌｢蟄倥→縺ｮ莠呈鋤: 蜻ｼ縺ｳ蜃ｺ縺怜・縺ｯ `await notify.promise(p, ... )` 縺ｨ譖ｸ縺代ｋ
+lib/notify.ts:102:export default notify;
+lib/notify.ts:105: * 繝悶Λ繧ｦ繧ｶ Console: window.__notifySmoke?.()
+lib/notify.ts:109:    __notifySmoke?: () => void;
+lib/notify.ts:113:  window.__notifySmoke = () => notify.info("notify 襍ｷ蜍輔ユ繧ｹ繝・);

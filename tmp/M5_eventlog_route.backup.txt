@@ -1,0 +1,51 @@
+// app/api/eventlog/route.ts
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { prisma } from "@/lib/prisma"; // 既存: src/lib/prisma.ts を想定
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const EventLogSchema = z.object({
+  category: z.string().min(1),                // 例: "ui"
+  event: z.string().min(1),                   // 例: "template.select"
+  level: z.enum(["INFO", "WARN", "ERROR"]),   // DoDで使用: "INFO"
+  payload: z.record(z.any()).optional().default({}),
+});
+
+export async function POST(req: Request) {
+  try {
+    // X-User-Id / X-Session-Id は任意
+    const userId = req.headers.get("x-user-id") ?? undefined;
+    const sessionId = req.headers.get("x-session-id") ?? undefined;
+
+    const json = await req.json().catch(() => ({}));
+    const parsed = EventLogSchema.safeParse(json);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { ok: false, error: { message: "Invalid body", issues: parsed.error.flatten() } },
+        { status: 400 }
+      );
+    }
+
+    const { category, event, level, payload } = parsed.data;
+
+    // Prisma への保存
+    const row = await prisma.eventLog.create({
+      data: {
+        category,
+        event,
+        level,
+        payload,      // Prisma の JSON 列を想定（schema に存在しない場合は自動で 400/500 になります）
+        userId,       // Prisma のモデルで Optional を想定
+        sessionId,    // Prisma のモデルで Optional を想定
+      },
+    });
+
+    return NextResponse.json({ ok: true, data: { id: row.id } }, { status: 201 });
+  } catch (e) {
+    // 予期せぬ失敗は 500
+    return NextResponse.json({ ok: false, error: { message: "Internal error" } }, { status: 500 });
+  }
+}
+

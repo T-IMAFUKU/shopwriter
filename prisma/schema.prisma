@@ -111,3 +111,42 @@ model Template {
 
   @@index([userId], map: "idx_template_user_id")
 }
+
+enum EventLevel {
+  INFO
+  WARN
+  ERROR
+}
+
+model EventLog {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  // who
+  userId    String? // NextAuthのuser.id（匿名はnull）
+  sessionId String? // セッションやクライアント識別子
+
+  // what
+  category String? // "ui" | "api" | "system" など（将来enum化可）
+  event    String // 例: "template.select", "draft.create", "share.copy"
+  level    EventLevel @default(INFO)
+
+  // where
+  url     String? // 相対パス等: "/writer", "/templates"
+  refType String? // 関連種別: "draft" | "template" | "share" 等
+  refId   String? // 関連ID
+
+  // metrics
+  durationMs Int? // 計測ms
+  // data
+  payload    Json? // 任意イベントデータ（小さめ推奨）
+  context    Json? // 端末・UA・ABテスト等の文脈情報
+
+  // optional device info
+  ip        String? // 必要な場合のみ（PII配慮）
+  userAgent String? // UA文字列
+
+  @@index([createdAt], map: "idx_eventlog_created_at")
+  @@index([category, event], map: "idx_eventlog_category_event")
+  @@index([userId, createdAt], map: "idx_eventlog_user_created")
+}

@@ -1,32 +1,34 @@
-// app/page.tsx
-import Link from "next/link";
+"use client";
 
-export default function Home() {
+import { useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { notify } from "@/lib/notify"; // ← named import に統一
+
+export default function HomePage() {
+  // 初回レンダー時に軽いデバッグトースト
+  useEffect(() => {
+    notify("debug ping", "info");
+  }, []);
+
   return (
-    <main className="mx-auto max-w-5xl px-6 py-8 space-y-6">
-      <h1 className="text-2xl font-bold">ShopWriter</h1>
+    <main className="p-6">
+      <section className="mx-auto max-w-2xl space-y-4">
+        <h1 className="text-2xl font-semibold tracking-tight">ShopWriter</h1>
+        <p className="text-sm text-muted-foreground">
+          トースト検証用：右上に表示されればOK（sonner / notify 経由）。
+        </p>
 
-      <p className="text-sm leading-7">
-        日本語EC向けAIライティングのための実務特化アプリケーション。Zod契約・型チェック・テストで「生成精度アップ（Bプラン）」を継続改善中です。
-      </p>
-
-      <p className="space-x-3 text-sm">
-        <Link className="underline underline-offset-4" href="/dashboard">ダッシュボードへ</Link>
-        <Link className="underline underline-offset-4" href="/debug">デバッグツール</Link>
-      </p>
-
-      <section className="space-y-2">
-        <h2 className="text-xl font-semibold">開発メモ</h2>
-        <ul className="list-disc pl-6 space-y-1">
-          <li>UI基盤：shadcn/ui + Tailwind、Toaster = sonner</li>
-          <li>DB：Neon(PostgreSQL) / Prisma</li>
-          <li>ルール：小分け修正 → 検証 → 次へ</li>
-        </ul>
-      </section>
-
-      <section className="pt-2">
-        <h2 className="text-xl font-semibold">次の一手</h2>
-        <p className="text-sm">共有・下書き・評価のフローを確認後、E2E検証を拡充します。</p>
+        <div className="flex gap-2">
+          <Button onClick={() => notify("manual ping", "info")} variant="default">
+            再検査（info）
+          </Button>
+          <Button onClick={() => notify("操作成功の例", "success")} variant="secondary">
+            成功トースト
+          </Button>
+          <Button onClick={() => notify("操作失敗の例", "error")} variant="destructive">
+            失敗トースト
+          </Button>
+        </div>
       </section>
     </main>
   );

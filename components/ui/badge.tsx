@@ -1,4 +1,3 @@
-// components/ui/badge.tsx  ———— 〈全文置換〉
 "use client";
 
 import * as React from "react";
@@ -6,9 +5,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 /**
- * Tailwind v4 対応:
- * - 旧トークン（bg-primary 等）ではなく任意値クラスで変数参照
- * - コメントに 'border-border' を含めない（誤検知防止）
+ * 透明背景を廃止。outline も token 背景を採用して視認性を担保。
  */
 export const badgeVariants = cva(
   "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors " +
@@ -24,7 +21,7 @@ export const badgeVariants = cva(
         destructive:
           "bg-[hsl(var(--destructive))] text-[hsl(var(--destructive-foreground))] border-transparent",
         outline:
-          "bg-transparent text-[hsl(var(--foreground))] border-[hsl(var(--border))]",
+          "bg-[hsl(var(--background))] text-[hsl(var(--foreground))] border-[hsl(var(--border))]",
       },
     },
     defaultVariants: {

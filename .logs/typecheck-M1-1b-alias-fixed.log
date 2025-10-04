@@ -1,0 +1,20 @@
+
+> shopwriter-app@0.1.0 typecheck C:\Users\81905\shopwriter-new
+> tsc --noEmit
+
+backup/2025-09-22_app/page.tsx(7,6): error TS17008: JSX element 'main' has no corresponding closing tag.
+backup/2025-09-22_app/page.tsx(43,8): error TS17008: JSX element 'section' has no corresponding closing tag.
+backup/2025-09-22_app/page.tsx(45,85): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+backup/2025-09-22_app/page.tsx(47,70): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+backup/2025-09-22_app/page.tsx(50,11): error TS17002: Expected corresponding JSX closing tag for 'label'.
+backup/2025-09-22_app/page.tsx(51,9): error TS17002: Expected corresponding JSX closing tag for 'label'.
+backup/2025-09-22_app/page.tsx(52,7): error TS17002: Expected corresponding JSX closing tag for 'div'.
+backup/2025-09-22_app/page.tsx(54,1): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+backup/2025-09-22_app/page.tsx(56,1): error TS1005: '</' expected.
+backup/2025-09-22_components/Header.tsx(18,16): error TS17008: JSX element 'Link' has no corresponding closing tag.
+backup/2025-09-22_components/Header.tsx(18,114): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+backup/2025-09-22_components/Header.tsx(21,16): error TS17008: JSX element 'Link' has no corresponding closing tag.
+backup/2025-09-22_components/Header.tsx(21,108): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+backup/2025-09-22_components/Header.tsx(27,28): error TS17008: JSX element 'Link' has no corresponding closing tag.
+backup/2025-09-22_components/Header.tsx(27,62): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+窶右LIFECYCLE窶・Command failed with exit code 2.

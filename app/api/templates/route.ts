@@ -1,101 +1,113 @@
-// app/api/templates/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { getToken } from "next-auth/jwt";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "../../../src/lib/prisma";
+import {
+  VER_LABEL_TEMPLATES,
+  TemplateCreateRequestSchema,
+  TemplateListResponseSchema,
+} from "../../../src/contracts/templates";
+const auth = async () => ({} as any); // TODO: put your real auth() helper path
 
-// 重要：Edge では Cookie/Session が不安定になり得るため Node で固定
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// ★ この文字列がレスポンスに出たら「新ビルドが反映」しています
-const API_VER = "B2v5-templates-2025-09-27T03:15JST";
-
-// JWT 復号用（未設定でも email フォールバックで動作継続）
-const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET ?? undefined;
-
-/** 認証ユーザーIDの確定（確実化）
- * 優先: JWT.sub → session.user.email →（開発のみ）ヘッダバイパス
- */
-async function resolveUserId(req: NextRequest): Promise<string | null> {
-  // 1) JWT（__Secure-next-auth.session-token / next-auth.session-token）
-  if (NEXTAUTH_SECRET) {
-    try {
-      const token = await getToken({ req, secret: NEXTAUTH_SECRET });
-      const sub = (token?.sub as string | undefined) ?? null;
-      if (sub) return `gh:${sub}`;
-    } catch (e) {
-      console.warn("[templates] getToken failed:", e);
-    }
-  }
-  // 2) NextAuth セッション（今回 /api/auth/session に email が出ている）
-  const session = await getServerSession(authOptions);
-  const email = (session?.user as { email?: string } | null | undefined)?.email ?? null;
-  if (email) return `mail:${email.toLowerCase()}`;
-
-  // 3) 本番はバイパス禁止
-  if (process.env.NODE_ENV === "production") return null;
-
-  // 4) 開発のみ簡易バイパス許可（既存運用互換）
-  if (process.env.ALLOW_DEV_HEADER === "1") {
-    const id = req.headers.get("x-user-id");
-    if (id && id.trim()) return id.trim();
-  }
-  return null;
+function json(data: unknown, init?: number | ResponseInit) {
+  return typeof init === "number"
+    ? NextResponse.json(data, { status: init })
+    : NextResponse.json(data, init);
 }
+const toIso = (d: Date) => d.toISOString();
 
-export async function GET(req: NextRequest) {
+// GET /api/templates（ログインユーザーの一覧）
+export async function GET() {
+  const session = await auth();
+  const uid = (session as any)?.user?.id as string | undefined;
+  if (!uid) {
+    return json(
+      { ok: false as const, ver: VER_LABEL_TEMPLATES, error: { kind: "unauthorized", message: "signin required" } },
+      401
+    );
+  }
+
   try {
-    const userId = await resolveUserId(req);
-    if (!userId) {
-      return NextResponse.json(
-        { ok: false, code: "UNAUTHORIZED", ver: API_VER },
-        { status: 401, headers: { "Cache-Control": "no-store" } }
-      );
-    }
-
-    const { searchParams } = new URL(req.url);
-    const limit = Math.min(Math.max(parseInt(searchParams.get("limit") || "50", 10) || 50, 1), 100);
-
-    const items = await prisma.template.findMany({
-      where: { userId },
+    const rows = await prisma.template.findMany({
+      where: { userId: uid }, // ← モデルが relation: user の場合は下のコメントへ切替
+      // where: { user: { id: uid } }, // ← relation名が user の場合はこちら
       orderBy: { createdAt: "desc" },
-      take: limit,
     });
 
-    return NextResponse.json(
-      { ok: true, ver: API_VER, items },
-      { status: 200, headers: { "Cache-Control": "private, no-store" } }
+    const payload = {
+      ok: true as const,
+      ver: VER_LABEL_TEMPLATES,
+      data: rows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        body: r.body,
+        createdAt: toIso(r.createdAt),
+        updatedAt: toIso(r.updatedAt),
+      })),
+    };
+    TemplateListResponseSchema.parse(payload);
+    return json(payload, 200);
+  } catch {
+    return json(
+      { ok: false as const, ver: VER_LABEL_TEMPLATES, error: { kind: "internal_error", message: "failed to list templates" } },
+      500
     );
-  } catch (err) {
-    console.error("[GET /api/templates] error:", err);
-    return NextResponse.json({ ok: false, ver: API_VER, error: "Internal Server Error" }, { status: 500 });
   }
 }
 
+// POST /api/templates（作成者=ログインユーザー）
 export async function POST(req: NextRequest) {
-  try {
-    const userId = await resolveUserId(req);
-    if (!userId) {
-      return NextResponse.json(
-        { ok: false, code: "UNAUTHORIZED", ver: API_VER },
-        { status: 401, headers: { "Cache-Control": "no-store" } }
-      );
-    }
+  const session = await auth();
+  const uid = (session as any)?.user?.id as string | undefined;
+  if (!uid) {
+    return json(
+      { ok: false as const, ver: VER_LABEL_TEMPLATES, error: { kind: "unauthorized", message: "signin required" } },
+      401
+    );
+  }
 
-    const payload = await req.json().catch(() => ({} as any));
-    const title: string = typeof payload?.title === "string" && payload.title.trim() ? payload.title.trim() : "Untitled";
-    // Prisma で必須なら空文字で埋める
-    const body: string = typeof payload?.body === "string" ? payload.body : "";
+  try {
+    const body = await req.json();
+    const input = TemplateCreateRequestSchema.parse(body);
 
     const created = await prisma.template.create({
-      data: { userId, title, body },
+      data: {
+        title: input.title,
+        body: input.body,
+        // --- Prisma モデルに合わせてどちらか1つだけ使う ---
+        // A) 外部キー列が userId の場合（多くの構成はこちら）
+        userId: uid,
+        // B) relation フィールドが user の場合（Aを削除し、こちらを有効化）
+        // user: { connect: { id: uid } },
+      },
     });
 
-    return NextResponse.json({ ok: true, ver: API_VER, item: created }, { status: 200 });
-  } catch (err) {
-    console.error("[POST /api/templates] error:", err);
-    return NextResponse.json({ ok: false, ver: API_VER, error: "Internal Server Error" }, { status: 500 });
+    const payload = {
+      ok: true as const,
+      ver: VER_LABEL_TEMPLATES,
+      data: [
+        {
+          id: created.id,
+          title: created.title,
+          body: created.body,
+          createdAt: toIso(created.createdAt),
+          updatedAt: toIso(created.updatedAt),
+        },
+      ],
+    };
+    TemplateListResponseSchema.parse(payload);
+    return json(payload, 201);
+  } catch (err: any) {
+    if (err?.name === "ZodError") {
+      return json(
+        { ok: false as const, ver: VER_LABEL_TEMPLATES, error: { kind: "validation_error", message: "invalid request", issues: err.issues } },
+        400
+      );
+    }
+    return json(
+      { ok: false as const, ver: VER_LABEL_TEMPLATES, error: { kind: "internal_error", message: "failed to create template" } },
+      500
+    );
   }
 }

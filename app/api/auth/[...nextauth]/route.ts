@@ -1,6 +1,7 @@
 ﻿// app/api/auth/[...nextauth]/route.ts
-// NextAuth v4 (App Router) — GitHub OAuth 前提（必要に応じて他プロバイダもOK）
-import NextAuth, { NextAuthOptions } from "next-auth";
+// NextAuth v4 (App Router) — GitHub OAuth 前提
+import NextAuth from "next-auth";
+import type { NextAuthOptions } from "next-auth";
 import GitHub from "next-auth/providers/github";
 
 export const authOptions: NextAuthOptions = {

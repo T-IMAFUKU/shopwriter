@@ -1,101 +1,177 @@
 // app/api/templates/[id]/route.ts
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
-import { getServerSession } from "next-auth/next";
+import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
+import type { Template } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { z } from "zod";
 
-/** 認証ユーザーID（未ログイン/失敗は null） */
-async function getAuthedUserId(): Promise<string | null> {
-  try {
-    // App Router では引数なしでも取得できる構成が一般的
-    const session: any = await (getServerSession as any)();
-    const uid = session?.user?.id ?? null;
-    return typeof uid === "string" && uid.length > 0 ? uid : null;
-  } catch {
-    return null;
-  }
+export const dynamic = "force-dynamic";
+
+const noStore = { "Cache-Control": "no-store, max-age=0, must-revalidate" } as const;
+
+function ver(label = "templates:id") {
+  const jst = new Date(Date.now() + 9 * 60 * 60 * 1000)
+    .toISOString()
+    .replace("T", " ")
+    .replace("Z", "JST");
+  return `B2r2-${label}-${jst}`;
 }
 
-/** OPTIONS: 許可メソッドを明示（Allow を必ず返す） */
-export async function OPTIONS(
-  _req: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  const headers = new Headers();
-  headers.set("Allow", "GET, PATCH, DELETE, OPTIONS");
-  return new NextResponse(null, { status: 204, headers });
+function devHeaderAllowed() {
+  return process.env.NODE_ENV !== "production" || process.env.ALLOW_DEV_HEADER === "1";
 }
 
-/** GET /api/templates/[id]（閲覧） */
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  const id = params.id;
-  try {
-    const tpl = await prisma.template.findUnique({ where: { id } });
-    if (!tpl) return NextResponse.json({ error: "Template not found" }, { status: 404 });
-    return NextResponse.json({ item: tpl }, { status: 200 });
-  } catch (err) {
-    return NextResponse.json({ error: "Internal Server Error", detail: String(err) }, { status: 500 });
+function resolveUserId(req: Request): string | undefined {
+  if (devHeaderAllowed()) {
+    const hdr = req.headers.get("x-user-id") ?? req.headers.get("X-User-Id");
+    if (hdr && hdr.trim().length > 0) return hdr.trim();
   }
+  return undefined;
 }
 
-/** PATCH /api/templates/[id]（認証必須・所有者のみ更新） */
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  const id = params.id;
-  const uid = await getAuthedUserId();
-  if (!uid) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+function toErrorJson(err: unknown) {
+  const base = {
+    name: (err as any)?.name ?? "Error",
+    message: (err as any)?.message ?? String(err),
+  };
+  const isProd = process.env.NODE_ENV === "production";
 
-  let body: any;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    return { ...base, kind: "PrismaClientKnownRequestError", code: err.code, meta: err.meta };
   }
+  if (err instanceof Prisma.PrismaClientValidationError) {
+    return {
+      ...base,
+      kind: "PrismaClientValidationError",
+      ...(isProd ? {} : { stack: String((err as any)?.stack ?? "") }),
+    };
+  }
+  if (err instanceof Prisma.PrismaClientInitializationError) {
+    return { ...base, kind: "PrismaClientInitializationError", errorCode: err.errorCode };
+  }
+  if (err instanceof Prisma.PrismaClientRustPanicError) {
+    return { ...base, kind: "PrismaClientRustPanicError" };
+  }
+  return { ...base, kind: "UnknownError", ...(isProd ? {} : { stack: String((err as any)?.stack ?? "") }) };
+}
 
+async function assertOwned(id: string, userId: string) {
+  const tpl = await prisma.template.findUnique({
+    where: { id },
+    select: { id: true, userId: true },
+  });
+  if (!tpl) return { ok: false as const, status: 404 as const, kind: "not_found" as const };
+  if (tpl.userId !== userId) return { ok: false as const, status: 403 as const, kind: "forbidden" as const };
+  return { ok: true as const };
+}
+
+const IdSchema = z.string().min(1, "id is required");
+const TemplatePatchSchema = z.object({
+  title: z.string().min(1).max(120),
+}).strict();
+
+export async function PATCH(req: NextRequest, ctx: { params: { id: string } }) {
   try {
-    const existing = await prisma.template.findUnique({
-      where: { id },
-      select: { id: true, userId: true },
+    const userId = resolveUserId(req);
+    if (!userId) {
+      return new NextResponse(JSON.stringify({
+        ok: false,
+        ver: ver(),
+        error: { kind: "Unauthorized", name: "ApiError", message: "login required" },
+      }), { status: 401, headers: noStore });
+    }
+
+    const idParse = IdSchema.safeParse(ctx.params?.id);
+    if (!idParse.success) {
+      return new NextResponse(JSON.stringify({
+        ok: false,
+        ver: ver(),
+        error: { kind: "BadRequest", name: "ApiError", message: idParse.error.errors[0]?.message ?? "bad request" },
+      }), { status: 400, headers: noStore });
+    }
+
+    const json = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    const bodyParse = TemplatePatchSchema.safeParse(json);
+    if (!bodyParse.success) {
+      return new NextResponse(JSON.stringify({
+        ok: false,
+        ver: ver(),
+        error: { kind: "BadRequest", name: "ApiError", message: "invalid payload", meta: bodyParse.error.flatten() },
+      }), { status: 400, headers: noStore });
+    }
+
+    const guard = await assertOwned(idParse.data, userId);
+    if (!guard.ok) {
+      const status = guard.status;
+      const kind = status === 404 ? "NotFound" : "Forbidden";
+      const message = status === 404 ? "template not found" : "you do not own this template";
+      return new NextResponse(JSON.stringify({ ok: false, ver: ver(), error: { kind, name: "ApiError", message } }), {
+        status,
+        headers: noStore,
+      });
+    }
+
+    const data = { title: bodyParse.data.title } satisfies Prisma.TemplateUpdateInput;
+    const updated = await prisma.template.update({
+      where: { id: idParse.data },
+      data,
+      select: { id: true, title: true, updatedAt: true },
     });
-    if (!existing) return NextResponse.json({ error: "Template not found" }, { status: 404 });
-    if (existing.userId !== uid) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-    // Prismaに存在するフィールドのみ（例: title）
-    const data: any = {};
-    if (typeof body.title === "string") data.title = body.title;
-
-    const updated = await prisma.template.update({ where: { id }, data });
-    return NextResponse.json({ item: updated }, { status: 200 });
+    return new NextResponse(JSON.stringify({ ok: true, ver: ver(), data: updated }), {
+      status: 200,
+      headers: noStore,
+    });
   } catch (err) {
-    return NextResponse.json({ error: "Internal Server Error", detail: String(err) }, { status: 500 });
+    const error = toErrorJson(err);
+    return new NextResponse(JSON.stringify({ ok: false, ver: ver(), error }), {
+      status: 500,
+      headers: noStore,
+    });
   }
 }
 
-/** DELETE /api/templates/[id]（認証必須・所有者のみ削除） */
-export async function DELETE(
-  _req: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  const id = params.id;
-  const uid = await getAuthedUserId();
-  if (!uid) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+export async function DELETE(req: NextRequest, ctx: { params: { id: string } }) {
   try {
-    const existing = await prisma.template.findUnique({
-      where: { id },
-      select: { id: true, userId: true },
-    });
-    if (!existing) return NextResponse.json({ error: "Template not found" }, { status: 404 });
-    if (existing.userId !== uid) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const userId = resolveUserId(req);
+    if (!userId) {
+      return new NextResponse(JSON.stringify({
+        ok: false,
+        ver: ver(),
+        error: { kind: "Unauthorized", name: "ApiError", message: "login required" },
+      }), { status: 401, headers: noStore });
+    }
 
-    const deleted = await prisma.template.delete({ where: { id } });
-    return NextResponse.json({ item: deleted }, { status: 200 });
+    const idParse = IdSchema.safeParse(ctx.params?.id);
+    if (!idParse.success) {
+      return new NextResponse(JSON.stringify({
+        ok: false,
+        ver: ver(),
+        error: { kind: "BadRequest", name: "ApiError", message: idParse.error.errors[0]?.message ?? "bad request" },
+      }), { status: 400, headers: noStore });
+    }
+
+    const guard = await assertOwned(idParse.data, userId);
+    if (!guard.ok) {
+      const status = guard.status;
+      const kind = status === 404 ? "NotFound" : "Forbidden";
+      const message = status === 404 ? "template not found" : "you do not own this template";
+      return new NextResponse(JSON.stringify({ ok: false, ver: ver(), error: { kind, name: "ApiError", message } }), {
+        status,
+        headers: noStore,
+      });
+    }
+
+    await prisma.template.delete({ where: { id: idParse.data } });
+    return new NextResponse(JSON.stringify({ ok: true, ver: ver(), data: { id: idParse.data } }), {
+      status: 200,
+      headers: noStore,
+    });
   } catch (err) {
-    return NextResponse.json({ error: "Internal Server Error", detail: String(err) }, { status: 500 });
+    const error = toErrorJson(err);
+    return new NextResponse(JSON.stringify({ ok: false, ver: ver(), error }), {
+      status: 500,
+      headers: noStore,
+    });
   }
 }

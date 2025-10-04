@@ -1,0 +1,235 @@
+_archive/api_shares_20250913_205527/route.ts:2:import { NextRequest, NextResponse } from "next/server";
+_collect/contracts.share.ts:9:import { z } from "zod";
+_collect/shares.route.ts:6:import { NextRequest, NextResponse } from "next/server";
+_collect/shares.route.ts:7:import { z } from "zod";
+_collect/shares.route.ts:8:import { shareCreateSchema, shareListQuerySchema } from "@/contracts/share";
+_collect/writer.route.ts:8:import { NextRequest, NextResponse } from "next/server";
+_collect/writer.samples.email.test.ts:1:import { describe, it, expect } from "vitest";
+_collect/writer.samples.email.test.ts:2:import { readFile } from "fs/promises";
+_collect/writer.samples.email.test.ts:3:import { resolve } from "path";
+_collect/writer.samples.headline_only.test.ts:1:import { describe, it, expect } from "vitest";
+_collect/writer.samples.headline_only.test.ts:2:import { readFile } from "fs/promises";
+_collect/writer.samples.headline_only.test.ts:3:import { resolve } from "path";
+_collect/writer.samples.lp.test.ts:1:import { describe, it, expect } from "vitest";
+_collect/writer.samples.lp.test.ts:2:import { readFile } from "fs/promises";
+_collect/writer.samples.lp.test.ts:3:import { resolve } from "path";
+_collect/writer.samples.sns_short.test.ts:1:import { describe, it, expect } from "vitest";
+_collect/writer.samples.sns_short.test.ts:2:import { readFile } from "fs/promises";
+_collect/writer.samples.sns_short.test.ts:3:import { resolve } from "path";
+_collect/writer.samples.test.ts:1:import { describe, it, expect } from "vitest";
+_collect/writer.samples.test.ts:2:import { readFile } from "fs/promises";
+_collect/writer.samples.test.ts:3:import { resolve } from "path";
+_collect/writer.snapshot.test.ts:11:import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+_debug/diagnostics_apis/app_api_drafts_route.txt:2:import { NextRequest, NextResponse } from "next/server";
+_debug/diagnostics_apis/app_api_drafts_route.txt:3:import { z } from "zod";
+_debug/diagnostics_apis/app_api_drafts_route.txt:4:import { prisma } from "@/lib/prisma";
+_debug/diagnostics_apis/lib_prisma.txt:2:import { PrismaClient } from "@prisma/client";
+app/api/auth/[...nextauth]/route.ts:3:import NextAuth, { NextAuthOptions } from "next-auth";
+app/api/auth/[...nextauth]/route.ts:4:import GitHub from "next-auth/providers/github";
+app/api/db/ping/route.ts:2:import { NextResponse } from "next/server";
+app/api/db/ping/route.ts:3:import { PrismaClient } from "@prisma/client";
+app/api/debug/prisma/route.ts:5:import { NextResponse } from "next/server"
+app/api/debug/prisma/route.ts:6:import { PrismaClient } from "@prisma/client"
+app/api/dev-auth/route.ts:2:import { NextResponse } from 'next/server';
+app/api/drafts/route.ts:2:import { NextRequest, NextResponse } from "next/server";
+app/api/metrics/ingest/route.ts:2:import { NextRequest, NextResponse } from "next/server";
+app/api/metrics/ingest/route.ts:3:import { z } from "zod";
+app/api/metrics/ingest/route.ts:4:import { PrismaClient } from "@prisma/client";
+app/api/ping/route.ts:1:import { NextResponse } from "next/server";
+app/api/shares/[id]/route.ts:2:import { NextResponse } from "next/server";
+app/api/shares/[id]/route.ts:3:import { PrismaClient } from "@prisma/client";
+app/api/shares/seed/route.ts:2:import { NextResponse } from "next/server";
+app/api/shares/seed/route.ts:3:import { PrismaClient } from "@prisma/client";
+app/api/templates/[id]/route.ts:3:import { NextRequest, NextResponse } from "next/server";
+app/api/templates/[id]/route.ts:4:import { Prisma, Template } from "@prisma/client";
+app/api/templates/[id]/route.ts:5:import { prisma } from "@/lib/prisma";
+app/api/templates/[id]/route.ts:6:import { z } from "zod";
+app/api/templates/route.ts:2:import { NextResponse } from "next/server";
+app/api/templates/route.ts:3:import { Prisma, PrismaClient } from "@prisma/client";
+app/api/writer/route.ts:6:import { logEvent } from "@/lib/eventlog";
+app/debug/drafts-post/page.tsx:3:import * as React from "react";
+app/debug/drafts-post/page.tsx:4:import { useState } from "react";
+app/debug/drafts-post/page.tsx:5:import { Button } from "@/components/ui/button";
+app/debug/drafts-post/page.tsx:6:import { Input } from "@/components/ui/input";
+app/debug/drafts-post/page.tsx:7:import { Label } from "@/components/ui/label";
+app/debug/drafts-post/page.tsx:8:import { Textarea } from "@/components/ui/textarea";
+app/debug/sharecard/page.tsx:1:import type { Metadata } from "next";
+app/debug/sharecard/page.tsx:2:import Link from "next/link";
+app/debug/textarea/page.tsx:4:import * as React from "react";
+app/debug/toaster/page.tsx:3:import { useEffect, useMemo, useState } from "react";
+app/debug/toaster/page.tsx:4:import { appToast } from "@/lib/toast";
+app/layout.tsx:3:import type { Metadata } from "next";
+app/layout.tsx:4:import { Inter } from "next/font/google";
+app/page.tsx:3:import { useEffect } from "react";
+app/page.tsx:4:import { Button } from "@/components/ui/button";
+app/page.tsx:5:import { notify } from "@/lib/notify"; // 竊・named import 縺ｫ邨ｱ荳
+app/providers.tsx:4:import * as React from "react";
+app/providers.tsx:5:import { SessionProvider } from "next-auth/react";
+app/providers.tsx:6:import { Toaster } from "sonner";
+app/share/[id]/page.tsx:1:import Link from "next/link";
+backup/2025-09-22_app/layout.tsx:3:import type { Metadata } from "next";
+backup/2025-09-22_app/layout.tsx:4:import * as React from "react";
+backup/2025-09-22_app/layout.tsx:5:import ToasterProvider from "@/components/providers/ToasterProvider";
+backup/2025-09-22_app/page.tsx:3:import Link from "next/link";
+backup/2025-09-22_components/Header.before.tsx:1:import Link from "next/link";
+backup/2025-09-22_components/Header.tsx:3:import Link from "next/link"
+backup/2025-09-22_components/Header.tsx:4:import { Button } from "@/components/ui/button"
+backup/2025-09-22_components/Header.tsx:5:import { NavigationMenu, NavigationMenuItem, NavigationMenuList } from "@/components/ui/navigation-menu"
+backup/2025-09-22_components/ShareCard.tsx:3:import * as React from "react";
+backup/2025-09-22_components/ShareCard.tsx:4:import { useCallback } from "react";
+backup/2025-09-22_components/ShareCard.tsx:5:import { useRouter } from "next/navigation";
+backup/2025-09-22_components/ShareCard.tsx:6:import { Copy, MoreVertical, RefreshCw, Trash2, ExternalLink } from "lucide-react";
+backup/2025-09-22_debug/sharecard.page.tsx:1:import type { Metadata } from "next";
+backup/2025-09-22_debug/sharecard.page.tsx:2:import Link from "next/link";
+backup/2025-09-22_debug/sharecard.page.tsx:3:import { Button } from "@/components/ui/button";
+backup/2025-09-22_debug/textarea.page.tsx:3:import * as React from "react";
+backup/2025-09-22_debug/textarea.page.tsx:4:import { useForm } from "react-hook-form";
+backup/2025-09-22_debug/textarea.page.tsx:5:import { z } from "zod";
+backup/2025-09-22_debug/textarea.page.tsx:6:import { zodResolver } from "@hookform/resolvers/zod";
+backup/2025-09-22_debug_final/sharecard/page.tsx:1:import Link from "next/link";
+backup/2025-09-22_debug_final/sharecard/page.tsx:2:import type { Metadata } from "next";
+backup/2025-09-22_debug_final/sharecard/page.tsx:3:import { Button } from "@/components/ui/button";
+backup/2025-09-22_debug_final/textarea/page.tsx:1:import type { Metadata } from "next";
+backup/2025-09-22_debug_final/textarea/page.tsx:2:import Link from "next/link";
+backup/ts_backups/page.backup.tsx:3:import * as React from "react"
+backup/ts_backups/page.backup.tsx:4:import Link from "next/link"
+backup/ts_backups/page.backup.tsx:5:import { PlusCircle } from "lucide-react"
+backup/ts_backups/page.backup.tsx:6:import ShareCard from "@/components/share/ShareCard"
+backup/ts_backups/page.backup.tsx:7:import { Button } from "@/components/ui/button"
+components/AuthButton.tsx:3:import { useSession, signIn, signOut } from "next-auth/react";
+components/layout/Header.tsx:3:import Link from "next/link";
+components/layout/Header.tsx:11:} from "@/components/ui/dropdown-menu";
+components/layout/Header.tsx:12:import { DropdownMenuTriggerButton } from "@/components/ui/dropdown-menu-trigger-button";
+components/providers/ToasterProvider.tsx:3:import { useEffect } from "react";
+components/providers/ToasterProvider.tsx.bak:3:import * as React from "react";
+components/providers/ToasterProvider.tsx.bak:4:import dynamic from "next/dynamic";
+components/share/ShareCard.tsx:3:import Link from "next/link";
+components/share/ShareCard.tsx:4:import { useMemo } from "react";
+components/share/ShareCard.tsx.bak:4:import * as React from "react";
+components/share/ShareCard.tsx.bak:5:import Link from "next/link";
+components/share/ShareCard.tsx.bak:13:import { StatusBadge } from "@/components/ui/status-badge";
+components/share/ShareCard.tsx.bak:16:import { cn } from "@/lib/utils";
+components/site/Header.backup.tsx:1:import Link from "next/link";
+components/site/Header.tsx:3:import Link from "next/link";
+components/site/Header.tsx:4:import { Menu } from "lucide-react";
+components/site/Header.tsx:11:} from "@/components/ui/dropdown-menu";
+components/site/Header.tsx:12:import { DropdownMenuTriggerButton } from "@/components/ui/dropdown-menu-trigger-button";
+components/site/Header.tsx.bak:3:import * as React from "react";
+components/site/Header.tsx.bak:4:import Link from "next/link";
+components/site/Header.tsx.bak:5:import { usePathname } from "next/navigation";
+components/site/Header.tsx.bak:6:import { cn } from "@/lib/utils";
+components/site/Header.tsx.bak:7:import { Button } from "@/components/ui/button";
+components/site/Header.tsx.bak:8:import { Badge } from "@/components/ui/badge";
+components/site/Header.tsx.bak:16:} from "@/components/ui/dropdown-menu";
+components/site/Header.tsx.bak:25:} from "lucide-react";
+components/site/Header.tsx.bak:26:import { radius, shadow, spacing, density } from "@/lib/ui/tokens";
+components/ui/StatusBadge.tsx:3:import * as React from "react";
+components/ui/StatusBadge.tsx:4:import { cn } from "@/lib/utils";
+components/ui/StatusBadge.tsx:5:import { radius, spacing } from "@/lib/ui/tokens";
+components/ui/alert.tsx:1:・ｿimport * as React from "react"
+components/ui/alert.tsx:2:import { cva, type VariantProps } from "class-variance-authority"
+components/ui/alert.tsx:4:import { cn } from "@/lib/utils"
+components/ui/avatar.tsx:3:import * as React from "react"
+components/ui/avatar.tsx:4:import * as AvatarPrimitive from "@radix-ui/react-avatar"
+components/ui/avatar.tsx:6:import { cn } from "@/lib/utils"
+components/ui/badge.tsx:3:import * as React from "react";
+components/ui/badge.tsx:4:import { cva, type VariantProps } from "class-variance-authority";
+components/ui/badge.tsx:5:import { cn } from "@/lib/utils";
+components/ui/button.tsx:4:import * as React from "react";
+components/ui/button.tsx:5:import { Slot } from "@radix-ui/react-slot";
+components/ui/button.tsx:6:import { cva, type VariantProps } from "class-variance-authority";
+components/ui/button.tsx:7:import { cn } from "@/lib/utils";
+components/ui/card.tsx:1:・ｿimport * as React from "react";
+components/ui/collapsible.tsx:3:import * as CollapsiblePrimitive from "@radix-ui/react-collapsible"
+components/ui/dropdown-menu-trigger-button.tsx:3:import * as React from "react";
+components/ui/dropdown-menu-trigger-button.tsx:4:import { DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+components/ui/dropdown-menu-trigger-button.tsx:5:import { Button, type ButtonProps } from "@/components/ui/button";
+components/ui/dropdown-menu-trigger-button.tsx:6:import { cn } from "@/lib/utils";
+components/ui/dropdown-menu.tsx:3:import * as React from "react";
+components/ui/dropdown-menu.tsx:4:import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
+components/ui/dropdown-menu.tsx:5:import { Check, ChevronRight, Circle } from "lucide-react";
+components/ui/dropdown-menu.tsx:6:import { cn } from "@/lib/utils";
+components/ui/dropdown-menu.tsx:212:export { DropdownMenuTriggerButton } from "@/components/ui/dropdown-menu-trigger-button";
+components/ui/input.tsx:1:・ｿimport * as React from "react";
+components/ui/label.tsx:3:import * as React from "react"
+components/ui/label.tsx:4:import * as LabelPrimitive from "@radix-ui/react-label"
+components/ui/label.tsx:5:import { cva, type VariantProps } from "class-variance-authority"
+components/ui/label.tsx:7:import { cn } from "@/lib/utils"
+components/ui/navigation-menu.tsx:1:・ｿimport * as React from "react"
+components/ui/navigation-menu.tsx:2:import * as NavigationMenuPrimitive from "@radix-ui/react-navigation-menu"
+components/ui/navigation-menu.tsx:3:import { cva } from "class-variance-authority"
+components/ui/navigation-menu.tsx:4:import { ChevronDown } from "lucide-react"
+components/ui/navigation-menu.tsx:6:import { cn } from "@/lib/utils"
+components/ui/select.tsx:3:import * as React from "react";
+components/ui/select.tsx:4:import * as SelectPrimitive from "@radix-ui/react-select";
+components/ui/select.tsx:5:import { Check, ChevronDown, ChevronUp } from "lucide-react";
+components/ui/select.tsx:6:import { cn } from "@/lib/utils";
+components/ui/sonner.tsx:11:import { useEffect } from "react";
+components/ui/status-badge.tsx:4:import * as React from "react";
+components/ui/status-badge.tsx:5:import { cva, type VariantProps } from "class-variance-authority";
+components/ui/switch.tsx:3:import * as React from "react";
+components/ui/switch.tsx:4:import * as SwitchPrimitives from "@radix-ui/react-switch";
+components/ui/switch.tsx:5:import { cn } from "@/lib/utils";
+components/ui/tabs.tsx:3:import * as React from "react"
+components/ui/tabs.tsx:4:import * as TabsPrimitive from "@radix-ui/react-tabs"
+components/ui/tabs.tsx:6:import { cn } from "@/lib/utils"
+components/ui/textarea.tsx:1:・ｿimport * as React from "react";
+components/ui/textarea.tsx:2:import { cn } from "@/lib/utils";
+components/ui/toaster.tsx:11:import { useEffect } from "react";
+components/ui/tooltip.tsx:3:import * as React from "react"
+components/ui/tooltip.tsx:4:import * as TooltipPrimitive from "@radix-ui/react-tooltip"
+components/ui/tooltip.tsx:6:import { cn } from "@/lib/utils"
+contracts/share.ts:2:import { z } from "zod";
+lib/auth/options.ts:1:import type { NextAuthOptions } from "next-auth";
+lib/auth/options.ts:2:import GitHub from "next-auth/providers/github";
+lib/contracts/share.contract.ts:5:import { z } from "zod";
+lib/notify.ts:12:import { appToast } from "@/lib/toast";
+lib/prisma.ts:2:import { PrismaClient } from "@prisma/client";
+lib/utils.ts:1:import { clsx, type ClassValue } from "clsx"
+lib/utils.ts:2:import { twMerge } from "tailwind-merge"
+lib/validation/share.ts:5:import { z } from "zod";
+lib/validation/writer.ts:2:import { z } from "zod";
+logs/ui-audit.dropdown-trigger.txt:1:C:\Users\81905\shopwriter-new\backup\2025-09-22_components\ShareCard.tsx:18: } from "@/components/ui/dropdown-menu";
+logs/ui-audit.dropdown-trigger.txt:3:C:\Users\81905\shopwriter-new\components\layout\Header.tsx:11: } from "@/components/ui/dropdown-menu";
+logs/ui-audit.dropdown-trigger.txt:4:C:\Users\81905\shopwriter-new\components\site\Header.tsx:11: } from "@/components/ui/dropdown-menu";
+logs/ui-audit.dropdown-trigger.txt:5:C:\Users\81905\shopwriter-new\components\ui\dropdown-menu-trigger-button.tsx:4: import { DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+logs/ui-audit.dropdown-trigger.txt:7:C:\Users\81905\shopwriter-new\components\ui\dropdown-menu.tsx:4: import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
+middleware.ts:2:import type { NextRequest } from "next/server";
+middleware.ts:3:import { NextResponse } from "next/server";
+scripts/add-share-id-check.mjs:6:import { PrismaClient } from "@prisma/client";
+scripts/backup-share-json.mjs:8:import { PrismaClient } from '@prisma/client';
+scripts/backup-share-json.mjs:9:import fs from 'node:fs';
+scripts/backup-share-json.mjs:10:import path from 'node:path';
+scripts/clean-shares.mjs:7:import { PrismaClient } from '@prisma/client';
+scripts/db-health-check.mjs:10:import { PrismaClient } from '@prisma/client';
+scripts/fix-share-id.mjs:10:import { PrismaClient } from '@prisma/client';
+scripts/list-templates.mjs:1:import { PrismaClient } from "@prisma/client";
+scripts/purge-empty-id-sql.mjs:3:import { PrismaClient } from '@prisma/client';
+scripts/purge-empty-share-id.mjs:3:import { PrismaClient } from '@prisma/client';
+scripts/seed-template.mjs:1:import { PrismaClient } from "@prisma/client";
+scripts/verify-template.mjs:1:import { PrismaClient } from "@prisma/client";
+tests/api/shares.route.test.ts:5:import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+tests/api/shares.route.test.ts:26:import { GET, POST } from "@/app/api/shares/route";
+tests/api/writer.samples.email.test.ts:1:import { describe, it, expect } from "vitest";
+tests/api/writer.samples.email.test.ts:2:import { readFile } from "fs/promises";
+tests/api/writer.samples.email.test.ts:3:import { resolve } from "path";
+tests/api/writer.samples.headline_only.test.ts:1:import { describe, it, expect } from "vitest";
+tests/api/writer.samples.headline_only.test.ts:2:import { readFile } from "fs/promises";
+tests/api/writer.samples.headline_only.test.ts:3:import { resolve } from "path";
+tests/api/writer.samples.lp.test.ts:1:import { describe, it, expect } from "vitest";
+tests/api/writer.samples.lp.test.ts:2:import { readFile } from "fs/promises";
+tests/api/writer.samples.lp.test.ts:3:import { resolve } from "path";
+tests/api/writer.samples.sns_short.test.ts:1:import { describe, it, expect } from "vitest";
+tests/api/writer.samples.sns_short.test.ts:2:import { readFile } from "fs/promises";
+tests/api/writer.samples.sns_short.test.ts:3:import { resolve } from "path";
+tests/api/writer.samples.test.ts:1:import { describe, it, expect } from "vitest";
+tests/api/writer.samples.test.ts:2:import { readFile } from "fs/promises";
+tests/api/writer.samples.test.ts:3:import { resolve } from "path";
+tests/api/writer.snapshot.test.ts:11:import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+tests/contracts/share.contract.test.ts:6:import { describe, it, expect } from "vitest";
+tests/contracts/share.contract.test.ts:7:import { shareCreateSchema, shareListQuerySchema } from "@/contracts";
+tests/contracts/share.contract.test.ts.bak:6:import { describe, it, expect } from "vitest";
+tests/contracts/share.contract.test.ts.bak:7:import { shareCreateSchema, shareListQuerySchema } from "@/contracts/share";
+types/next-auth.d.ts:1:import NextAuth, { DefaultSession } from "next-auth";
+vitest.config.ts:2:import { defineConfig } from "vitest/config";
+vitest.config.ts:3:import path from "path";
