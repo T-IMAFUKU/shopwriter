@@ -4,6 +4,13 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"; // shadcn/ui の Select
 
 const TABS = [
   { key: "7d", label: "7日" },
@@ -15,15 +22,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  // range クエリ（未指定は 14d）
-  const current = (searchParams.get("range") ?? "14d").toLowerCase();
-
-  // href を安全に生成
+  const currentRange = (searchParams.get("range") ?? "14d").toLowerCase();
   const hrefOf = (k: string) => {
     const sp = new URLSearchParams(searchParams?.toString() ?? "");
     sp.set("range", k);
     return `${pathname}?${sp.toString()}`;
   };
+
+  const currentLevel = searchParams.get("level") ?? "all";
 
   return (
     <section
@@ -42,7 +48,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           EventLog の集計を、表と簡易グラフで確認できます。
         </p>
 
-        {/* サブナビ（URL クエリ range と連動） */}
+        {/* サブナビ（土台 range） */}
         <nav aria-label="期間フィルタ" className="mt-[var(--spacing-4)]">
           <ul
             className="
@@ -55,7 +61,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             role="tablist"
           >
             {TABS.map((t) => {
-              const isActive = current === t.key;
+              const isActive = currentRange === t.key;
               return (
                 <li key={t.key} role="presentation">
                   <Link
@@ -88,6 +94,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             })}
           </ul>
         </nav>
+
+        {/* レベルフィルタ（土台 UI のみ） */}
+        <div className="mt-[var(--spacing-4)] max-w-[12rem]">
+          <Select defaultValue={currentLevel}>
+            <SelectTrigger>
+              <SelectValue placeholder="レベルを選択" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">すべて</SelectItem>
+              <SelectItem value="info">Info</SelectItem>
+              <SelectItem value="warn">Warn</SelectItem>
+              <SelectItem value="error">Error</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </header>
 
       <main className="space-y-[var(--spacing-6)]" role="main">
