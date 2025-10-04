@@ -3,14 +3,14 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"; // shadcn/ui の Select
+} from "@/components/ui/select"; // shadcn/ui
 
 const TABS = [
   { key: "7d", label: "7日" },
@@ -19,17 +19,33 @@ const TABS = [
 ] as const;
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
+  // range：未指定は 14d
   const currentRange = (searchParams.get("range") ?? "14d").toLowerCase();
+
+  // level：未指定は all（= パラメータ無し扱い）
+  const currentLevel = (searchParams.get("level") ?? "all").toLowerCase();
+
+  // range タブの href 生成（他のクエリは維持）
   const hrefOf = (k: string) => {
     const sp = new URLSearchParams(searchParams?.toString() ?? "");
     sp.set("range", k);
     return `${pathname}?${sp.toString()}`;
   };
 
-  const currentLevel = searchParams.get("level") ?? "all";
+  // level の変更を URL に反映（all のときは param を外す）
+  const onLevelChange = (next: string) => {
+    const sp = new URLSearchParams(searchParams?.toString() ?? "");
+    if (next === "all") {
+      sp.delete("level");
+    } else {
+      sp.set("level", next);
+    }
+    router.replace(`${pathname}?${sp.toString()}`);
+  };
 
   return (
     <section
@@ -95,9 +111,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </ul>
         </nav>
 
-        {/* レベルフィルタ（土台 UI のみ） */}
+        {/* レベルフィルタ（URL クエリ level 連動） */}
         <div className="mt-[var(--spacing-4)] max-w-[12rem]">
-          <Select defaultValue={currentLevel}>
+          <Select value={currentLevel} onValueChange={onLevelChange}>
             <SelectTrigger>
               <SelectValue placeholder="レベルを選択" />
             </SelectTrigger>
