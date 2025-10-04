@@ -1,5 +1,8 @@
 // app/(dashboard)/dashboard/page.tsx
 // Server Component
+// 【CP@2025-09-21.v3】適用：ダッシュボードは検索クエリ依存のため静的化しない
+export const dynamic = 'force-dynamic';
+
 import * as React from "react";
 
 // default import（Step E 実装に合わせる）
