@@ -36,13 +36,18 @@ export default function DashboardPage({
     ? (rawLevel as LevelKey)
     : "all";
 
+  // ▼▼ UIトークン基準のラッパのみ追加（機能ロジック無改変） ▼▼
   return (
-    <>
+    <main className="container mx-auto py-8 space-y-8">
       {/* Chart：range のみ連動 */}
-      <EventLogChart key={`chart-${days}`} days={days} />
+      <section className="space-y-4" aria-label="eventlog-chart">
+        <EventLogChart key={`chart-${days}`} days={days} />
+      </section>
 
       {/* Table：range + level を連動（厳格型・as any 撤去） */}
-      <EventLogTable key={`table-${days}-${level}`} days={days} level={level} />
-    </>
+      <section className="space-y-4" aria-label="eventlog-table">
+        <EventLogTable key={`table-${days}-${level}`} days={days} level={level} />
+      </section>
+    </main>
   );
 }

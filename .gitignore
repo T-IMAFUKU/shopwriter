@@ -1,21 +1,54 @@
-﻿node_modules/
+# --- Node / Package managers ---
+node_modules/
+.pnp.*
+.pnpm-debug.log*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- Next.js / Build outputs ---
 .next/
+.next/cache/
+out/
 dist/
-.env
-.env.*
-pnpm-lock.yaml
 
-# Debug artifacts
-_debug/
-*_diagnostics_apis/
-*.tsbuildinfo
+# --- Env files (keep examples/tests) ---
+.env*
+!.env.example
+!.env.test
 
-.vercel
-# ===== ignore env backups =====
-.env*.bak.*
+# --- Logs / Reports ---
+logs/
+.log/
+*.log
+.logs/
+deploy-diagnose-report.txt
 
-context-pack.txt
+# --- Backups / Temp / Working files ---
+backups/
+backup/
+.backup/
+*.bak
+*.bak.*
+*.backup
+*.backup.*
+tmp/
+temp/
+*.tmp
+vercel-env.*.json
 
-context-pack.txt
+# --- Prisma / SQLite (if any local files are generated) ---
+prisma/*.db
+prisma/*.sqlite
+*.db-journal
 
-context-pack.txt
+# --- Vercel local metadata ---
+.vercel/
+
+# --- Coverage / Test caches ---
+coverage/
+
+# --- Editor / OS ---
+.vscode/
+.DS_Store
+Thumbs.db

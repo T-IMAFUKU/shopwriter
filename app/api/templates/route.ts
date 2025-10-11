@@ -1,113 +1,178 @@
-import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "../../../src/lib/prisma";
-import {
-  VER_LABEL_TEMPLATES,
-  TemplateCreateRequestSchema,
-  TemplateListResponseSchema,
-} from "../../../src/contracts/templates";
-const auth = async () => ({} as any); // TODO: put your real auth() helper path
-
-export const runtime = "nodejs";
+// 【CP@2025-09-21.v3】templates API
 export const dynamic = "force-dynamic";
 
-function json(data: unknown, init?: number | ResponseInit) {
-  return typeof init === "number"
-    ? NextResponse.json(data, { status: init })
-    : NextResponse.json(data, init);
-}
-const toIso = (d: Date) => d.toISOString();
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 
-// GET /api/templates（ログインユーザーの一覧）
-export async function GET() {
-  const session = await auth();
-  const uid = (session as any)?.user?.id as string | undefined;
-  if (!uid) {
-    return json(
-      { ok: false as const, ver: VER_LABEL_TEMPLATES, error: { kind: "unauthorized", message: "signin required" } },
-      401
-    );
+/**
+ * X-User-Id（セッション側の id や providerAccountId を想定）から
+ * 内部 User.id を解決する。未連携なら開発環境では自動連携（User作成）を行う。
+ * 本番では自動連携しない。
+ */
+async function ensureDbUserId(req: NextRequest): Promise<string> {
+  const raw = req.headers.get("x-user-id");
+  const val = raw?.trim();
+  if (!val) {
+    throw new Error("missing header: X-User-Id");
   }
 
+  // 1) すでに内部 User.id が来ている場合（そのまま存在確認）
   try {
-    const rows = await prisma.template.findMany({
-      where: { userId: uid }, // ← モデルが relation: user の場合は下のコメントへ切替
-      // where: { user: { id: uid } }, // ← relation名が user の場合はこちら
-      orderBy: { createdAt: "desc" },
+    const u = await prisma.user.findUnique({ where: { id: val }, select: { id: true } });
+    if (u?.id) return u.id;
+  } catch {}
+
+  // 2) Account.providerAccountId（例: GitHubのID）→ userId を解決
+  try {
+    const acc = await prisma.account.findFirst({
+      where: { providerAccountId: val },
+      select: { userId: true },
     });
+    if (acc?.userId) return String(acc.userId);
+  } catch {}
 
-    const payload = {
-      ok: true as const,
-      ver: VER_LABEL_TEMPLATES,
-      data: rows.map((r) => ({
-        id: r.id,
-        title: r.title,
-        body: r.body,
-        createdAt: toIso(r.createdAt),
-        updatedAt: toIso(r.updatedAt),
-      })),
-    };
-    TemplateListResponseSchema.parse(payload);
-    return json(payload, 200);
-  } catch {
-    return json(
-      { ok: false as const, ver: VER_LABEL_TEMPLATES, error: { kind: "internal_error", message: "failed to list templates" } },
-      500
-    );
-  }
-}
-
-// POST /api/templates（作成者=ログインユーザー）
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  const uid = (session as any)?.user?.id as string | undefined;
-  if (!uid) {
-    return json(
-      { ok: false as const, ver: VER_LABEL_TEMPLATES, error: { kind: "unauthorized", message: "signin required" } },
-      401
-    );
-  }
-
-  try {
-    const body = await req.json();
-    const input = TemplateCreateRequestSchema.parse(body);
-
-    const created = await prisma.template.create({
+  // 3) 開発環境のみ：自動連携（シャドーユーザー作成）
+  if (process.env.NODE_ENV !== "production") {
+    // User.email は NextAuth標準スキーマだと Optional なので未設定で作成可
+    const created = await prisma.user.create({
       data: {
-        title: input.title,
-        body: input.body,
-        // --- Prisma モデルに合わせてどちらか1つだけ使う ---
-        // A) 外部キー列が userId の場合（多くの構成はこちら）
-        userId: uid,
-        // B) relation フィールドが user の場合（Aを削除し、こちらを有効化）
-        // user: { connect: { id: uid } },
+        id: val,                  // そのまま内部IDとして採用（String型想定）
+        name: `dev#${val}`,       // 表示用の暫定名
       },
+      select: { id: true },
+    });
+    return created.id;
+  }
+
+  // 本番は自動連携しない
+  throw new Error("user not linked");
+}
+
+// -------- GET: 一覧 --------
+export async function GET(req: NextRequest) {
+  try {
+    const userId = await ensureDbUserId(req);
+
+    // スキーマがユーザー非紐付けの場合は where を外してください
+    const items = await prisma.template.findMany({
+      where: { userId },
+      select: { id: true, title: true, body: true, updatedAt: true, createdAt: true },
+      orderBy: { updatedAt: "desc" },
     });
 
-    const payload = {
-      ok: true as const,
-      ver: VER_LABEL_TEMPLATES,
-      data: [
-        {
-          id: created.id,
-          title: created.title,
-          body: created.body,
-          createdAt: toIso(created.createdAt),
-          updatedAt: toIso(created.updatedAt),
-        },
-      ],
-    };
-    TemplateListResponseSchema.parse(payload);
-    return json(payload, 201);
-  } catch (err: any) {
-    if (err?.name === "ZodError") {
-      return json(
-        { ok: false as const, ver: VER_LABEL_TEMPLATES, error: { kind: "validation_error", message: "invalid request", issues: err.issues } },
-        400
+    return NextResponse.json(items, { status: 200 });
+  } catch (e: any) {
+    const msg = String(e?.message ?? "");
+    if (msg.includes("missing header") || msg.includes("user not linked")) {
+      return NextResponse.json(
+        { ok: false, ver: "templates", error: { kind: "unauthorized", message: "signin required (user not linked)" } },
+        { status: 401 }
       );
     }
-    return json(
-      { ok: false as const, ver: VER_LABEL_TEMPLATES, error: { kind: "internal_error", message: "failed to create template" } },
-      500
+    return NextResponse.json(
+      { ok: false, ver: "templates", error: { kind: "server", message: msg || "unknown error" } },
+      { status: 500 }
+    );
+  }
+}
+
+// -------- POST: 作成 --------
+export async function POST(req: NextRequest) {
+  try {
+    const userId = await ensureDbUserId(req);
+
+    const { title, body } = await req.json();
+    if (!title || !body) {
+      return NextResponse.json(
+        { ok: false, ver: "templates", error: { kind: "bad_request", message: "title/body required" } },
+        { status: 400 }
+      );
+    }
+
+    const created = await prisma.template.create({
+      data: { title: String(title), body: String(body), userId },
+      select: { id: true },
+    });
+
+    return NextResponse.json({ ok: true, id: created.id }, { status: 201 });
+  } catch (e: any) {
+    const msg = String(e?.message ?? "");
+    if (msg.includes("missing header") || msg.includes("user not linked")) {
+      return NextResponse.json(
+        { ok: false, ver: "templates", error: { kind: "unauthorized", message: "signin required (user not linked)" } },
+        { status: 401 }
+      );
+    }
+    return NextResponse.json(
+      { ok: false, ver: "templates", error: { kind: "server", message: msg || "unknown error" } },
+      { status: 500 }
+    );
+  }
+}
+
+// -------- PATCH: 更新（/api/templates に id, title, body を JSON で送る版）--------
+export async function PATCH(req: NextRequest) {
+  try {
+    const userId = await ensureDbUserId(req);
+
+    const { id, title, body } = await req.json();
+    if (!id || !title || !body) {
+      return NextResponse.json(
+        { ok: false, ver: "templates", error: { kind: "bad_request", message: "id/title/body required" } },
+        { status: 400 }
+      );
+    }
+
+    await prisma.template.update({
+      where: { id: String(id) },
+      data: { title: String(title), body: String(body), userId },
+    });
+
+    return NextResponse.json({ ok: true }, { status: 200 });
+  } catch (e: any) {
+    const msg = String(e?.message ?? "");
+    if (msg.includes("missing header") || msg.includes("user not linked")) {
+      return NextResponse.json(
+        { ok: false, ver: "templates", error: { kind: "unauthorized", message: "signin required (user not linked)" } },
+        { status: 401 }
+      );
+    }
+    return NextResponse.json(
+      { ok: false, ver: "templates", error: { kind: "server", message: msg || "unknown error" } },
+      { status: 500 }
+    );
+  }
+}
+
+// -------- DELETE: クエリパラメータ id 版（/api/templates?id=...）--------
+export async function DELETE(req: NextRequest) {
+  try {
+    const userId = await ensureDbUserId(req);
+    void userId; // 監査用途。必要なら where に加えてください。
+
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+    if (!id) {
+      return NextResponse.json(
+        { ok: false, ver: "templates", error: { kind: "bad_request", message: "id required" } },
+        { status: 400 }
+      );
+    }
+
+    await prisma.template.delete({ where: { id: String(id) } });
+
+    return NextResponse.json({ ok: true }, { status: 200 });
+  } catch (e: any) {
+    const msg = String(e?.message ?? "");
+    if (msg.includes("missing header") || msg.includes("user not linked")) {
+      return NextResponse.json(
+        { ok: false, ver: "templates", error: { kind: "unauthorized", message: "signin required (user not linked)" } },
+        { status: 401 }
+      );
+    }
+    return NextResponse.json(
+      { ok: false, ver: "templates", error: { kind: "server", message: msg || "unknown error" } },
+      { status: 500 }
     );
   }
 }

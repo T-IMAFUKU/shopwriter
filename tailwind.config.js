@@ -1,20 +1,30 @@
-// tailwind.config.js
+// tailwind.config.js — Project Baseline (ShopWriter)
+// Next.js 15 / Tailwind 3.4 / shadcn/ui
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  darkMode: "class",
+  darkMode: ["class"],
   content: [
     "./app/**/*.{ts,tsx}",
     "./components/**/*.{ts,tsx}",
     "./lib/**/*.{ts,tsx}",
     "./src/**/*.{ts,tsx}",
+    "./pages/**/*.{ts,tsx}",
   ],
   theme: {
+    // レイアウト幅（共通基準）
     container: {
       center: true,
-      padding: "2rem",
-      screens: { "2xl": "1400px" },
+      padding: "1rem", // 16px（基準）
+      screens: {
+        sm: "640px",
+        md: "768px",
+        lg: "1024px",
+        xl: "1280px",
+        "2xl": "1400px",
+      },
     },
     extend: {
+      // 配色（globals.cssのCSS変数に追従：変更なし）
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -50,17 +60,31 @@ module.exports = {
           foreground: "hsl(var(--card-foreground))",
         },
       },
+
+      // 角丸：プロジェクト固定値（基準=lg=12px）
       borderRadius: {
-        DEFAULT: "var(--radius)",
-        sm: "var(--ui-radius-sm)",
-        md: "var(--ui-radius-md)",
-        lg: "var(--ui-radius-lg)",
-        full: "var(--ui-radius-full)",
+        none: "0px",
+        sm: "6px",
+        DEFAULT: "8px",
+        md: "10px",
+        lg: "12px",    // 基準
+        xl: "14px",
+        "2xl": "16px",
+        "3xl": "20px",
+        full: "9999px",
       },
+
+      // 影：段階を固定（基準=shadow-sm / hover: md / モーダル: lg）
       boxShadow: {
-        sm: "var(--ui-shadow-sm)",
-        md: "var(--ui-shadow-md)",
+        sm: "0 1px 2px 0 hsl(0 0% 0% / 0.08)",
+        DEFAULT:
+          "0 1px 3px 0 hsl(0 0% 0% / 0.10), 0 1px 2px -1px hsl(0 0% 0% / 0.08)",
+        md: "0 4px 6px -1px hsl(0 0% 0% / 0.12), 0 2px 4px -2px hsl(0 0% 0% / 0.10)",
+        lg: "0 10px 15px -3px hsl(0 0% 0% / 0.14), 0 4px 6px -4px hsl(0 0% 0% / 0.12)",
+        xl: "0 20px 25px -5px hsl(0 0% 0% / 0.16), 0 10px 10px -5px hsl(0 0% 0% / 0.10)",
       },
+
+      // shadcn/ui（変更なし）
       keyframes: {
         "accordion-down": {
           from: { height: "0" },
