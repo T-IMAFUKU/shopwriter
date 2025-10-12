@@ -1,177 +1,121 @@
-// 【CP@2025-09-21.v3】templates API
-export const dynamic = "force-dynamic";
-
+// app/api/templates/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { getToken } from "next-auth/jwt";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 
+// NextAuth を安定させるため Node ランタイムで固定（Edge だと Cookie/Session 取得が不安定なケース対策）
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+// ★ 新ビルド反映の判定用（この文字がレスポンスに出れば新コード）
+const API_VER = "B2v7-templates-2025-09-27T04:30JST";
+
+// JWT 復号（未設定でも email フォールバックで動作継続）
+const NEXTAUTH_SECRET = process.env.NEXTAUTH_SECRET ?? undefined;
+
 /**
- * X-User-Id（セッション側の id や providerAccountId を想定）から
- * 内部 User.id を解決する。未連携なら開発環境では自動連携（User作成）を行う。
- * 本番では自動連携しない。
+ * 認証ユーザーIDの確定（確実化）
+ * 優先: JWT.sub → session.user.email →（開発のみ）X-User-Id
  */
-async function ensureDbUserId(req: NextRequest): Promise<string> {
-  const raw = req.headers.get("x-user-id");
-  const val = raw?.trim();
-  if (!val) {
-    throw new Error("missing header: X-User-Id");
+async function resolveUserId(req: NextRequest): Promise<string | null> {
+  // 1) JWT（__Secure-next-auth.session-token / next-auth.session-token）
+  if (NEXTAUTH_SECRET) {
+    try {
+      const token = await getToken({ req, secret: NEXTAUTH_SECRET });
+      const sub = (token?.sub as string | undefined) ?? null;
+      if (sub) return `gh:${sub}`;
+    } catch (e) {
+      console.warn("[templates] getToken failed:", e);
+    }
   }
 
-  // 1) すでに内部 User.id が来ている場合（そのまま存在確認）
-  try {
-    const u = await prisma.user.findUnique({ where: { id: val }, select: { id: true } });
-    if (u?.id) return u.id;
-  } catch {}
+  // 2) NextAuth セッション（/api/auth/session で email が出ている事実に合わせる）
+  const session = await getServerSession(authOptions);
+  const email =
+    (session?.user as { email?: string } | null | undefined)?.email ?? null;
+  if (email) return `mail:${email.toLowerCase()}`;
 
-  // 2) Account.providerAccountId（例: GitHubのID）→ userId を解決
-  try {
-    const acc = await prisma.account.findFirst({
-      where: { providerAccountId: val },
-      select: { userId: true },
-    });
-    if (acc?.userId) return String(acc.userId);
-  } catch {}
+  // 3) 本番はバイパス禁止
+  if (process.env.NODE_ENV === "production") return null;
 
-  // 3) 開発環境のみ：自動連携（シャドーユーザー作成）
-  if (process.env.NODE_ENV !== "production") {
-    // User.email は NextAuth標準スキーマだと Optional なので未設定で作成可
-    const created = await prisma.user.create({
-      data: {
-        id: val,                  // そのまま内部IDとして採用（String型想定）
-        name: `dev#${val}`,       // 表示用の暫定名
-      },
-      select: { id: true },
-    });
-    return created.id;
+  // 4) 開発のみヘッダバイパス可（既存互換）
+  if (process.env.ALLOW_DEV_HEADER === "1") {
+    const id = req.headers.get("x-user-id");
+    if (id && id.trim()) return id.trim();
   }
 
-  // 本番は自動連携しない
-  throw new Error("user not linked");
+  return null;
 }
 
-// -------- GET: 一覧 --------
+// GET /api/templates?limit=50
 export async function GET(req: NextRequest) {
   try {
-    const userId = await ensureDbUserId(req);
-
-    // スキーマがユーザー非紐付けの場合は where を外してください
-    const items = await prisma.template.findMany({
-      where: { userId },
-      select: { id: true, title: true, body: true, updatedAt: true, createdAt: true },
-      orderBy: { updatedAt: "desc" },
-    });
-
-    return NextResponse.json(items, { status: 200 });
-  } catch (e: any) {
-    const msg = String(e?.message ?? "");
-    if (msg.includes("missing header") || msg.includes("user not linked")) {
+    const userId = await resolveUserId(req);
+    if (!userId) {
       return NextResponse.json(
-        { ok: false, ver: "templates", error: { kind: "unauthorized", message: "signin required (user not linked)" } },
-        { status: 401 }
+        { ok: false, code: "UNAUTHORIZED", ver: API_VER },
+        { status: 401, headers: { "Cache-Control": "no-store" } }
       );
     }
-    return NextResponse.json(
-      { ok: false, ver: "templates", error: { kind: "server", message: msg || "unknown error" } },
-      { status: 500 }
-    );
-  }
-}
-
-// -------- POST: 作成 --------
-export async function POST(req: NextRequest) {
-  try {
-    const userId = await ensureDbUserId(req);
-
-    const { title, body } = await req.json();
-    if (!title || !body) {
-      return NextResponse.json(
-        { ok: false, ver: "templates", error: { kind: "bad_request", message: "title/body required" } },
-        { status: 400 }
-      );
-    }
-
-    const created = await prisma.template.create({
-      data: { title: String(title), body: String(body), userId },
-      select: { id: true },
-    });
-
-    return NextResponse.json({ ok: true, id: created.id }, { status: 201 });
-  } catch (e: any) {
-    const msg = String(e?.message ?? "");
-    if (msg.includes("missing header") || msg.includes("user not linked")) {
-      return NextResponse.json(
-        { ok: false, ver: "templates", error: { kind: "unauthorized", message: "signin required (user not linked)" } },
-        { status: 401 }
-      );
-    }
-    return NextResponse.json(
-      { ok: false, ver: "templates", error: { kind: "server", message: msg || "unknown error" } },
-      { status: 500 }
-    );
-  }
-}
-
-// -------- PATCH: 更新（/api/templates に id, title, body を JSON で送る版）--------
-export async function PATCH(req: NextRequest) {
-  try {
-    const userId = await ensureDbUserId(req);
-
-    const { id, title, body } = await req.json();
-    if (!id || !title || !body) {
-      return NextResponse.json(
-        { ok: false, ver: "templates", error: { kind: "bad_request", message: "id/title/body required" } },
-        { status: 400 }
-      );
-    }
-
-    await prisma.template.update({
-      where: { id: String(id) },
-      data: { title: String(title), body: String(body), userId },
-    });
-
-    return NextResponse.json({ ok: true }, { status: 200 });
-  } catch (e: any) {
-    const msg = String(e?.message ?? "");
-    if (msg.includes("missing header") || msg.includes("user not linked")) {
-      return NextResponse.json(
-        { ok: false, ver: "templates", error: { kind: "unauthorized", message: "signin required (user not linked)" } },
-        { status: 401 }
-      );
-    }
-    return NextResponse.json(
-      { ok: false, ver: "templates", error: { kind: "server", message: msg || "unknown error" } },
-      { status: 500 }
-    );
-  }
-}
-
-// -------- DELETE: クエリパラメータ id 版（/api/templates?id=...）--------
-export async function DELETE(req: NextRequest) {
-  try {
-    const userId = await ensureDbUserId(req);
-    void userId; // 監査用途。必要なら where に加えてください。
 
     const { searchParams } = new URL(req.url);
-    const id = searchParams.get("id");
-    if (!id) {
-      return NextResponse.json(
-        { ok: false, ver: "templates", error: { kind: "bad_request", message: "id required" } },
-        { status: 400 }
-      );
-    }
+    const limit = Math.min(
+      Math.max(parseInt(searchParams.get("limit") || "50", 10) || 50, 1),
+      100
+    );
 
-    await prisma.template.delete({ where: { id: String(id) } });
+    const items = await prisma.template.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+    });
 
-    return NextResponse.json({ ok: true }, { status: 200 });
-  } catch (e: any) {
-    const msg = String(e?.message ?? "");
-    if (msg.includes("missing header") || msg.includes("user not linked")) {
-      return NextResponse.json(
-        { ok: false, ver: "templates", error: { kind: "unauthorized", message: "signin required (user not linked)" } },
-        { status: 401 }
-      );
-    }
     return NextResponse.json(
-      { ok: false, ver: "templates", error: { kind: "server", message: msg || "unknown error" } },
+      { ok: true, ver: API_VER, items },
+      { status: 200, headers: { "Cache-Control": "private, no-store" } }
+    );
+  } catch (err) {
+    console.error("[GET /api/templates] error:", err);
+    return NextResponse.json(
+      { ok: false, ver: API_VER, error: "Internal Server Error" },
+      { status: 500 }
+    );
+  }
+}
+
+// POST /api/templates
+// 期待入力: { title?: string, body?: string } ※ Prismaで body が必須なら空文字で埋める
+export async function POST(req: NextRequest) {
+  try {
+    const userId = await resolveUserId(req);
+    if (!userId) {
+      return NextResponse.json(
+        { ok: false, code: "UNAUTHORIZED", ver: API_VER },
+        { status: 401, headers: { "Cache-Control": "no-store" } }
+      );
+    }
+
+    const payload = await req.json().catch(() => ({} as any));
+    const title: string =
+      typeof payload?.title === "string" && payload.title.trim()
+        ? payload.title.trim()
+        : "Untitled";
+    const body: string = typeof payload?.body === "string" ? payload.body : "";
+
+    const created = await prisma.template.create({
+      data: { userId, title, body },
+    });
+
+    return NextResponse.json(
+      { ok: true, ver: API_VER, item: created },
+      { status: 200 }
+    );
+  } catch (err) {
+    console.error("[POST /api/templates] error:", err);
+    return NextResponse.json(
+      { ok: false, ver: API_VER, error: "Internal Server Error" },
       { status: 500 }
     );
   }

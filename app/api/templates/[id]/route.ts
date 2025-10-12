@@ -1,199 +1,101 @@
-// 【CP@2025-09-21.v3】templates [id] API
-export const dynamic = "force-dynamic";
-
-import { NextRequest, NextResponse } from "next/server";
+// app/api/templates/[id]/route.ts
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { getServerSession } from "next-auth/next";
 import { prisma } from "@/lib/prisma";
 
-/**
- * X-User-Id（セッションの id / providerAccountId を想定）→ 内部 User.id を解決。
- * 未連携なら dev ではシャドーユーザーを自動作成（本番では401）。
- */
-async function ensureDbUserId(req: NextRequest): Promise<string> {
-  const raw = req.headers.get("x-user-id");
-  const val = raw?.trim();
-  if (!val) throw new Error("missing header: X-User-Id");
-
-  // 1) 既に内部 User.id の可能性
+/** 認証ユーザーID（未ログイン/失敗は null） */
+async function getAuthedUserId(): Promise<string | null> {
   try {
-    const u = await prisma.user.findUnique({ where: { id: val }, select: { id: true } });
-    if (u?.id) return u.id;
-  } catch {}
-
-  // 2) Account.providerAccountId（例：GitHub ID）→ userId 解決
-  try {
-    const acc = await prisma.account.findFirst({
-      where: { providerAccountId: val },
-      select: { userId: true },
-    });
-    if (acc?.userId) return String(acc.userId);
-  } catch {}
-
-  // 3) devのみ自動連携
-  if (process.env.NODE_ENV !== "production") {
-    const created = await prisma.user.create({
-      data: { id: val, name: `dev#${val}` },
-      select: { id: true },
-    });
-    return created.id;
+    // App Router では引数なしでも取得できる構成が一般的
+    const session: any = await (getServerSession as any)();
+    const uid = session?.user?.id ?? null;
+    return typeof uid === "string" && uid.length > 0 ? uid : null;
+  } catch {
+    return null;
   }
-
-  throw new Error("user not linked");
 }
 
-/** 正規化：空白trim＆最低限のバリデーション */
-function normalizePayload(obj: any): { title: string; body: string } | null {
-  if (!obj || typeof obj !== "object") return null;
-
-  // よくある別名も受容して吸収（後方互換）
-  const titleRaw = obj.title ?? obj.name ?? obj.subject ?? "";
-  const bodyRaw = obj.body ?? obj.content ?? obj.text ?? "";
-
-  const title = String(titleRaw).trim();
-  const body = String(bodyRaw).trim();
-
-  if (!title || !body) return null;
-  return { title, body };
+/** OPTIONS: 許可メソッドを明示（Allow を必ず返す） */
+export async function OPTIONS(
+  _req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const headers = new Headers();
+  headers.set("Allow", "GET, PATCH, DELETE, OPTIONS");
+  return new NextResponse(null, { status: 204, headers });
 }
 
-// -------- GET: 単一取得（任意）--------
+/** GET /api/templates/[id]（閲覧） */
 export async function GET(
   _req: NextRequest,
-  ctx: { params: { id: string } }
+  { params }: { params: { id: string } }
 ) {
+  const id = params.id;
   try {
-    const id = String(ctx?.params?.id ?? "");
-    if (!id) {
-      return NextResponse.json(
-        { ok: false, ver: "templates[id]", error: { kind: "bad_request", message: "id required" } },
-        { status: 400 }
-      );
-    }
-
-    const item = await prisma.template.findUnique({
-      where: { id },
-      select: { id: true, title: true, body: true, updatedAt: true, createdAt: true, userId: true },
-    });
-
-    if (!item) {
-      return NextResponse.json(
-        { ok: false, ver: "templates[id]", error: { kind: "not_found", message: "not found" } },
-        { status: 404 }
-      );
-    }
-
-    return NextResponse.json({ ok: true, item }, { status: 200 });
-  } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, ver: "templates[id]", error: { kind: "server", message: e?.message ?? "unknown error" } },
-      { status: 500 }
-    );
+    const tpl = await prisma.template.findUnique({ where: { id } });
+    if (!tpl) return NextResponse.json({ error: "Template not found" }, { status: 404 });
+    return NextResponse.json({ item: tpl }, { status: 200 });
+  } catch (err) {
+    return NextResponse.json({ error: "Internal Server Error", detail: String(err) }, { status: 500 });
   }
 }
 
-// -------- PATCH: 更新（フロントは {title, body} を送信）--------
+/** PATCH /api/templates/[id]（認証必須・所有者のみ更新） */
 export async function PATCH(
   req: NextRequest,
-  ctx: { params: { id: string } }
+  { params }: { params: { id: string } }
 ) {
+  const id = params.id;
+  const uid = await getAuthedUserId();
+  if (!uid) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  let body: any;
   try {
-    const userId = await ensureDbUserId(req);
-    const id = String(ctx?.params?.id ?? "");
-    if (!id) {
-      return NextResponse.json(
-        { ok: false, ver: "templates[id]", error: { kind: "bad_request", message: "id required" } },
-        { status: 400 }
-      );
-    }
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
 
-    const json = await req.json().catch(() => null);
-    const payload = normalizePayload(json);
-    if (!payload) {
-      return NextResponse.json(
-        { ok: false, ver: "templates[id]", error: { kind: "bad_request", message: "invalid payload" } },
-        { status: 400 }
-      );
-    }
-
-    // 所有確認（スキーマに userId がある前提。無い場合はこのチェックを外してください）
-    const existing = await prisma.template.findUnique({ where: { id }, select: { userId: true } });
-    if (!existing) {
-      return NextResponse.json(
-        { ok: false, ver: "templates[id]", error: { kind: "not_found", message: "not found" } },
-        { status: 404 }
-      );
-    }
-    if (existing.userId && existing.userId !== userId) {
-      return NextResponse.json(
-        { ok: false, ver: "templates[id]", error: { kind: "forbidden", message: "forbidden" } },
-        { status: 403 }
-      );
-    }
-
-    await prisma.template.update({
+  try {
+    const existing = await prisma.template.findUnique({
       where: { id },
-      data: { title: payload.title, body: payload.body },
+      select: { id: true, userId: true },
     });
+    if (!existing) return NextResponse.json({ error: "Template not found" }, { status: 404 });
+    if (existing.userId !== uid) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-    return NextResponse.json({ ok: true }, { status: 200 });
-  } catch (e: any) {
-    const msg = String(e?.message ?? "");
-    if (msg.includes("missing header") || msg.includes("user not linked")) {
-      return NextResponse.json(
-        { ok: false, ver: "templates[id]", error: { kind: "unauthorized", message: "signin required (user not linked)" } },
-        { status: 401 }
-      );
-    }
-    return NextResponse.json(
-      { ok: false, ver: "templates[id]", error: { kind: "server", message: msg || "unknown error" } },
-      { status: 500 }
-    );
+    // Prismaに存在するフィールドのみ（例: title）
+    const data: any = {};
+    if (typeof body.title === "string") data.title = body.title;
+
+    const updated = await prisma.template.update({ where: { id }, data });
+    return NextResponse.json({ item: updated }, { status: 200 });
+  } catch (err) {
+    return NextResponse.json({ error: "Internal Server Error", detail: String(err) }, { status: 500 });
   }
 }
 
-// -------- DELETE: 削除（既にOKでも後方互換で保持）--------
+/** DELETE /api/templates/[id]（認証必須・所有者のみ削除） */
 export async function DELETE(
-  req: NextRequest,
-  ctx: { params: { id: string } }
+  _req: NextRequest,
+  { params }: { params: { id: string } }
 ) {
+  const id = params.id;
+  const uid = await getAuthedUserId();
+  if (!uid) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   try {
-    const userId = await ensureDbUserId(req);
-    const id = String(ctx?.params?.id ?? "");
-    if (!id) {
-      return NextResponse.json(
-        { ok: false, ver: "templates[id]", error: { kind: "bad_request", message: "id required" } },
-        { status: 400 }
-      );
-    }
+    const existing = await prisma.template.findUnique({
+      where: { id },
+      select: { id: true, userId: true },
+    });
+    if (!existing) return NextResponse.json({ error: "Template not found" }, { status: 404 });
+    if (existing.userId !== uid) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-    // 所有確認（必要に応じて）
-    const existing = await prisma.template.findUnique({ where: { id }, select: { userId: true } });
-    if (!existing) {
-      return NextResponse.json(
-        { ok: false, ver: "templates[id]", error: { kind: "not_found", message: "not found" } },
-        { status: 404 }
-      );
-    }
-    if (existing.userId && existing.userId !== userId) {
-      return NextResponse.json(
-        { ok: false, ver: "templates[id]", error: { kind: "forbidden", message: "forbidden" } },
-        { status: 403 }
-      );
-    }
-
-    await prisma.template.delete({ where: { id } });
-
-    return NextResponse.json({ ok: true }, { status: 200 });
-  } catch (e: any) {
-    const msg = String(e?.message ?? "");
-    if (msg.includes("missing header") || msg.includes("user not linked")) {
-      return NextResponse.json(
-        { ok: false, ver: "templates[id]", error: { kind: "unauthorized", message: "signin required (user not linked)" } },
-        { status: 401 }
-      );
-    }
-    return NextResponse.json(
-      { ok: false, ver: "templates[id]", error: { kind: "server", message: msg || "unknown error" } },
-      { status: 500 }
-    );
+    const deleted = await prisma.template.delete({ where: { id } });
+    return NextResponse.json({ item: deleted }, { status: 200 });
+  } catch (err) {
+    return NextResponse.json({ error: "Internal Server Error", detail: String(err) }, { status: 500 });
   }
 }

@@ -1,29 +1,31 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { appToast } from "@/lib/toast";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Toaster, toast } from "sonner";
 
 export default function ToasterDebugPage() {
   const [count, setCount] = useState(0);
   const [fired, setFired] = useState(false);
+  const checking = useRef(false);
 
   const measure = () => {
     const n = document.querySelectorAll("[data-sonner-toaster]").length;
     setCount(n);
   };
 
-  // 初回：描画完了後に非同期でトーストを発火
+  // 初回：トーストを発火 → 少し待ってから個数カウント
   useEffect(() => {
-    const t = setTimeout(() => {
-      appToast.info("debug ping");
+    if (checking.current) return;
+    checking.current = true;
+    try {
+      toast("debug ping");
       setFired(true);
-      setTimeout(measure, 150);
-    }, 0);
-    return () => clearTimeout(t);
+    } catch {}
+    setTimeout(measure, 150);
   }, []);
 
   const recheck = () => {
-    appToast.info("manual ping");
+    toast("manual ping");
     setFired(true);
     setTimeout(measure, 150);
   };
@@ -36,23 +38,22 @@ export default function ToasterDebugPage() {
 
   return (
     <main className="container mx-auto max-w-2xl py-8 space-y-4">
-      <h1 className="text-2xl font-bold">Toaster 最終検証（appToast版）</h1>
+      <h1 className="text-2xl font-bold">Toaster 最終検証（直置き）</h1>
       <p className="text-sm text-muted-foreground">
-        グローバル Providers 内の <code>&lt;Toaster /&gt;</code> を使用しています。
+        このページ内に <code>&lt;Toaster /&gt;</code> を直置きしています（原因切り分け用）。
       </p>
 
       <div className="rounded-xl border p-4 space-y-2">
         <div className="text-lg">{status}</div>
         <div className="text-sm">現在個数: {count}</div>
         <div className="text-sm">テスト発火: {fired ? "済み" : "未実行"}</div>
-        <button
-          onClick={recheck}
-          className="mt-2 px-4 py-2 rounded-lg border"
-          aria-label="再検査"
-        >
+        <button onClick={recheck} className="mt-2 px-4 py-2 rounded-lg border" aria-label="再検査">
           再検査（手動発火）
         </button>
       </div>
+
+      {/* ←—— 直置き（ここがある限り、このページでは必ず出ます） */}
+      <Toaster richColors position="top-right" />
     </main>
   );
 }

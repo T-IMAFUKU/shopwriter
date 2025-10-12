@@ -2,18 +2,27 @@
   // --- cSpell: Prisma関連の用語を許可 ---
   "cSpell.words": [
     "cuid",
-    "Prisma",
+    "prisma",
     "datasource",
     "dbgenerated",
     "PostgreSQL",
     "Neon"
   ],
 
-  // PrismaファイルでもcSpellを使う（既定で効いていれば実害なし）
+  // Prismaファイルでも cSpell を使う（既定で効いていれば実害なし）
   "cSpell.enableFiletypes": ["prisma"],
 
-  // （任意）Prisma拡張の言語モード名に合わせる
+  // Prisma拡張の言語モード名に合わせる
   "files.associations": {
     "*.prisma": "prisma"
-  }
+  },
+
+  // PowerShell 7 を既定プロファイルに
+  "terminal.integrated.profiles.windows": {
+    "PowerShell 7": {
+      "path": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+      "args": []
+    }
+  },
+  "terminal.integrated.defaultProfile.windows": "PowerShell 7"
 }
