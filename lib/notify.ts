@@ -1,71 +1,99 @@
 "use client";
 
-import { toast, type ExternalToast } from "sonner";
-
 /**
- * notify: sonner の薄いラッパー
- * - 統一API: success / info / warn / error / promise / copy
- * - A11y: sonner 側のロール/アナウンスに依存（ToasterProvider 配置済み前提）
+ * notify（互換レイヤ）
+ * - 既存の import/use を壊さずに、内部実装を appToast に統一
+ * - 秒数ポリシー:
+ *   - success / info … 2600ms
+ *   - warning / error … 4000ms
+ * - 位置/色/closeButton は app/providers.tsx の <Toaster> に準拠（右上・richColors・closeButton）
  */
 
-export type NotifyOptions = ExternalToast & {
-  /** 自動クローズまでのms（0は自動クローズ無効） */
+import { appToast } from "@/lib/toast";
+
+export type NotifyOptions = {
+  /** 補足説明行（省略可） */
+  description?: string;
+  /** 自動クローズまでの ms（未指定時はポリシーに準拠） */
   duration?: number;
+  /** 任意のID（重複抑止等に使用） */
+  id?: string | number;
 };
 
 export const notify = {
-  success(message: string, opts?: NotifyOptions) {
-    return toast.success(message, opts);
+  /** 成功（2600ms） */
+  success(message: string, opts: NotifyOptions = {}) {
+    return appToast.success(message, opts);
   },
-  info(message: string, opts?: NotifyOptions) {
-    // 一部バージョンで toast.message が未定義なため base を使用
-    return toast(message, opts);
+
+  /** 情報（2600ms） */
+  info(message: string, opts: NotifyOptions = {}) {
+    return appToast.info(message, opts);
   },
-  warn(message: string, opts?: NotifyOptions) {
-    return toast.warning(message, opts);
+
+  /** 警告（4000ms） */
+  warn(message: string, opts: NotifyOptions = {}) {
+    return appToast.warning(message, opts);
   },
-  error(message: string, opts?: NotifyOptions) {
-    return toast.error(message, opts);
+
+  /** エラー（4000ms） */
+  error(message: string, opts: NotifyOptions = {}) {
+    return appToast.error(message, opts);
   },
 
   /**
-   * 非同期の統一表現（自前実装）
-   * 例) await notify.promise(fetch(...), { loading:"保存中…", success:"保存しました", error:"失敗しました" })
+   * 非同期の統一表現
+   * 既存との互換: 呼び出し側は `await notify.promise(p, ... )` と書ける
+   * 実装: appToast.promise を走らせつつ、元の Promise<T> をそのまま返す
    */
-  async promise<T>(
+  promise<T>(
     p: Promise<T>,
     messages: {
       loading: string;
       success: string | ((v: T) => string);
       error: string | ((e: any) => string);
     },
-    opts?: NotifyOptions
+    _opts?: NotifyOptions
   ): Promise<T> {
-    const id = toast.loading(messages.loading, opts);
-    try {
-      const v = await p;
-      const okMsg = typeof messages.success === "function" ? messages.success(v) : messages.success;
-      toast.dismiss(id);
-      toast.success(okMsg, opts);
-      return v;
-    } catch (e) {
-      const ngMsg = typeof messages.error === "function" ? messages.error(e) : messages.error;
-      toast.dismiss(id);
-      toast.error(ngMsg, opts);
-      throw e;
-    }
+    // appToast.promise はメッセージを出す副作用だけ担う
+    appToast.promise(
+      p.then((v) => (typeof messages.success === "function" ? messages.success(v) : messages.success)),
+      {
+        loading: messages.loading,
+        success: typeof messages.success === "string" ? messages.success : "成功しました",
+        error: typeof messages.error === "string" ? messages.error : "失敗しました",
+      }
+    );
+
+    // 互換のため元の Promise<T> を返す（呼び出し側で await 可）
+    return p.then(
+      (v) => v,
+      (e) => {
+        // 失敗文言の関数版が渡されている場合は個別に出したいケースもあるため、
+        // ここでは追加トーストは出さず、appToast.promise に任せる
+        throw e;
+      }
+    );
   },
 
   /**
-   * クリップボードに文字列をコピーして成功/失敗をトースト
+   * クリップボードコピー
+   * - 成功: 「コピーしました」（2600ms）
+   * - 失敗: 「コピーに失敗しました」（4000ms）
    */
   async copy(text: string, opts?: { success?: string; error?: string } & NotifyOptions) {
     try {
       await navigator.clipboard.writeText(text);
-      toast.success(opts?.success ?? "コピーしました", opts);
+      appToast.success(opts?.success ?? "コピーしました", {
+        duration: opts?.duration,
+        id: opts?.id,
+      });
       return true;
     } catch (e) {
-      toast.error(opts?.error ?? "コピーに失敗しました", opts);
+      appToast.error(opts?.error ?? "コピーに失敗しました", {
+        duration: opts?.duration,
+        id: opts?.id,
+      });
       return false;
     }
   },
@@ -73,8 +101,8 @@ export const notify = {
 
 export default notify;
 
-/* --- smoke test (任意) ---
- * 実行方法: ブラウザ Console で window.__notifySmoke?.()
+/* --- smoke test（任意） ---
+ * ブラウザ Console: window.__notifySmoke?.()
  */
 declare global {
   interface Window {
@@ -82,5 +110,5 @@ declare global {
   }
 }
 if (typeof window !== "undefined") {
-  window.__notifySmoke = () => toast.success("notify 起動テスト（sonner）");
+  window.__notifySmoke = () => notify.info("notify 起動テスト");
 }

@@ -1,0 +1,47 @@
+
+> shopwriter-app@0.1.0 typecheck C:\Users\81905\shopwriter-new
+> tsc --noEmit
+
+app/(dashboard)/dashboard/share/[id]/page.tsx(3,23): error TS2307: Cannot find module '@/components/share/ShareCard' or its corresponding type declarations.
+app/(dashboard)/dashboard/templates/page.backup-before-dialog-wrap.tsx(116,16): error TS2339: Property 'error' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/dashboard/templates/page.backup-before-dialog-wrap.tsx(118,16): error TS2339: Property 'error' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/dashboard/templates/page.backup-before-dialog-wrap.tsx(121,14): error TS2339: Property 'error' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/dashboard/templates/page.backup-before-dialog-wrap.tsx(150,16): error TS2339: Property 'error' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/dashboard/templates/page.backup-before-dialog-wrap.tsx(169,16): error TS2339: Property 'success' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/dashboard/templates/page.backup-before-dialog-wrap.tsx(176,16): error TS2339: Property 'error' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/dashboard/templates/page.backup-before-dialog-wrap.tsx(178,16): error TS2339: Property 'error' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/dashboard/templates/page.backup-before-dialog-wrap.tsx(181,14): error TS2339: Property 'error' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/dashboard/templates/page.tsx(118,16): error TS2339: Property 'error' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/dashboard/templates/page.tsx(120,16): error TS2339: Property 'error' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/dashboard/templates/page.tsx(123,14): error TS2339: Property 'error' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/dashboard/templates/page.tsx(152,16): error TS2339: Property 'error' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/dashboard/templates/page.tsx(171,16): error TS2339: Property 'success' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/dashboard/templates/page.tsx(178,16): error TS2339: Property 'error' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/dashboard/templates/page.tsx(180,16): error TS2339: Property 'error' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/dashboard/templates/page.tsx(183,14): error TS2339: Property 'error' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/templates/page.tsx(129,25): error TS2339: Property 'id' does not exist on type '{ name?: string | null | undefined; email?: string | null | undefined; image?: string | null | undefined; }'.
+app/(dashboard)/templates/page.tsx(130,14): error TS2339: Property 'info' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/templates/page.tsx(136,14): error TS2339: Property 'error' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/templates/page.tsx(146,44): error TS2339: Property 'id' does not exist on type '{ name?: string | null | undefined; email?: string | null | undefined; image?: string | null | undefined; }'.
+app/(dashboard)/templates/page.tsx(154,16): error TS2339: Property 'error' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/templates/page.tsx(158,14): error TS2339: Property 'success' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/templates/page.tsx(164,14): error TS2339: Property 'error' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/templates/page.tsx(174,14): error TS2339: Property 'error' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/templates/page.tsx(185,25): error TS2339: Property 'id' does not exist on type '{ name?: string | null | undefined; email?: string | null | undefined; image?: string | null | undefined; }'.
+app/(dashboard)/templates/page.tsx(186,14): error TS2339: Property 'info' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/templates/page.tsx(192,14): error TS2339: Property 'error' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/templates/page.tsx(196,14): error TS2339: Property 'error' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/templates/page.tsx(206,44): error TS2339: Property 'id' does not exist on type '{ name?: string | null | undefined; email?: string | null | undefined; image?: string | null | undefined; }'.
+app/(dashboard)/templates/page.tsx(214,16): error TS2339: Property 'error' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/templates/page.tsx(218,14): error TS2339: Property 'success' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/templates/page.tsx(225,14): error TS2339: Property 'error' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/templates/page.tsx(235,14): error TS2339: Property 'error' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/templates/page.tsx(244,25): error TS2339: Property 'id' does not exist on type '{ name?: string | null | undefined; email?: string | null | undefined; image?: string | null | undefined; }'.
+app/(dashboard)/templates/page.tsx(245,14): error TS2339: Property 'info' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/templates/page.tsx(249,14): error TS2339: Property 'error' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/templates/page.tsx(257,53): error TS2339: Property 'id' does not exist on type '{ name?: string | null | undefined; email?: string | null | undefined; image?: string | null | undefined; }'.
+app/(dashboard)/templates/page.tsx(263,16): error TS2339: Property 'error' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/templates/page.tsx(267,14): error TS2339: Property 'success' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/templates/page.tsx(272,14): error TS2339: Property 'error' does not exist on type '(message: string, kind?: ToastKind, d?: DescOrOptions) => string | number'.
+app/(dashboard)/templates/page.tsx(415,44): error TS2339: Property 'id' does not exist on type '{ name?: string | null | undefined; email?: string | null | undefined; image?: string | null | undefined; }'.
+窶右LIFECYCLE窶・Command failed with exit code 2.

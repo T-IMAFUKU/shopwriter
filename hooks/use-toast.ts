@@ -1,48 +1,24 @@
 "use client";
 
-import { toast as sonnerToast, type ExternalToast } from "sonner";
-
 /**
- * 互換ラッパー：
- * - 受け取り方１：toast("title", { description })
- * - 受け取り方２：toast({ title, description })  ← 古い呼び方も許容し sonner 形式に変換
+ * hooks/use-toast.ts
+ * 旧API（notifySuccess/notifyError/notifyInfo/notifySaved）を撤去し、notify に一本化。
+ * 互換のため `toast` も同じ実装を名前付きエクスポートします。
+ * `app/page.tsx` などが `import { notify } from "@/hooks/use-toast"` を前提としているため、
+ * トップレベルで `export const notify` を必ず提供します。
  */
 
-type LegacyArg = { title?: string; description?: string };
+import _notify from "../src/lib/notify";
 
-/** 呼び出しシグネチャを包括 */
-type ToastArg =
-  | string
-  | LegacyArg;
+// ✅ 既存コード互換：名前付きエクスポート（どちらでも同じ実装）
+export const notify = _notify;
+export const toast = _notify;
 
-type ToastOpts = Omit<ExternalToast, "description"> & { description?: string };
+// 任意のカスタムフック形式（必要なら使用可能）
+export const useToast = () => ({ notify: _notify, toast: _notify });
 
-function toastCompat(arg: ToastArg, opts?: ToastOpts) {
-  // 文字列ならそのまま sonner へ
-  if (typeof arg === "string") {
-    return sonnerToast(arg, { ...opts, description: opts?.description });
-  }
+// 型の再エクスポート（必要に応じて利用可能）
+export type { NotifyKind, NotifyOptions } from "../src/lib/notify";
 
-  // オブジェクト（旧API互換）なら title/description を抽出して sonner 形式へ
-  const title = arg.title ?? "";
-  const description = arg.description ?? "";
-
-  // title も description も空のときは何も出さない
-  if (!title && !description) return;
-
-  // title が無ければ description をタイトルとして表示（視認性のため）
-  if (!title && description) {
-    return sonnerToast(description, { ...opts });
-  }
-
-  // 通常：title + description
-  return sonnerToast(title, { ...opts, description });
-}
-
-/** useToast フック：shadcn 風の使い心地を維持 */
-export function useToast() {
-  return { toast: toastCompat };
-}
-
-/** 直接 import して使いたい場合用 */
-export const toast = toastCompat;
+// （あっても害はない）デフォルトエクスポート：import notify from "@/hooks/use-toast" も可
+export default _notify;

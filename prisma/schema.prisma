@@ -111,3 +111,26 @@ model Template {
 
   @@index([userId], map: "idx_template_user_id")
 }
+
+/// === EventLog: ダッシュボード用の簡易ログ（コードで使用中のフィールドに整合） ===
+/// DB には触れず型だけ更新できるよう、ここを変更して Prisma Client を再生成します。
+model EventLog {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+
+  // 実装に合わせて追加・任意化
+  category   String?       // app/api/eventlog などが送信
+  event      String        // イベント名
+  level      String        // INFO / WARN / ERROR など
+  url        String?
+  referrer   String?
+  ip         String?
+  userAgent  String?
+  userId     String?
+  sessionId  String?
+  payload    Json?         // 任意メタ
+
+  // 互換：旧実装では必須だったが、現在は任意にする
+  message    String?
+  meta       Json?
+}

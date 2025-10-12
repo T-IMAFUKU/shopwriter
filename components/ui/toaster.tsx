@@ -1,21 +1,25 @@
 ﻿// components/ui/toaster.tsx
 "use client";
 
-import * as React from "react";
-import { Toaster } from "sonner";
-
 /**
- * 繧｢繝励Μ蜈ｨ菴薙〒 1 蠎ｦ縺縺鷹・鄂ｮ縺吶ｋ繝医・繧ｹ繧ｿ繝ｼ縲・ * - Next.js 15 / React 18 縺ｫ蟇ｾ蠢・ * - sonner v2.0.7 縺ｧ縺ｯ ariaProps 縺ｯ譛ｪ繧ｵ繝昴・繝・ */
-export default function SonnerToaster() {
-  return (
-    <Toaster
-      position="top-right"
-      richColors
-      closeButton
-      expand
-      duration={3000}
-      visibleToasts={3}
-    />
-  );
+ * DEPRECATED SHIM
+ * グローバル Toaster は app/providers.tsx 内で 1つだけマウントします。
+ * 本ファイルは後方互換シムとして残し、描画は行いません（重複を防ぐ）。
+ * 依存箇所は順次削除してください。
+ */
+
+import { useEffect } from "react";
+
+export function Toaster() {
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "production") {
+      // eslint-disable-next-line no-console
+      console.warn(
+        "[DEPRECATED] `@/components/ui/toaster` は使用停止です。Toaster は app/providers.tsx に集約しました。"
+      );
+    }
+  }, []);
+  return null;
 }
 
+export default Toaster;
