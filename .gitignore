@@ -54,3 +54,7 @@ coverage/
 Thumbs.db
 # TypeScript build info
 *.tsbuildinfo
+
+# reports & backups
+_reports/
+app/globals.css.bak

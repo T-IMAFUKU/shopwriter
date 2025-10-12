@@ -7,14 +7,15 @@
    ========================================= */
 
 :root {
-  /* 色（既存を尊重：コーポレートネイビー） */
+  /* 色（既存：コーポレートネイビー系） */
   --background: 0 0% 100%;
   --foreground: 222.2 47.4% 11.2%;
   --card: 0 0% 100%;
   --card-foreground: 222.2 47.4% 11.2%;
   --popover: 0 0% 100%;
   --popover-foreground: 222.2 47.4% 11.2%;
-  /* P3 = Bright Navy 適用（最小変更） */
+
+  /* P3（最小変更） */
   --primary: 214 52% 24.5%;
   --primary-foreground: 210 40% 98%;
   --secondary: 210 40% 96.1%;
@@ -23,17 +24,18 @@
   --muted-foreground: 215.4 16.3% 46.9%;
   --accent: 210 40% 96.1%;
   --accent-foreground: 222.2 47.4% 11.2%;
-  /* ==== S3 採用（必要最小限の更新/追加） ==== */
+
+  /* S3（成功・破壊） */
   --success: 194 70% 27%;
   --success-foreground: 210 40% 98%;
   --destructive: 0 74% 42%;
   --destructive-foreground: 210 40% 98%;
-  /* ======================================= */
+
   --border: 214.3 31.8% 91.4%;
   --input: 214.3 31.8% 91.4%;
   --ring: 222.2 84% 4.9%;
 
-  /* 角丸（やや大きめ：iOS寄り） */
+  /* 角丸（iOS寄り） */
   --radius: 0.75rem;
 
   /* ====== UIトークン（角丸） ====== */
@@ -42,29 +44,35 @@
   --ui-radius-lg: 1rem;
   --ui-radius-full: 9999px;
 
-  /* ====== UIトークン（余白） ======
-     Tailwindの p-1/p-2/... 相当 */
+  /* ====== UIトークン（余白） ====== */
   --spacing-0: 0rem;
-  --spacing-1: 0.25rem;  /* 1 */
-  --spacing-2: 0.5rem;   /* 2 */
-  --spacing-3: 0.75rem;  /* 3 */
-  --spacing-4: 1rem;     /* 4 */
-  --spacing-5: 1.25rem;  /* 5 */
-  --spacing-6: 1.5rem;   /* 6 */
-  --spacing-7: 1.75rem;  /* 7 */
-  --spacing-8: 2rem;     /* 8 */
+  --spacing-1: 0.25rem;
+  --spacing-2: 0.5rem;
+  --spacing-3: 0.75rem;
+  --spacing-4: 1rem;
+  --spacing-5: 1.25rem;
+  --spacing-6: 1.5rem;
+  --spacing-7: 1.75rem;
+  --spacing-8: 2rem;
 
-  /* 半透明ガラス面（ライト） */
-  --ui-glass-bg: 255 255 255 / 0.6;         /* rgba */
-  --ui-glass-border: 0 0 0 / 0.06;          /* hairline枠用（黒6%） */
+  /* 半透明ガラス */
+  --ui-glass-bg: 255 255 255 / 0.6;
+  --ui-glass-border: 0 0 0 / 0.06;
   --ui-glass-blur: 16px;
 
-  /* 影（弱・中） */
+  /* 影 */
   --ui-shadow-sm: 0 1px 2px rgba(0,0,0,0.06);
   --ui-shadow-md: 0 8px 20px rgba(0,0,0,0.08);
 
-  /* Hairline区切り（1px未満相当の淡色） */
-  --ui-separator: 0 0 0 / 0.08;             /* rgba(0,0,0,0.08) */
+  /* Hairline区切り */
+  --ui-separator: 0 0 0 / 0.08;
+
+  /* ===============================
+     ここが今回の“将来混乱ゼロ”ボタントークン
+     =============================== */
+  --btn-px: 0.875rem;  /* 左右余白（= px-3.5 相当） */
+  --btn-py: 0.375rem;  /* 上下余白（≒ py-1.5） */
+  --btn-h:  2.5rem;    /* 高さ（= h-10） */
 }
 
 .dark {
@@ -82,17 +90,16 @@
   --muted-foreground: 215 20.2% 65.1%;
   --accent: 217.2 32.6% 17.5%;
   --accent-foreground: 210 40% 98%;
-  /* ==== S3 採用（必要最小限の更新/追加） ==== */
+
   --success: 194 70% 27%;
   --success-foreground: 210 40% 98%;
   --destructive: 0 74% 42%;
   --destructive-foreground: 210 40% 98%;
-  /* ======================================= */
+
   --border: 217.2 32.6% 17.5%;
   --input: 217.2 32.6% 17.5%;
   --ring: 210 40% 98%;
 
-  /* ダークのガラス調 */
   --ui-glass-bg: 20 20 20 / 0.5;
   --ui-glass-border: 255 255 255 / 0.08;
   --ui-glass-blur: 16px;
@@ -107,19 +114,32 @@
    ベーススタイル
    ========================================= */
 @layer base {
-  * {
-    @apply border-border;
-  }
-  body {
-    @apply bg-background text-foreground;
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground; }
+
+  /* リストの透け/食い込み対策 */
+  ul { list-style: disc; padding-left: 1.25rem; margin: 0.5rem 0; }
+  ol { list-style: decimal; padding-left: 1.5rem;  margin: 0.5rem 0; }
+  li { line-height: 1.6; overflow: visible; margin: 0.25rem 0; }
+  li > ul, li > ol { margin-top: 0.25rem; margin-bottom: 0.25rem; }
+  :where(ul,ol) :where(p) { margin: 0.25rem 0; }
+
+  table { @apply w-full border-collapse; }
+  th, td { @apply p-3 align-middle; }
+  thead th { @apply text-sm text-muted-foreground; }
+
+  input, textarea, select, button { border-radius: var(--ui-radius-md); }
+  input:focus, textarea:focus, select:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px hsl(var(--ring) / 0.25);
   }
 }
 
 /* =========================================
-   iOS風ユーティリティ
+   Components
    ========================================= */
 
-/* ガラス面（Card/ヘッダなどに任意採用） */
+/* ガラス面 */
 .glass {
   background: rgba(var(--ui-glass-bg));
   backdrop-filter: blur(var(--ui-glass-blur));
@@ -129,41 +149,73 @@
   box-shadow: var(--ui-shadow-sm);
 }
 
-/* Hairline区切り（セクション間やリスト） */
-.hairline {
-  border-top: 1px solid rgba(var(--ui-separator));
+/* Hairline 区切り */
+.hairline { border-top: 1px solid rgba(var(--ui-separator)); }
+
+/* =========================================
+   Buttons（単一トークンで統一）
+   ========================================= */
+.btn {
+  @apply inline-flex items-center justify-center text-sm font-medium
+         focus-visible:outline-none focus-visible:ring-2
+         focus-visible:ring-primary focus-visible:ring-offset-2
+         focus-visible:ring-offset-background select-none;
+  height: var(--btn-h);
+  padding-inline: var(--btn-px);
+  padding-block: var(--btn-py);
+  gap: 0.375rem;      /* 文字とアイコンの隙間 */
+  line-height: 1;     /* 詰まり抑止 */
+  white-space: nowrap;
+  border-radius: var(--ui-radius-md);
+  box-shadow: var(--ui-shadow-sm);
+  transition: background-color .15s ease, color .15s ease, box-shadow .15s ease;
+}
+.btn:hover { filter: brightness(0.98); }
+.btn:disabled,
+.btn[aria-disabled="true"] { opacity: .6; cursor: not-allowed; }
+
+/* バリアントは“色・枠”のみ。余白は .btn が唯一の定義点 */
+.btn-primary {
+  @apply text-primary-foreground;
+  background-color: hsl(var(--primary));
+}
+.btn-primary:hover { background-color: hsl(var(--primary) / .92); }
+
+.btn-outline {
+  @apply text-foreground;
+  background-color: hsl(var(--secondary) / .55);
+  border: 1px solid hsl(var(--border));
+  box-shadow: var(--ui-shadow-sm);
+}
+.btn-outline:hover { background-color: hsl(var(--secondary) / .75); }
+
+.btn-success {
+  color: hsl(var(--success-foreground));
+  background-color: hsl(var(--success));
+}
+.btn-success:hover { background-color: hsl(var(--success) / .9); }
+
+.btn-danger {
+  color: hsl(var(--destructive-foreground));
+  background-color: hsl(var(--destructive));
+}
+.btn-danger:hover { background-color: hsl(var(--destructive) / .9); }
+
+/* サイズ差分（余白は .btn のトークンから算出する文化） */
+.btn-sm { height: calc(var(--btn-h) - 0.25rem); border-radius: var(--ui-radius-sm); }
+.btn-lg { height: calc(var(--btn-h) + 0.25rem); border-radius: var(--ui-radius-lg); }
+
+/* CTAのみ pill（余白は .btn のまま） */
+.btn-cta {
+  @apply font-semibold;
+  border-radius: var(--ui-radius-full);
+  box-shadow: var(--ui-shadow-md);
 }
 
 /* =========================================
-   共通ボタンスタイル
-   - 通常ボタン：標準角丸（md）で統一
-   - CTAボタン：pill（full）を明示的に使用
+   Utilities
    ========================================= */
-
-/* 通常（標準角丸） */
-.btn {
-  @apply h-10 px-4 font-medium
-         focus-visible:outline-none focus-visible:ring-2
-         focus-visible:ring-primary focus-visible:ring-offset-2
-         focus-visible:ring-offset-background;
-  border-radius: var(--ui-radius-md);
-  box-shadow: var(--ui-shadow-sm);
-}
-
-.btn-primary {
-  @apply bg-primary text-primary-foreground hover:bg-primary/90;
-  border-radius: var(--ui-radius-md);
-}
-
-.btn-outline {
-  @apply border bg-white/80 dark:bg-neutral-900/60 hover:bg-white/90 dark:hover:bg-neutral-900/80;
-  border-radius: var(--ui-radius-md);
-  box-shadow: var(--ui-shadow-sm);
-}
-
-/* CTAのみ pill を明示採用 */
-.btn-cta {
-  @apply h-10 px-6 font-semibold hover:opacity-90;
-  border-radius: var(--ui-radius-full);
-  box-shadow: var(--ui-shadow-md);
+@layer utilities {
+  .shadow-soft { box-shadow: var(--ui-shadow-sm); }
+  .shadow-soft-md { box-shadow: var(--ui-shadow-md); }
 }
