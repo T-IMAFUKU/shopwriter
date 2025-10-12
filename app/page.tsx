@@ -1,11 +1,14 @@
+"use client";
+
+import { useEffect } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { notify } from "@/hooks/use-toast";
 
 export default function HomePage() {
-  // 初回レンダー時にデバッグトースト
+  // 初回レンダー時にデバッグトースト（必要なら有効化）
   useEffect(() => {
-    notify("debug ping", "info");
+    // notify("debug ping", "info");
   }, []);
 
   return (
@@ -49,16 +52,10 @@ export default function HomePage() {
         </p>
 
         <p className="text-sm space-x-3">
-          <Link
-            className="underline underline-offset-4"
-            href="/dashboard"
-          >
+          <Link className="underline underline-offset-4" href="/dashboard">
             ダッシュボードへ
           </Link>
-          <Link
-            className="underline underline-offset-4"
-            href="/debug"
-          >
+          <Link className="underline underline-offset-4" href="/debug">
             デバッグツールへ
           </Link>
         </p>
