@@ -68,11 +68,11 @@
   --ui-separator: 0 0 0 / 0.08;
 
   /* ===============================
-     ここが今回の“将来混乱ゼロ”ボタントークン
+     ボタントークン（唯一の真実）
      =============================== */
-  --btn-px: 0.875rem;  /* 左右余白（= px-3.5 相当） */
-  --btn-py: 0.375rem;  /* 上下余白（≒ py-1.5） */
-  --btn-h:  2.5rem;    /* 高さ（= h-10） */
+  --btn-px: 0.875rem;  /* px-3.5 */
+  --btn-py: 0.375rem;  /* py-1.5 */
+  --btn-h:  2.5rem;    /* h-10 */
 }
 
 .dark {
@@ -111,13 +111,13 @@
 }
 
 /* =========================================
-   ベーススタイル
+   Base（＋リスト再発対策）
    ========================================= */
 @layer base {
   * { @apply border-border; }
   body { @apply bg-background text-foreground; }
 
-  /* リストの透け/食い込み対策 */
+  /* 通常コンテンツでは箇条書きを維持 */
   ul { list-style: disc; padding-left: 1.25rem; margin: 0.5rem 0; }
   ol { list-style: decimal; padding-left: 1.5rem;  margin: 0.5rem 0; }
   li { line-height: 1.6; overflow: visible; margin: 0.25rem 0; }
@@ -139,7 +139,7 @@
    Components
    ========================================= */
 
-/* ガラス面 */
+/* ガラス面（@applyを使っていないので @layer外でもOK） */
 .glass {
   background: rgba(var(--ui-glass-bg));
   backdrop-filter: blur(var(--ui-glass-blur));
@@ -153,63 +153,73 @@
 .hairline { border-top: 1px solid rgba(var(--ui-separator)); }
 
 /* =========================================
-   Buttons（単一トークンで統一）
+   Buttons（@apply を使うため components レイヤー内に配置）
    ========================================= */
-.btn {
-  @apply inline-flex items-center justify-center text-sm font-medium
-         focus-visible:outline-none focus-visible:ring-2
-         focus-visible:ring-primary focus-visible:ring-offset-2
-         focus-visible:ring-offset-background select-none;
-  height: var(--btn-h);
-  padding-inline: var(--btn-px);
-  padding-block: var(--btn-py);
-  gap: 0.375rem;      /* 文字とアイコンの隙間 */
-  line-height: 1;     /* 詰まり抑止 */
-  white-space: nowrap;
-  border-radius: var(--ui-radius-md);
-  box-shadow: var(--ui-shadow-sm);
-  transition: background-color .15s ease, color .15s ease, box-shadow .15s ease;
-}
-.btn:hover { filter: brightness(0.98); }
-.btn:disabled,
-.btn[aria-disabled="true"] { opacity: .6; cursor: not-allowed; }
+@layer components {
+  .ui-btn,
+  .btn {
+    @apply inline-flex items-center justify-center text-sm font-medium
+           focus-visible:outline-none focus-visible:ring-2
+           focus-visible:ring-primary focus-visible:ring-offset-2
+           focus-visible:ring-offset-background select-none;
+    height: var(--btn-h);
+    padding-inline: var(--btn-px);
+    padding-block: var(--btn-py);
+    gap: 0.375rem;
+    line-height: 1;
+    white-space: nowrap;
+    border-radius: var(--ui-radius-md);
+    box-shadow: var(--ui-shadow-sm);
+    transition: background-color .15s ease, color .15s ease, box-shadow .15s ease;
+  }
+  .ui-btn:hover, .btn:hover { filter: brightness(0.98); }
+  .ui-btn:disabled, .btn:disabled,
+  .ui-btn[aria-disabled="true"], .btn[aria-disabled="true"] { opacity: .6; cursor: not-allowed; }
 
-/* バリアントは“色・枠”のみ。余白は .btn が唯一の定義点 */
-.btn-primary {
-  @apply text-primary-foreground;
-  background-color: hsl(var(--primary));
-}
-.btn-primary:hover { background-color: hsl(var(--primary) / .92); }
+  /* バリアント（色・枠のみ） */
+  .btn-primary {
+    @apply text-primary-foreground;
+    background-color: hsl(var(--primary));
+  }
+  .btn-primary:hover { background-color: hsl(var(--primary) / .92); }
 
-.btn-outline {
-  @apply text-foreground;
-  background-color: hsl(var(--secondary) / .55);
-  border: 1px solid hsl(var(--border));
-  box-shadow: var(--ui-shadow-sm);
-}
-.btn-outline:hover { background-color: hsl(var(--secondary) / .75); }
+  .btn-outline {
+    @apply text-foreground;
+    background-color: hsl(var(--secondary) / .55);
+    border: 1px solid hsl(var(--border));
+    box-shadow: var(--ui-shadow-sm);
+  }
+  .btn-outline:hover { background-color: hsl(var(--secondary) / .75); }
 
-.btn-success {
-  color: hsl(var(--success-foreground));
-  background-color: hsl(var(--success));
-}
-.btn-success:hover { background-color: hsl(var(--success) / .9); }
+  .btn-success { color: hsl(var(--success-foreground)); background-color: hsl(var(--success)); }
+  .btn-success:hover { background-color: hsl(var(--success) / .9); }
 
-.btn-danger {
-  color: hsl(var(--destructive-foreground));
-  background-color: hsl(var(--destructive));
-}
-.btn-danger:hover { background-color: hsl(var(--destructive) / .9); }
+  .btn-danger { color: hsl(var(--destructive-foreground)); background-color: hsl(var(--destructive)); }
+  .btn-danger:hover { background-color: hsl(var(--destructive) / .9); }
 
-/* サイズ差分（余白は .btn のトークンから算出する文化） */
-.btn-sm { height: calc(var(--btn-h) - 0.25rem); border-radius: var(--ui-radius-sm); }
-.btn-lg { height: calc(var(--btn-h) + 0.25rem); border-radius: var(--ui-radius-lg); }
+  /* サイズ差分（余白はトークンから算出） */
+  .btn-sm { height: calc(var(--btn-h) - 0.25rem); border-radius: var(--ui-radius-sm); }
+  .btn-lg { height: calc(var(--btn-h) + 0.25rem); border-radius: var(--ui-radius-lg); }
 
-/* CTAのみ pill（余白は .btn のまま） */
-.btn-cta {
-  @apply font-semibold;
-  border-radius: var(--ui-radius-full);
-  box-shadow: var(--ui-shadow-md);
+  /* CTA（pill） */
+  .btn-cta {
+    @apply font-semibold;
+    border-radius: var(--ui-radius-full);
+    box-shadow: var(--ui-shadow-md);
+  }
+
+  /* Segmented / Tablist（ダッシュボードの点除去） */
+  ul.segmented,
+  ul[role="tablist"],
+  nav ul.segmented {
+    list-style: none;
+    padding-left: 0;
+    margin-left: 0;
+  }
+  ul.segmented > li,
+  ul[role="tablist"] > li {
+    display: inline-flex;
+  }
 }
 
 /* =========================================
