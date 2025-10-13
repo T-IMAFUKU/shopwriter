@@ -91,10 +91,12 @@
   --accent: 217.2 32.6% 17.5%;
   --accent-foreground: 210 40% 98%;
 
+
   --success: 194 70% 27%;
   --success-foreground: 210 40% 98%;
   --destructive: 0 74% 42%;
   --destructive-foreground: 210 40% 98%;
+
 
   --border: 217.2 32.6% 17.5%;
   --input: 217.2 32.6% 17.5%;
@@ -137,8 +139,10 @@
 
 /* =========================================
    Components
+   Components
    ========================================= */
 
+/* ガラス面 */
 /* ガラス面 */
 .glass {
   background: rgba(var(--ui-glass-bg));
@@ -151,12 +155,15 @@
 
 /* Hairline 区切り */
 .hairline { border-top: 1px solid rgba(var(--ui-separator)); }
+/* Hairline 区切り */
+.hairline { border-top: 1px solid rgba(var(--ui-separator)); }
 
 /* =========================================
    Buttons（単一トークンで統一）— .ui-btn と .btn を同一化
    ========================================= */
 .ui-btn,
 .btn {
+  @apply inline-flex items-center justify-center text-sm font-medium
   @apply inline-flex items-center justify-center text-sm font-medium
          focus-visible:outline-none focus-visible:ring-2
          focus-visible:ring-primary focus-visible:ring-offset-2
@@ -170,6 +177,7 @@
   border-radius: var(--ui-radius-md);
   box-shadow: var(--ui-shadow-sm);
   transition: background-color .15s ease, color .15s ease, box-shadow .15s ease;
+  transition: background-color .15s ease, color .15s ease, box-shadow .15s ease;
 }
 .ui-btn:hover, .btn:hover { filter: brightness(0.98); }
 .ui-btn:disabled, .btn:disabled,
@@ -179,10 +187,16 @@
 .btn-primary {
   @apply text-primary-foreground;
   background-color: hsl(var(--primary));
+  @apply text-primary-foreground;
+  background-color: hsl(var(--primary));
 }
+.btn-primary:hover { background-color: hsl(var(--primary) / .92); }
 .btn-primary:hover { background-color: hsl(var(--primary) / .92); }
 
 .btn-outline {
+  @apply text-foreground;
+  background-color: hsl(var(--secondary) / .55);
+  border: 1px solid hsl(var(--border));
   @apply text-foreground;
   background-color: hsl(var(--secondary) / .55);
   border: 1px solid hsl(var(--border));
