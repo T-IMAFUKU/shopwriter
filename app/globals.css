@@ -68,11 +68,11 @@
   --ui-separator: 0 0 0 / 0.08;
 
   /* ===============================
-     ここが今回の“将来混乱ゼロ”ボタントークン
+     将来混乱ゼロのボタントークン
      =============================== */
-  --btn-px: 0.875rem;  /* 左右余白（= px-3.5 相当） */
-  --btn-py: 0.375rem;  /* 上下余白（≒ py-1.5） */
-  --btn-h:  2.5rem;    /* 高さ（= h-10） */
+  --btn-px: 0.875rem;  /* px-3.5 */
+  --btn-py: 0.375rem;  /* py-1.5 */
+  --btn-h:  2.5rem;    /* h-10 */
 }
 
 .dark {
@@ -111,7 +111,7 @@
 }
 
 /* =========================================
-   ベーススタイル
+   Base（＋リスト再発対策）
    ========================================= */
 @layer base {
   * { @apply border-border; }
@@ -163,18 +163,17 @@
   height: var(--btn-h);
   padding-inline: var(--btn-px);
   padding-block: var(--btn-py);
-  gap: 0.375rem;      /* 文字とアイコンの隙間 */
-  line-height: 1;     /* 詰まり抑止 */
+  gap: 0.375rem;
+  line-height: 1;
   white-space: nowrap;
   border-radius: var(--ui-radius-md);
   box-shadow: var(--ui-shadow-sm);
   transition: background-color .15s ease, color .15s ease, box-shadow .15s ease;
 }
 .btn:hover { filter: brightness(0.98); }
-.btn:disabled,
-.btn[aria-disabled="true"] { opacity: .6; cursor: not-allowed; }
+.btn:disabled, .btn[aria-disabled="true"] { opacity: .6; cursor: not-allowed; }
 
-/* バリアントは“色・枠”のみ。余白は .btn が唯一の定義点 */
+/* バリアント（色・枠のみ） */
 .btn-primary {
   @apply text-primary-foreground;
   background-color: hsl(var(--primary));
@@ -189,23 +188,17 @@
 }
 .btn-outline:hover { background-color: hsl(var(--secondary) / .75); }
 
-.btn-success {
-  color: hsl(var(--success-foreground));
-  background-color: hsl(var(--success));
-}
+.btn-success { color: hsl(var(--success-foreground)); background-color: hsl(var(--success)); }
 .btn-success:hover { background-color: hsl(var(--success) / .9); }
 
-.btn-danger {
-  color: hsl(var(--destructive-foreground));
-  background-color: hsl(var(--destructive));
-}
+.btn-danger { color: hsl(var(--destructive-foreground)); background-color: hsl(var(--destructive)); }
 .btn-danger:hover { background-color: hsl(var(--destructive) / .9); }
 
-/* サイズ差分（余白は .btn のトークンから算出する文化） */
+/* サイズ差分（余白は .btn のトークンから算出） */
 .btn-sm { height: calc(var(--btn-h) - 0.25rem); border-radius: var(--ui-radius-sm); }
 .btn-lg { height: calc(var(--btn-h) + 0.25rem); border-radius: var(--ui-radius-lg); }
 
-/* CTAのみ pill（余白は .btn のまま） */
+/* CTA（pill） */
 .btn-cta {
   @apply font-semibold;
   border-radius: var(--ui-radius-full);
