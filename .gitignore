@@ -58,3 +58,6 @@ Thumbs.db
 # reports & backups
 _reports/
 app/globals.css.bak
+
+.vercel
+
