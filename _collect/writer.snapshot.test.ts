@@ -1,17 +1,16 @@
 ﻿/**
- * /api/writer の固定入力スナップショット
- * ポイント：
- *  - まず env を固定（OPENAI_API_KEY / NODE_ENV）
- *  - 次に外部依存（next-auth / openai）を mock
- *  - 最後に route を「動的 import」で読み込む（順序が最重要）
- *  - 入力は 8文字以上
- *  - 可変メタはマスクして snapshot 安定化
+ * /api/writer の固定入力スナップショット（_collect 用）
+ *  - OPENAI_API_KEY はダミーにしない（preload で実キー）
+ *  - next-auth / openai はモック（外部通信しない）
+ *  - ルートは実行時に動的解決（_collect・tests/api の相対深度差を吸収）
+ *  - 入力は 8文字以上、可変メタはマスク
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 
-// ① env を最優先で固定（ルートが module 初期化で参照しても OK になる）
-vi.stubEnv("OPENAI_API_KEY", "sk-test-dummy");
+// ① NODE_ENV だけ固定（OPENAI_API_KEY はダミー注入しない）
 vi.stubEnv("NODE_ENV", "test");
 
 // ② 外部依存を mock（ネットワーク/認証を遮断）
@@ -25,18 +24,42 @@ vi.mock("next-auth", () => ({
 vi.mock("openai", () => {
   class OpenAI {
     responses = { create: async () => ({ output: "MOCK_OUTPUT" }) };
-    chat = { completions: { create: async () => ({ choices: [{ message: { content: "MOCK_OUTPUT" } }] }) } };
+    chat = {
+      completions: {
+        create: async () => ({
+          choices: [{ message: { content: "MOCK_OUTPUT" } }],
+        }),
+      },
+    };
   }
   return { default: OpenAI, OpenAI };
 });
 
-// ③ ルートは「あとから」読み込む。alias不成立時は相対パスにフォールバック
-let POST: (req: Request) => Promise<Response>;
-try {
-  ({ POST } = await import("@/app/api/writer/route"));
-} catch {
-  ({ POST } = await import("../../app/api/writer/route"));
+// ③ ルートは「実行時に動的 import」して相対深度差を吸収
+//    - _collect/ からは ../app/... が正、tests/api/ からは ../../app/... が正 などの差を吸収
+async function loadWriterRoute(): Promise<{ POST: (req: Request) => Promise<Response> }> {
+  const candidates = [
+    // まずはプロジェクトルート相対
+    path.resolve(process.cwd(), "app/api/writer/route.ts"),
+    path.resolve(process.cwd(), "app/api/writer/route.tsx"),
+    // 念のため拡張子なし（Bundler解決）
+    path.resolve(process.cwd(), "app/api/writer/route"),
+  ];
+
+  for (const p of candidates) {
+    try {
+      const url = pathToFileURL(p).href;
+      // eslint-disable-next-line no-await-in-loop
+      const mod = (await import(url)) as any;
+      if (mod?.POST) return { POST: mod.POST as (req: Request) => Promise<Response> };
+    } catch {
+      // 次の候補へ
+    }
+  }
+  throw new Error("Failed to locate app/api/writer/route.*");
 }
+
+const { POST } = await loadWriterRoute();
 
 // 便利関数
 function makeRequest(body: unknown) {
@@ -54,35 +77,33 @@ describe("/api/writer snapshot", () => {
 
   afterAll(() => {
     vi.useRealTimers();
-    vi.unstubAllEnvs();
+    vi.unstubAllEnvs(); // cSpell 警告は無視可
     vi.resetModules();
     vi.clearAllMocks();
   });
 
   it("固定入力(>=8文字) → 安定スナップショット", async () => {
-    // ④ バリデーションを満たす十分な長さの入力
-    const req = makeRequest({ prompt: "これは十分に長いテスト入力です。", language: "ja" });
+    const req = makeRequest({
+      prompt: "これは十分に長いテスト入力です。",
+      language: "ja",
+    });
     const res = await POST(req as Request);
     const json = await res.json();
 
-    // 失敗時の診断をログへ
     if (!json?.ok) {
       // eslint-disable-next-line no-console
       console.error("writer response (debug):", JSON.stringify(json, null, 2));
     }
 
-    // 形の健全性
     expect(json?.ok).toBe(true);
     expect(typeof json?.output).toBe("string");
 
-    // 可変メタのマスク
     if (json?.meta && typeof json.meta === "object") {
       for (const k of ["now", "timestamp", "tookMs", "elapsedMs", "durationMs"]) {
         if (k in json.meta) delete json.meta[k];
       }
     }
 
-    // スナップショット
     expect(json).toMatchSnapshot();
   });
 });
