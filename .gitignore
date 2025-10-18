@@ -1,102 +1,65 @@
-# --- Node / Package managers ---
-node_modules/
-.pnp.*
-.pnpm-debug.log*
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# --- Next.js / Build outputs ---
-.next/
-.next/cache/
-out/
-dist/
-
-# --- Env files (keep examples/tests) ---
-.env*
+_backup*/
+_reports/
+_snapshot*
+_tmp*
 !.env.example
 !.env.test
-
-# --- Logs / Reports ---
-logs/
-.log/
-*.log
-.logs/
-deploy-diagnose-report.txt
-
-# --- Backups / Temp / Working files ---
-backups/
-backup/
+.backup-step*/
 .backup/
-*.bak
-*.bak.*
+.DS_Store
+.env*
+.log/
+.logs/
+.next/
+.next/cache/
+.pnp.*
+.pnpm-debug.log*
+.vercel
+.vercel/
+.vscode/
+*_backup*
+*_before*
 *.backup
 *.backup.*
-tmp/
-temp/
+*.bak
+*.bak.*
+*.db-journal
+*.log
 *.tmp
-vercel-env.*.json
-
+*.tsbuildinfo
+# --- Backups / Temp / Working files ---
+# --- Coverage / Test caches ---
+# --- Editor / OS ---
+# --- Env files (keep examples/tests) ---
+# --- Logs / Reports ---
+# --- Next.js / Build outputs ---
+# --- Node / Package managers ---
 # --- Prisma / SQLite (if any local files are generated) ---
+# --- Vercel local metadata ---
+# === local backups / temp ===
+# local backups / temp
+# reports & backups
+# Retired Tailwind config
+# TypeScript build info
+app/globals.css.bak
+backup/
+backups/
+coverage/
+deploy-diagnose-report.txt
+dev_user.sql
+dist/
+logs/
+node_modules/
+npm-debug.log*
+out.css
+out/
 prisma/*.db
 prisma/*.sqlite
-*.db-journal
-
-# --- Vercel local metadata ---
-.vercel/
-
-# --- Coverage / Test caches ---
-coverage/
-
-# --- Editor / OS ---
-.vscode/
-.DS_Store
-Thumbs.db
-# TypeScript build info
-*.tsbuildinfo
-
-# reports & backups
-_reports/
-app/globals.css.bak
-
-.vercel
-
-
-# Retired Tailwind config
+scripts/seed-dev-user.mjs
 tailwind.config.js.retired
-# === local backups / temp ===
-*.bak
-*_backup*
-*_before*
-_backup*/
-backup/
-_tmp*
-_snapshot*
-out.css
-.backup-step*/
-dev_user.sql
-scripts/seed-dev-user.mjs
-# === local backups / temp ===
-*.bak
-*_backup*
-*_before*
-_backup*/
-backup/
-_tmp*
-_snapshot*
-out.css
-.backup-step*/
-dev_user.sql
-scripts/seed-dev-user.mjs
-# local backups / temp
-*.bak
-*_backup*
-*_before*
-_backup*/
-backup/
-_tmp*
-_snapshot*
-out.css
-.backup-step*/
-dev_user.sql
-scripts/seed-dev-user.mjs
+temp/
+Thumbs.db
+tmp/
+vercel-env.*.json
+yarn-debug.log*
+yarn-error.log*
