@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useSession, signIn, signOut } from "next-auth/react";
 
@@ -21,4 +21,5 @@ export function AuthButton() {
     </button>
   );
 }
+
 

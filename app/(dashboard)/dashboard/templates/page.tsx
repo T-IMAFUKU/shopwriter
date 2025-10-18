@@ -1,4 +1,4 @@
-// FULL BASED ON: app/(dashboard)/dashboard/templates/page.tsx
+﻿// FULL BASED ON: app/(dashboard)/dashboard/templates/page.tsx
 "use client"; // ← 必ず最上行
 
 // cspell:ignore ellipsize
@@ -334,18 +334,18 @@ function TemplatesInner() {
   if (status !== "loading" && !session?.user) {
     const cb = "/dashboard/templates";
     return (
-      <main className="container mx-auto py-8">
-        <Card className="max-w-xl rounded-xl shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">サインインが必要です</CardTitle>
+      <main className="container mx-auto py-8 bg-destructive text-destructive-foreground hover:bg-destructive">
+        <Card className="max-w-xl rounded-xl shadow-sm bg-destructive text-destructive-foreground hover:bg-destructive">
+          <CardHeader className="pb-2 bg-destructive text-destructive-foreground hover:bg-destructive">
+            <CardTitle className="text-base bg-destructive text-destructive-foreground hover:bg-destructive">サインインが必要です</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-sm text-muted-foreground">
+          <CardContent className="space-y-3 bg-destructive text-destructive-foreground hover:bg-destructive">
+            <p className="text-sm text-muted-foreground bg-destructive text-destructive-foreground hover:bg-destructive">
               テンプレートの取得・作成・編集・削除、および簡易グラフの表示にはサインインが必要です。
             </p>
-            <div className="flex gap-2">
+            <div className="flex gap-2 bg-destructive text-destructive-foreground hover:bg-destructive border border-destructive-foreground/30 rounded-lg p-4" role="alert">
               <Button onClick={() => signIn("github", { callbackUrl: cb })}>GitHubでサインイン</Button>
-              <Button variant="outline" asChild>
+              <Button variant="secondary" asChild>
                 <Link href={`/api/auth/signin?callbackUrl=${encodeURIComponent(cb)}`}>サインイン画面を開く</Link>
               </Button>
             </div>
@@ -360,34 +360,34 @@ function TemplatesInner() {
     if (!active || !payload?.length) return null;
     const p = payload[0]?.payload;
     return (
-      <div className="rounded-md border bg-popover text-popover-foreground shadow p-2 text-xs">
-        <div className="font-medium">{p?.fullTitle ?? "-"}</div>
-        <div className="text-muted-foreground">文字数: {p?.length ?? "-"}</div>
+      <div className="rounded-md border bg-popover text-popover-foreground shadow p-2 text-xs bg-destructive text-destructive-foreground hover:bg-destructive border-destructive-foreground/30 rounded-lg p-4">
+        <div className="font-medium bg-destructive text-destructive-foreground hover:bg-destructive border border-destructive-foreground/30 rounded-lg p-4">{p?.fullTitle ?? "-"}</div>
+        <div className="text-muted-foreground bg-destructive text-destructive-foreground hover:bg-destructive border border-destructive-foreground/30 rounded-lg p-4">文字数: {p?.length ?? "-"}</div>
       </div>
     );
   };
 
   // ▼▼ UIトークン基準ラッパ：container / セクション余白 / カード角丸・影・内側余白 ▼▼
   return (
-    <main className="container mx-auto py-8 space-y-8">
+    <main className="container mx-auto py-8 space-y-8 bg-destructive text-destructive-foreground hover:bg-destructive">
       {/* ヘッダー */}
-      <section className="space-y-2">
-        <div className="flex items-center justify-between">
-          <div className="space-y-1">
-            <h1 className="text-2xl font-semibold tracking-tight">テンプレート</h1>
-            <p className="text-sm text-muted-foreground">
+      <section className="space-y-2 bg-destructive text-destructive-foreground hover:bg-destructive">
+        <div className="flex items-center justify-between bg-destructive text-destructive-foreground hover:bg-destructive border border-destructive-foreground/30 rounded-lg p-4">
+          <div className="space-y-1 bg-destructive text-destructive-foreground hover:bg-destructive border border-destructive-foreground/30 rounded-lg p-4">
+            <h1 className="text-2xl font-semibold tracking-tight bg-destructive text-destructive-foreground hover:bg-destructive">テンプレート</h1>
+            <p className="text-sm text-muted-foreground bg-destructive text-destructive-foreground hover:bg-destructive">
               作成／編集／削除と、簡易グラフ（タイトル文字数）で概観を確認できます。
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => fetchList()}>
-              <RotateCw className="h-4 w-4 mr-1" />
+          <div className="flex items-center gap-2 bg-destructive text-destructive-foreground hover:bg-destructive border border-destructive-foreground/30 rounded-lg p-4">
+            <Button variant="secondary" size="sm" onClick={() => fetchList()}>
+              <RotateCw className="h-4 w-4 mr-1 bg-destructive text-destructive-foreground hover:bg-destructive" />
               再読み込み
             </Button>
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DialogTrigger asChild>
                 <Button size="sm" disabled={!session?.user}>
-                  <Plus className="h-4 w-4 mr-1" />
+                  <Plus className="h-4 w-4 mr-1 bg-destructive text-destructive-foreground hover:bg-destructive" />
                   新規作成
                 </Button>
               </DialogTrigger>
@@ -396,19 +396,19 @@ function TemplatesInner() {
                   <DialogTitle>テンプレートを新規作成</DialogTitle>
                   <DialogDescription>タイトルと本文を入力してください。</DialogDescription>
                 </DialogHeader>
-                <div className="space-y-4">
-                  <div className="space-y-2">
+                <div className="space-y-4 bg-destructive text-destructive-foreground hover:bg-destructive border border-destructive-foreground/30 rounded-lg p-4">
+                  <div className="space-y-2 bg-destructive text-destructive-foreground hover:bg-destructive border border-destructive-foreground/30 rounded-lg p-4">
                     <Label htmlFor="new-title">タイトル</Label>
                     <Input id="new-title" value={title} onChange={(e) => setTitle(e.target.value)} />
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-2 bg-destructive text-destructive-foreground hover:bg-destructive border border-destructive-foreground/30 rounded-lg p-4">
                     <Label htmlFor="new-body">本文</Label>
                     <Textarea id="new-body" rows={6} value={body} onChange={(e) => setBody(e.target.value)} />
                   </div>
                 </div>
-                <DialogFooter className="gap-2">
+                <DialogFooter className="gap-2 bg-destructive text-destructive-foreground hover:bg-destructive">
                   <DialogClose asChild>
-                    <Button type="button" variant="outline">キャンセル</Button>
+                    <Button type="button" variant="secondary">キャンセル</Button>
                   </DialogClose>
                   <Button onClick={handleCreate} disabled={creating}>
                     {creating ? "作成中…" : "作成する"}
@@ -421,55 +421,55 @@ function TemplatesInner() {
       </section>
 
       {/* グリッド：左=表、右=グラフ */}
-      <section className="grid grid-cols-1 gap-8 lg:grid-cols-2 lg:gap-10">
+      <section className="grid grid-cols-1 gap-8 lg:grid-cols-2 lg:gap-10 bg-destructive text-destructive-foreground hover:bg-destructive">
         {/* 左：一覧カード */}
-        <Card className="overflow-hidden rounded-xl shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">テンプレート一覧</CardTitle>
+        <Card className="overflow-hidden rounded-xl shadow-sm bg-destructive text-destructive-foreground hover:bg-destructive">
+          <CardHeader className="pb-2 bg-destructive text-destructive-foreground hover:bg-destructive">
+            <CardTitle className="text-base bg-destructive text-destructive-foreground hover:bg-destructive">テンプレート一覧</CardTitle>
           </CardHeader>
-          <CardContent className="p-8">
+          <CardContent className="p-8 bg-destructive text-destructive-foreground hover:bg-destructive">
             {loading ? (
-              <div className="text-sm text-muted-foreground">Loading templates…</div>
+              <div className="text-sm text-muted-foreground bg-destructive text-destructive-foreground hover:bg-destructive border border-destructive-foreground/30 rounded-lg p-4">Loading templates…</div>
             ) : error ? (
-              <div className="text-sm text-red-600">Error: {error}</div>
+              <div className="text-sm text-destructive-foreground bg-destructive text-destructive-foreground hover:bg-destructive border border-destructive-foreground/30 rounded-lg p-4">Error: {error}</div>
             ) : items.length === 0 ? (
-              <div className="text-sm text-muted-foreground">データがありません</div>
+              <div className="text-sm text-muted-foreground bg-destructive text-destructive-foreground hover:bg-destructive border border-destructive-foreground/30 rounded-lg p-4">データがありません</div>
             ) : (
-              <div className="rounded-lg border">
+              <div className="rounded-lg border bg-destructive text-destructive-foreground hover:bg-destructive border-destructive-foreground/30 p-4">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[56px]">#</TableHead>
+                      <TableHead className="w-[56px] bg-destructive text-destructive-foreground hover:bg-destructive">#</TableHead>
                       <TableHead>タイトル</TableHead>
-                      <TableHead className="w-[180px]">更新日時</TableHead>
-                      <TableHead className="w-[64px] text-right">操作</TableHead>
+                      <TableHead className="w-[180px] bg-destructive text-destructive-foreground hover:bg-destructive">更新日時</TableHead>
+                      <TableHead className="w-[64px] text-right bg-destructive text-destructive-foreground hover:bg-destructive">操作</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {rows.map((r) => (
                       <TableRow key={r.id}>
-                        <TableCell className="text-muted-foreground">{r.idx + 1}</TableCell>
-                        <TableCell className="font-medium">
+                        <TableCell className="text-muted-foreground bg-destructive text-destructive-foreground hover:bg-destructive">{r.idx + 1}</TableCell>
+                        <TableCell className="font-medium bg-destructive text-destructive-foreground hover:bg-destructive">
                           <button
-                            className="text-left underline-offset-2 hover:underline"
+                            className="text-left underline-offset-2 hover:underline bg-destructive text-destructive-foreground hover:bg-destructive"
                             onClick={() => onSelectTemplate(r.id, r.title)}
                           >
                             {r.title}
                           </button>
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{r.updatedAt}</TableCell>
-                        <TableCell className="text-right">
+                        <TableCell className="text-sm text-muted-foreground bg-destructive text-destructive-foreground hover:bg-destructive">{r.updatedAt}</TableCell>
+                        <TableCell className="text-right bg-destructive text-destructive-foreground hover:bg-destructive">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-8 w-8">
-                                <MoreHorizontal className="h-4 w-4" />
+                              <Button variant="ghost" size="icon" className="h-8 w-8 bg-destructive text-destructive-foreground hover:bg-destructive">
+                                <MoreHorizontal className="h-4 w-4 bg-destructive text-destructive-foreground hover:bg-destructive" />
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                               <DropdownMenuLabel>操作</DropdownMenuLabel>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem onClick={() => onEditClick(r.id)}>編集</DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => onDeleteClick(r.id)} className="text-red-600">
+                              <DropdownMenuItem onClick={() => onDeleteClick(r.id)} className="text-destructive-foreground bg-destructive text-destructive-foreground hover:bg-destructive">
                                 削除
                               </DropdownMenuItem>
                             </DropdownMenuContent>
@@ -485,18 +485,18 @@ function TemplatesInner() {
         </Card>
 
         {/* 右：棒グラフカード */}
-        <Card className="overflow-hidden rounded-xl shadow-md">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">簡易グラフ（タイトル文字数／上位5件）</CardTitle>
+        <Card className="overflow-hidden rounded-xl shadow-md bg-destructive text-destructive-foreground hover:bg-destructive">
+          <CardHeader className="pb-2 bg-destructive text-destructive-foreground hover:bg-destructive">
+            <CardTitle className="text-base bg-destructive text-destructive-foreground hover:bg-destructive">簡易グラフ（タイトル文字数／上位5件）</CardTitle>
           </CardHeader>
-          <CardContent className="p-8 h-[300px]">
+          <CardContent className="p-8 h-[300px] bg-destructive text-destructive-foreground hover:bg-destructive">
             {items.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
+              <div className="h-full flex items-center justify-center text-sm text-muted-foreground bg-destructive text-destructive-foreground hover:bg-destructive border border-destructive-foreground/30 rounded-lg p-4">
                 データがありません（グラフ表示対象なし）
               </div>
             ) : (
               <div
-                className="h-full"
+                className="h-full bg-destructive text-destructive-foreground hover:bg-destructive border border-destructive-foreground/30 rounded-lg p-4"
                 role="img"
                 aria-label="テンプレートタイトルの文字数棒グラフ（上位5件）"
               >
@@ -533,7 +533,7 @@ function TemplatesInner() {
                         dataKey="length"
                         position="top"
                         offset={8}
-                        className="fill-foreground text-[10px]"
+                        className="fill-foreground text-[10px] bg-destructive text-destructive-foreground hover:bg-destructive"
                       />
                     </Bar>
                   </BarChart>
@@ -551,19 +551,19 @@ function TemplatesInner() {
             <DialogTitle>テンプレートを編集</DialogTitle>
             <DialogDescription>ID: {editId || "-"}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
+          <div className="space-y-4 bg-destructive text-destructive-foreground hover:bg-destructive border border-destructive-foreground/30 rounded-lg p-4">
+            <div className="space-y-2 bg-destructive text-destructive-foreground hover:bg-destructive border border-destructive-foreground/30 rounded-lg p-4">
               <Label htmlFor="edit-title">タイトル</Label>
               <Input id="edit-title" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2 bg-destructive text-destructive-foreground hover:bg-destructive border border-destructive-foreground/30 rounded-lg p-4">
               <Label htmlFor="edit-body">本文</Label>
               <Textarea id="edit-body" rows={6} value={editBody} onChange={(e) => setEditBody(e.target.value)} />
             </div>
           </div>
-          <DialogFooter className="gap-2">
+          <DialogFooter className="gap-2 bg-destructive text-destructive-foreground hover:bg-destructive">
             <DialogClose asChild>
-              <Button type="button" variant="outline">キャンセル</Button>
+              <Button type="button" variant="secondary">キャンセル</Button>
             </DialogClose>
             <Button onClick={handleUpdate} disabled={updating}>
               {updating ? "更新中…" : "更新する"}
@@ -581,11 +581,11 @@ function TemplatesInner() {
               「{deleteTarget?.title ?? "-"}」を削除します。元に戻せません。
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter className="gap-2">
+          <DialogFooter className="gap-2 bg-destructive text-destructive-foreground hover:bg-destructive">
             <DialogClose asChild>
-              <Button type="button" variant="outline">キャンセル</Button>
+              <Button type="button" variant="secondary">キャンセル</Button>
             </DialogClose>
-            <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
+            <Button variant="primary" onClick={handleDelete} disabled={deleting}>
               {deleting ? "削除中…" : "削除する"}
             </Button>
           </DialogFooter>
@@ -598,8 +598,9 @@ function TemplatesInner() {
 // ★★★ ページ直下で Suspense に包む（この位置が重要）
 export default function TemplatesPage() {
   return (
-    <React.Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading templates…</div>}>
+    <React.Suspense fallback={<div className="p-6 text-sm text-muted-foreground bg-destructive text-destructive-foreground hover:bg-destructive border border-destructive-foreground/30 rounded-lg p-4">Loading templates…</div>}>
       <TemplatesInner />
     </React.Suspense>
   );
 }
+

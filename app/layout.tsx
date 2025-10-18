@@ -2,6 +2,15 @@ import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { Providers } from "./providers"; // providers側にToaster内包
+import dynamic from "next/dynamic";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Crown } from "lucide-react";
+
+// ===== グローバル・ヘルプ（遅延なしで安定読込）
+const HelpDropdown = dynamic(() => import("@/components/global/HelpDropdown"), {
+  ssr: true,
+});
 
 // ===== フォント =====
 const inter = Inter({ subsets: ["latin"] });
@@ -99,8 +108,64 @@ export default function RootLayout({
         ].join(" ")}
       >
         {/* グローバル Provider（Toaster は providers 内で1つだけ提供） */}
-        <Providers>{children}</Providers>
+        <Providers>
+          {/* ==== グローバルヘッダー（ブランド＋CTA＋ヘルプ） ==== */}
+          <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+            <div className="mx-auto max-w-7xl px-4 md:px-8">
+              <div className="flex h-12 items-center justify-between gap-3">
+                {/* 左：ブランド（ホームリンク） */}
+                <Link
+                  href="/"
+                  className="inline-flex items-center gap-2 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                  aria-label="ShopWriter ホームへ"
+                >
+                  <span className="inline-grid size-6 place-items-center rounded-md bg-indigo-600 text-white text-[11px] font-bold">
+                    SW
+                  </span>
+                  <span className="text-sm font-semibold tracking-tight">
+                    ShopWriter
+                  </span>
+                </Link>
+
+                {/* 右：アクション群 */}
+                <div className="flex items-center gap-2">
+                  {/* md以上で表示：共有の使い方 */}
+                  <Button
+                    asChild
+                    variant="ghost"
+                    size="sm"
+                    className="hidden md:inline-flex"
+                  >
+                    <Link href="/share/guide" aria-label="共有の使い方">
+                      共有の使い方
+                    </Link>
+                  </Button>
+
+                  {/* md以上で表示：プランを見る */}
+                  <Button
+                    asChild
+                    size="sm"
+                    className="hidden md:inline-flex gap-1"
+                    aria-label="プランを見る"
+                  >
+                    <Link href="/pricing">
+                      <Crown className="size-4" />
+                      プランを見る
+                    </Link>
+                  </Button>
+
+                  {/* 常時表示：ヘルプ（ドロップダウン） */}
+                  <HelpDropdown />
+                </div>
+              </div>
+            </div>
+          </header>
+
+          {/* ==== ページ本体 ==== */}
+          {children}
+        </Providers>
       </body>
     </html>
   );
 }
+

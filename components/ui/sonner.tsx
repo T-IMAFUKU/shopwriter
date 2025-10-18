@@ -24,3 +24,4 @@ export function SonnerToasterShim() {
 
 // デフォルトエクスポートを残す（後方互換）
 export default SonnerToasterShim;
+

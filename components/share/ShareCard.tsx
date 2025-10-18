@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
+import { toast } from "sonner";
 
 export type ShareCardProps = {
   id: string;
@@ -56,19 +57,35 @@ export default function ShareCard({
       aria-label={`status: ${status}`}
       title={status}
     >
-      {status}
+      {status === "Public" ? "共有カード" : "下書き"}
     </span>
   ) : null;
 
+  /** 共有リンクをコピーする機能 */
+  const handleCopyLink = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    try {
+      await navigator.clipboard.writeText(window.location.origin + link);
+      toast.success("共有リンクをコピーしました", {
+        description: "コピーしたリンクを誰とでも共有できます。",
+      });
+    } catch {
+      toast.error("コピーできませんでした", {
+        description: "もう一度お試しください。",
+      });
+    }
+  };
+
   if (variant === "row") {
     return (
-      <Link
-        href={link}
-        className="block w-full border rounded-xl p-4 hover:bg-accent transition"
+      <div
+        onClick={handleCopyLink}
+        className="block w-full border rounded-xl p-4 hover:bg-accent transition cursor-pointer"
         data-testid="share-card-row"
-    >
+        title="共有リンクをコピー"
+      >
         <div className="flex items-center justify-between gap-3">
-          <h3 className="font-medium line-clamp-1">
+          <h3 className="font-medium line-clamp-1 flex items-center">
             {title}
             {StatusChip}
           </h3>
@@ -81,19 +98,20 @@ export default function ShareCard({
             {body}
           </p>
         ) : null}
-      </Link>
+      </div>
     );
   }
 
   // variant === "card"
   return (
-    <Link
-      href={link}
-      className="block h-full border rounded-2xl p-5 hover:bg-accent transition"
+    <div
+      onClick={handleCopyLink}
+      className="block h-full border rounded-2xl p-5 hover:bg-accent transition cursor-pointer"
       data-testid="share-card-card"
+      title="共有リンクをコピー"
     >
       <div className="space-y-2">
-        <h3 className="font-semibold text-base line-clamp-2">
+        <h3 className="font-semibold text-base line-clamp-2 flex items-center">
           {title}
           {StatusChip}
         </h3>
@@ -104,6 +122,6 @@ export default function ShareCard({
           {updated ? `更新: ${updated}` : created ? `作成: ${created}` : ""}
         </div>
       </div>
-    </Link>
+    </div>
   );
 }

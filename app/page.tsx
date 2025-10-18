@@ -399,7 +399,7 @@ function Examples() {
           </Button>
         </Link>
         <Link href="/shares" className={linkText} aria-label="他のサンプルを見る">
-          <Button size="lg" variant="outline" className={btnOutline + " h-10 md:h-11 px-5 md:px-6"}>
+          <Button size="lg" variant="secondary" className={btnOutline + " h-10 md:h-11 px-5 md:px-6"}>
             他のサンプルを見る
           </Button>
         </Link>
@@ -502,7 +502,7 @@ function FinalCTA() {
               </Button>
             </Link>
             <Link href="/shares" className={linkText} aria-label="デモを見る">
-              <Button size="lg" variant="outline" className={btnOutline + " h-10 md:h-11 px-5 md:px-6"}>
+              <Button size="lg" variant="secondary" className={btnOutline + " h-10 md:h-11 px-5 md:px-6"}>
                 デモを見る
               </Button>
             </Link>
@@ -594,7 +594,7 @@ export default function HomePage() {
                     </Button>
                   </Link>
                   <Link href="/shares" className={linkText} aria-label="仕組みを見る">
-                    <Button size="lg" variant="outline" className={btnOutline + " h-10 md:h-11 px-5 md:px-6"}>
+                    <Button size="lg" variant="secondary" className={btnOutline + " h-10 md:h-11 px-5 md:px-6"}>
                       仕組みを見る
                     </Button>
                   </Link>
@@ -629,3 +629,4 @@ export default function HomePage() {
     </main>
   );
 }
+

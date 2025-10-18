@@ -46,7 +46,7 @@ export function buildShareUrl(id: string): string {
 function StatusBadge({ status }: { status?: ShareStatus }) {
   switch (status) {
     case "public":
-      return <Badge variant="outline">公開中</Badge>;
+      return <Badge variant="secondary">公開中</Badge>;
     case "archived":
       return <Badge variant="secondary">アーカイブ</Badge>;
     case "draft":
@@ -160,3 +160,4 @@ export default function ShareCard({
     </div>
   );
 }
+

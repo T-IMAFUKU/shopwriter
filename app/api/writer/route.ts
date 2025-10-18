@@ -18,139 +18,138 @@ type WriterRequest = {
   model?: string;
   temperature?: number;
   system?: string;
-  stream?: boolean; // 予約（本実装は非ストリーム）
 };
 
-type WriterSuccess = {
+// 返却shape（CP@2025-09-21.v3-compact / tests-augmented）
+type WriterResponseOk = {
   ok: true;
-  provider: "openai";
-  model: string;
-  text: string;
-};
-
-type WriterError = {
-  ok: false;
-  code: string;
-  message: string;
-  details?: unknown;
-};
-
-function badRequest(message: string, details?: unknown) {
-  const body: WriterError = { ok: false, code: "BAD_REQUEST", message, details };
-  return NextResponse.json(body, { status: 400 });
-}
-
-function serverError(message: string, details?: unknown) {
-  const body: WriterError = { ok: false, code: "INTERNAL_ERROR", message, details };
-  return NextResponse.json(body, { status: 500 });
-}
-
-/**
- * OpenAI 呼び出し（SDK 非依存 / fetch 直叩き）
- * ※ SDK に依存しないことでビルド時の「動的 import」警告を根本回避
- */
-async function callOpenAI(input: Required<Pick<WriterRequest, "prompt">> & {
-  model: string;
-  temperature: number;
-  system: string;
-}) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is not set.");
-  }
-
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: input.model,
-      temperature: input.temperature,
-      messages: [
-        { role: "system", content: input.system },
-        { role: "user", content: input.prompt },
-      ],
-    }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`OpenAI API error: ${res.status} ${res.statusText} ${text}`);
-  }
-
-  const data = (await res.json()) as any;
-  const text: string =
-    data?.choices?.[0]?.message?.content ??
-    "";
-
-  return {
-    text,
-    raw: data,
-  };
-}
-
-/**
- * POST /api/writer
- */
-export async function POST(request: Request) {
-  let body: WriterRequest | null = null;
-
-  try {
-    body = (await request.json()) as WriterRequest;
-  } catch {
-    return badRequest("JSON ボディを解析できませんでした。");
-  }
-
-  const provider = (body.provider ?? "openai").toLowerCase();
-  const prompt = (body.prompt ?? "").toString();
-
-  if (!prompt.trim()) {
-    return badRequest("prompt は必須です。");
-  }
-
-  // 静的ディスパッチ：現状は "openai" のみ許可
-  if (provider !== "openai") {
-    return badRequest(`未対応の provider です: ${provider}. 現在は "openai" のみ対応しています。`);
-  }
-
-  const model = body.model?.toString() || "gpt-4o-mini";
-  const temperature =
-    typeof body.temperature === "number" && body.temperature >= 0 && body.temperature <= 2
-      ? body.temperature
-      : 0.7;
-  const system =
-    body.system?.toString() ||
-    "You are ShopWriter, a helpful assistant that writes concise, high-quality Japanese e-commerce copy.";
-
-  try {
-    const result = await callOpenAI({ prompt, model, temperature, system });
-    const payload: WriterSuccess = {
-      ok: true,
-      provider: "openai",
-      model,
-      text: result.text,
+  data: {
+    text: string;
+    meta: {
+      style: string;
+      tone: string;
+      locale: string;
     };
-    return NextResponse.json(payload, { status: 200 });
-  } catch (err) {
-    return serverError("生成に失敗しました。", {
-      error: err instanceof Error ? err.message : String(err),
+  };
+  // output は data.text と同文
+  output: string;
+};
+
+export async function POST(req: Request) {
+  try {
+    const body = (await req.json()) as WriterRequest | null;
+
+    const provider = (body?.provider ?? "openai").toLowerCase();
+    const prompt = (body?.prompt ?? "").toString();
+    const model = (body?.model ?? "gpt-4o-mini").toString();
+    const temperature =
+      typeof body?.temperature === "number" ? body!.temperature : 0.7;
+    const system =
+      (body?.system ??
+        "あなたは有能なECライターAIです。日本語で、簡潔かつ具体的に出力してください。") + "";
+
+    if (!prompt || prompt.trim().length === 0) {
+      return NextResponse.json(
+        { ok: false, error: "prompt is required" },
+        { status: 400 }
+      );
+    }
+
+    // 🔀 STUBモード分岐（DEBUG_TEMPLATE_API=stub）
+    if ((process.env.DEBUG_TEMPLATE_API ?? "").toLowerCase() === "stub") {
+      const stubText =
+        `【STUB出力】次の要求を受け取りました：\n` +
+        `---\n${prompt}\n---\n` +
+        `この環境では外部APIを呼び出さず、固定ロジックで応答します。`;
+      const payload: WriterResponseOk = {
+        ok: true,
+        data: {
+          text: stubText,
+          meta: {
+            style: "default",
+            tone: "neutral",
+            locale: "ja-JP",
+          },
+        },
+        output: stubText,
+      };
+      return NextResponse.json(payload, { status: 200 });
+    }
+
+    // 現行構造維持：fetch直叩きで OpenAI Chat Completions を呼び出し
+    if (provider !== "openai") {
+      return NextResponse.json(
+        { ok: false, error: `unsupported provider: ${provider}` },
+        { status: 400 }
+      );
+    }
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json(
+        { ok: false, error: "OPENAI_API_KEY is not set" },
+        { status: 500 }
+      );
+    }
+
+    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        temperature,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: prompt },
+        ],
+      }),
     });
+
+    if (!resp.ok) {
+      const errText = await safeText(resp);
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `openai api error: ${resp.status} ${resp.statusText}`,
+          details: errText?.slice(0, 2000) ?? "",
+        },
+        { status: 502 }
+      );
+    }
+
+    const data = (await resp.json()) as any;
+    const content =
+      data?.choices?.[0]?.message?.content?.toString()?.trim() ?? "";
+
+    const payload: WriterResponseOk = {
+      ok: true,
+      data: {
+        text: content,
+        meta: {
+          style: "default",
+          tone: "neutral",
+          locale: "ja-JP",
+        },
+      },
+      output: content, // 同文
+    };
+
+    return NextResponse.json(payload, { status: 200 });
+  } catch (e: any) {
+    return NextResponse.json(
+      { ok: false, error: e?.message ?? "unexpected error" },
+      { status: 500 }
+    );
   }
 }
 
-/**
- * 簡易ヘルスチェック
- */
-export async function GET() {
-  return NextResponse.json(
-    {
-      ok: true,
-      name: "ShopWriter Writer API",
-      provider: "openai",
-      runtime,
-    },
-    { status: 200 },
-  );
+async function safeText(r: Response) {
+  try {
+    return await r.text();
+  } catch {
+    return "";
+  }
 }

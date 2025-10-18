@@ -18,9 +18,9 @@
     "test:writer": "cross-env NODE_OPTIONS=--require=./tests/preload-env.cjs vitest run --passWithNoTests -t writer",
     "test:precision": "cross-env NODE_OPTIONS=--require=./tests/preload-env.cjs vitest run tests/api/writer.precision.plan.test.ts --passWithNoTests",
     "vitest:one": "cross-env NODE_OPTIONS=--require=./tests/preload-env.cjs vitest run",
-
     "test:shares": "cross-env NODE_OPTIONS=--require=./tests/preload-env.cjs vitest run tests/api/shares.route.test.ts",
-    "test:all": "cross-env NODE_OPTIONS=--require=./tests/preload-env.cjs vitest run --passWithNoTests"
+    "test:all": "cross-env NODE_OPTIONS=--require=./tests/preload-env.cjs vitest run --passWithNoTests",
+    "test:all:lenient": "cross-env NODE_OPTIONS=--require=./tests/preload-env.cjs vitest run --passWithNoTests --testTimeout=15000"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.10.0",

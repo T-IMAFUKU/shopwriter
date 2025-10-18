@@ -1,4 +1,4 @@
-// @ts-nocheck
+﻿// @ts-nocheck
 "use client";
 
 import * as React from "react";
@@ -189,17 +189,17 @@ export default function TemplatesPageBackup() {
 
   /* ========== UI ========== */
   return (
-    <div className="isolate relative z-0 mx-auto w-full max-w-5xl p-4 md:p-8 space-y-6">
-      <Card className="relative z-0 bg-card shadow-sm">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0">
+    <div className="isolate relative z-0 mx-auto w-full max-w-5xl p-4 md:p-8 space-y-6 bg-destructive text-destructive-foreground hover:bg-destructive/90">
+      <Card className="relative z-0 bg-card shadow-sm bg-destructive text-destructive-foreground hover:bg-destructive/90">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 bg-destructive text-destructive-foreground hover:bg-destructive/90">
           <div>
-            <CardTitle className="text-xl">テンプレート管理（Backup）</CardTitle>
-            <div className="mt-1 text-sm text-muted-foreground">
+            <CardTitle className="text-xl bg-destructive text-destructive-foreground hover:bg-destructive/90">テンプレート管理（Backup）</CardTitle>
+            <div className="mt-1 text-sm text-muted-foreground bg-destructive text-destructive-foreground hover:bg-destructive/90">
               CRUD・選択UI。新規作成ダイアログを試験実装。
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 bg-destructive text-destructive-foreground hover:bg-destructive/90">
             {ver ? <Badge variant="secondary">API ver: {ver}</Badge> : null}
 
             <Dialog
@@ -213,12 +213,12 @@ export default function TemplatesPageBackup() {
               }}
             >
               <DialogTrigger asChild>
-                <Button variant="default" className="rounded-2xl">
+                <Button variant="primary" className="rounded-2xl bg-destructive text-destructive-foreground hover:bg-destructive/90">
                   新規テンプレート
                 </Button>
               </DialogTrigger>
 
-              <DialogContent className="z-[100]">
+              <DialogContent className="z-[100] bg-destructive text-destructive-foreground hover:bg-destructive/90">
                 <DialogHeader>
                   <DialogTitle>新規テンプレート作成</DialogTitle>
                   <DialogDescription>
@@ -226,8 +226,8 @@ export default function TemplatesPageBackup() {
                   </DialogDescription>
                 </DialogHeader>
 
-                <form onSubmit={handleCreate} className="space-y-4">
-                  <div className="space-y-2">
+                <form onSubmit={handleCreate} className="space-y-4 bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                  <div className="space-y-2 bg-destructive text-destructive-foreground hover:bg-destructive/90">
                     <Label htmlFor="title">タイトル</Label>
                     <Input
                       id="title"
@@ -240,7 +240,7 @@ export default function TemplatesPageBackup() {
                     />
                   </div>
 
-                  <div className="space-y-2">
+                  <div className="space-y-2 bg-destructive text-destructive-foreground hover:bg-destructive/90">
                     <Label htmlFor="body">本文（body）</Label>
                     <Textarea
                       id="body"
@@ -264,16 +264,16 @@ export default function TemplatesPageBackup() {
           </div>
         </CardHeader>
 
-        <CardContent className="space-y-4">
-          <div className="flex items-center gap-2">
+        <CardContent className="space-y-4 bg-destructive text-destructive-foreground hover:bg-destructive/90">
+          <div className="flex items-center gap-2 bg-destructive text-destructive-foreground hover:bg-destructive/90">
             <Input
               value={q}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQ(e.target.value)}
               placeholder="検索（タイトル・本文）"
-              className="max-w-sm"
+              className="max-w-sm bg-destructive text-destructive-foreground hover:bg-destructive/90"
             />
             <Button
-              variant="outline"
+              variant="secondary"
               onClick={() => {
                 setQ("");
                 router.refresh();
@@ -283,30 +283,30 @@ export default function TemplatesPageBackup() {
             </Button>
           </div>
 
-          <div className="relative z-0 overflow-hidden rounded-2xl border bg-background">
+          <div className="relative z-0 overflow-hidden rounded-2xl border bg-background bg-destructive text-destructive-foreground hover:bg-destructive/90">
             <Table>
               <TableHeader>
-                <TableRow className="bg-muted/40">
-                  <TableHead className="w-[48px]">#</TableHead>
+                <TableRow className="bg-muted/40 bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                  <TableHead className="w-[48px] bg-destructive text-destructive-foreground hover:bg-destructive/90">#</TableHead>
                   <TableHead>タイトル</TableHead>
                   <TableHead>本文（抜粋）</TableHead>
                   <TableHead>更新</TableHead>
-                  <TableHead className="w-[200px] text-right">操作</TableHead>
+                  <TableHead className="w-[200px] text-right bg-destructive text-destructive-foreground hover:bg-destructive/90">操作</TableHead>
                 </TableRow>
               </TableHeader>
 
               <TableBody>
                 {loading ? (
-                  <TableRow className="bg-background">
-                    <TableCell colSpan={5} className="text-center py-10">
+                  <TableRow className="bg-background bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                    <TableCell colSpan={5} className="text-center py-10 bg-destructive text-destructive-foreground hover:bg-destructive/90">
                       取得中…
                     </TableCell>
                   </TableRow>
                 ) : filtered.length === 0 ? (
-                  <TableRow className="bg-background">
+                  <TableRow className="bg-background bg-destructive text-destructive-foreground hover:bg-destructive/90">
                     <TableCell
                       colSpan={5}
-                      className="text-center py-10 text-muted-foreground"
+                      className="text-center py-10 text-muted-foreground bg-destructive text-destructive-foreground hover:bg-destructive/90"
                     >
                       テンプレートがありません（または該当なし）
                     </TableCell>
@@ -315,29 +315,29 @@ export default function TemplatesPageBackup() {
                   filtered.map((it, idx) => (
                     <TableRow
                       key={it.id}
-                      className="bg-background even:bg-muted/40 hover:bg-muted/60 transition-colors"
+                      className="bg-background even:bg-muted/40 hover:bg-muted/60 transition-colors bg-destructive text-destructive-foreground hover:bg-destructive/90"
                     >
-                      <TableCell className="font-mono text-xs text-muted-foreground">
+                      <TableCell className="font-mono text-xs text-muted-foreground bg-destructive text-destructive-foreground hover:bg-destructive/90">
                         {String(idx + 1).padStart(2, "0")}
                       </TableCell>
 
                       <TableCell>
-                        <div className="font-medium">{it.title ?? "(無題)"}</div>
+                        <div className="font-medium bg-destructive text-destructive-foreground hover:bg-destructive/90">{it.title ?? "(無題)"}</div>
                       </TableCell>
 
-                      <TableCell className="text-sm text-muted-foreground">
+                      <TableCell className="text-sm text-muted-foreground bg-destructive text-destructive-foreground hover:bg-destructive/90">
                         {(it.body ?? "-").slice(0, 80)}
                         {(it.body?.length ?? 0) > 80 ? "…" : ""}
                       </TableCell>
 
-                      <TableCell className="text-sm">{fmt(it.updatedAt)}</TableCell>
+                      <TableCell className="text-sm bg-destructive text-destructive-foreground hover:bg-destructive/90">{fmt(it.updatedAt)}</TableCell>
 
-                      <TableCell className="text-right">
-                        <div className="inline-flex gap-2">
-                          <Button size="sm" variant="outline" disabled>
+                      <TableCell className="text-right bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                        <div className="inline-flex gap-2 bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                          <Button size="sm" variant="secondary" disabled>
                             編集
                           </Button>
-                          <Button size="sm" variant="destructive" disabled>
+                          <Button size="sm" variant="primary" disabled>
                             削除
                           </Button>
                         </div>
@@ -353,3 +353,4 @@ export default function TemplatesPageBackup() {
     </div>
   );
 }
+
