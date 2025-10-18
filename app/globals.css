@@ -3,11 +3,19 @@
 @tailwind utilities;
 
 /* =========================================
-   ベース設定（iOS風トークン）
+   ベース設定（iOS風トークン）＋ ブランド正規化
    ========================================= */
 
 :root {
-  /* 色（既存：コーポレートネイビー系） */
+  /* ===============================
+     ブランド（CI）トークン（唯一の真実）
+     =============================== */
+  /* CIネイビー（基準）：濃いめの知性トーン */
+  --brand-primary: 214 52% 24.5%;
+  /* CIブルー（600相当）：やや明るめ。Hover/強調で使用 */
+  --brand-primary-600: 214 60% 32%;
+
+  /* 既存P3系は brand を起点に定義（後方互換を確保） */
   --background: 0 0% 100%;
   --foreground: 222.2 47.4% 11.2%;
   --card: 0 0% 100%;
@@ -15,8 +23,8 @@
   --popover: 0 0% 100%;
   --popover-foreground: 222.2 47.4% 11.2%;
 
-  /* P3（最小変更） */
-  --primary: 214 52% 24.5%;
+  /* ★ primary 系は brand 経由に一本化 */
+  --primary: var(--brand-primary);
   --primary-foreground: 210 40% 98%;
   --secondary: 210 40% 96.1%;
   --secondary-foreground: 222.2 47.4% 11.2%;
@@ -33,18 +41,31 @@
 
   --border: 214.3 31.8% 91.4%;
   --input: 214.3 31.8% 91.4%;
-  --ring: 222.2 84% 4.9%;
+  /* ★ ring も brand 系へ */
+  --ring: var(--brand-primary);
 
-  /* 角丸（iOS寄り） */
+  /* ===============================
+     角丸（一次トークン＋互換エイリアス）
+     =============================== */
+  /* iOS寄りのデフォルト半径 */
   --radius: 0.75rem;
 
-  /* ====== UIトークン（角丸） ====== */
-  --ui-radius-sm: 0.5rem;
-  --ui-radius-md: 0.75rem;
-  --ui-radius-lg: 1rem;
-  --ui-radius-full: 9999px;
+  /* 一次トークン（新） */
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-full: 9999px;
 
-  /* ====== UIトークン（余白） ====== */
+  /* 互換：既存 ui-* を新トークンへエイリアス */
+  --ui-radius-sm: var(--radius-sm);
+  --ui-radius-md: var(--radius-md);
+  --ui-radius-lg: var(--radius-lg);
+  --ui-radius-full: var(--radius-full);
+
+  /* ===============================
+     スペーシング（一次トークン＋互換）
+     =============================== */
+  /* 既存の連番スケール（互換維持） */
   --spacing-0: 0rem;
   --spacing-1: 0.25rem;
   --spacing-2: 0.5rem;
@@ -55,17 +76,44 @@
   --spacing-7: 1.75rem;
   --spacing-8: 2rem;
 
-  /* 半透明ガラス */
+  /* 一次トークン（新） */
+  --spacing-xs: var(--spacing-2);   /* 0.5rem */
+  --spacing-sm: var(--spacing-3);   /* 0.75rem */
+  --spacing-md: var(--spacing-4);   /* 1rem */
+  --spacing-lg: var(--spacing-6);   /* 1.5rem */
+  --spacing-xl: var(--spacing-8);   /* 2rem */
+  --spacing-2xl: calc(var(--spacing-8) + 0.5rem); /* 2.5rem */
+  --spacing-section: calc(var(--spacing-8) + 0.5rem); /* 2.5rem */
+  --spacing-gutter: var(--spacing-4); /* 1rem */
+
+  /* 互換：ui-spacing-*（tailwind.config のフォールバック先） */
+  --ui-spacing-xs: var(--spacing-xs);
+  --ui-spacing-sm: var(--spacing-sm);
+  --ui-spacing-md: var(--spacing-md);
+  --ui-spacing-lg: var(--spacing-lg);
+  --ui-spacing-xl: var(--spacing-xl);
+  --ui-spacing-2xl: var(--spacing-2xl);
+  --ui-spacing-section: var(--spacing-section);
+  --ui-spacing-gutter: var(--spacing-gutter);
+
+  /* ===============================
+     半透明ガラス
+     =============================== */
   --ui-glass-bg: 255 255 255 / 0.6;
   --ui-glass-border: 0 0 0 / 0.06;
   --ui-glass-blur: 16px;
 
-  /* 影 */
-  --ui-shadow-sm: 0 1px 2px rgba(0,0,0,0.06);
-  --ui-shadow-md: 0 8px 20px rgba(0,0,0,0.08);
+  /* ===============================
+     影（一次トークン＋互換）
+     =============================== */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.06);
+  --shadow-md: 0 8px 20px rgba(0,0,0,0.08);
+  --shadow-lg: 0 14px 32px rgba(0,0,0,0.12);
 
-  /* Hairline区切り */
-  --ui-separator: 0 0 0 / 0.08;
+  /* 互換：ui-shadow-* を新トークンにエイリアス */
+  --ui-shadow-sm: var(--shadow-sm);
+  --ui-shadow-md: var(--shadow-md);
+  --ui-shadow-lg: var(--shadow-lg);
 
   /* ===============================
      ボタントークン（唯一の真実）
@@ -76,13 +124,22 @@
 }
 
 .dark {
+  /* ===============================
+     ダーク用 ブランドトークン
+     =============================== */
+  /* ダークの基準は暗めのネイビーを採用 */
+  --brand-primary: 213 65% 15%;
+  --brand-primary-600: 213 65% 22%;
+
+  /* 既存P3系は brand を起点に再定義 */
   --background: 222.2 47.4% 11.2%;
   --foreground: 210 40% 98%;
   --card: 222.2 47.4% 11.2%;
   --card-foreground: 210 40% 98%;
   --popover: 222.2 47.4% 11.2%;
   --popover-foreground: 210 40% 98%;
-  --primary: 213 65% 15%;
+
+  --primary: var(--brand-primary);
   --primary-foreground: 210 40% 98%;
   --secondary: 217.2 32.6% 17.5%;
   --secondary-foreground: 210 40% 98%;
@@ -98,16 +155,21 @@
 
   --border: 217.2 32.6% 17.5%;
   --input: 217.2 32.6% 17.5%;
-  --ring: 210 40% 98%;
+  --ring: var(--brand-primary);
 
+  /* ガラス */
   --ui-glass-bg: 20 20 20 / 0.5;
   --ui-glass-border: 255 255 255 / 0.08;
   --ui-glass-blur: 16px;
 
-  --ui-shadow-sm: 0 1px 2px rgba(0,0,0,0.5);
-  --ui-shadow-md: 0 8px 20px rgba(0,0,0,0.45);
+  /* 影（ダークはやや強め） */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.5);
+  --shadow-md: 0 8px 20px rgba(0,0,0,0.45);
+  --shadow-lg: 0 16px 36px rgba(0,0,0,0.6);
 
-  --ui-separator: 255 255 255 / 0.1;
+  --ui-shadow-sm: var(--shadow-sm);
+  --ui-shadow-md: var(--shadow-md);
+  --ui-shadow-lg: var(--shadow-lg);
 }
 
 /* =========================================
@@ -128,7 +190,8 @@
   th, td { @apply p-3 align-middle; }
   thead th { @apply text-sm text-muted-foreground; }
 
-  input, textarea, select, button { border-radius: var(--ui-radius-md); }
+  /* ★ 入力系の角丸・フォーカスリング（新トークン＋互換フォールバック） */
+  input, textarea, select, button { border-radius: var(--radius-md, var(--ui-radius-md)); }
   input:focus, textarea:focus, select:focus {
     outline: none;
     box-shadow: 0 0 0 3px hsl(var(--ring) / 0.25);
@@ -145,8 +208,8 @@
   backdrop-filter: blur(var(--ui-glass-blur));
   -webkit-backdrop-filter: blur(var(--ui-glass-blur));
   border: 1px solid rgba(var(--ui-glass-border));
-  border-radius: var(--ui-radius-lg);
-  box-shadow: var(--ui-shadow-sm);
+  border-radius: var(--radius-lg, var(--ui-radius-lg));
+  box-shadow: var(--shadow-sm, var(--ui-shadow-sm));
 }
 
 /* Hairline 区切り */
@@ -168,8 +231,8 @@
     gap: 0.375rem;
     line-height: 1;
     white-space: nowrap;
-    border-radius: var(--ui-radius-md);
-    box-shadow: var(--ui-shadow-sm);
+    border-radius: var(--radius-md, var(--ui-radius-md));
+    box-shadow: var(--shadow-sm, var(--ui-shadow-sm));
     transition: background-color .15s ease, color .15s ease, box-shadow .15s ease;
   }
   .ui-btn:hover, .btn:hover { filter: brightness(0.98); }
@@ -181,13 +244,14 @@
     @apply text-primary-foreground;
     background-color: hsl(var(--primary));
   }
-  .btn-primary:hover { background-color: hsl(var(--primary) / .92); }
+  /* Hoverは brand-600 を参照（やや明るく） */
+  .btn-primary:hover { background-color: hsl(var(--brand-primary-600)); }
 
   .btn-outline {
     @apply text-foreground;
     background-color: hsl(var(--secondary) / .55);
     border: 1px solid hsl(var(--border));
-    box-shadow: var(--ui-shadow-sm);
+    box-shadow: var(--shadow-sm, var(--ui-shadow-sm));
   }
   .btn-outline:hover { background-color: hsl(var(--secondary) / .75); }
 
@@ -198,14 +262,14 @@
   .btn-danger:hover { background-color: hsl(var(--destructive) / .9); }
 
   /* サイズ差分（余白はトークンから算出） */
-  .btn-sm { height: calc(var(--btn-h) - 0.25rem); border-radius: var(--ui-radius-sm); }
-  .btn-lg { height: calc(var(--btn-h) + 0.25rem); border-radius: var(--ui-radius-lg); }
+  .btn-sm { height: calc(var(--btn-h) - 0.25rem); border-radius: var(--radius-sm, var(--ui-radius-sm)); }
+  .btn-lg { height: calc(var(--btn-h) + 0.25rem); border-radius: var(--radius-lg, var(--ui-radius-lg)); }
 
   /* CTA（pill） */
   .btn-cta {
     @apply font-semibold;
-    border-radius: var(--ui-radius-full);
-    box-shadow: var(--ui-shadow-md);
+    border-radius: var(--radius-full, var(--ui-radius-full));
+    box-shadow: var(--shadow-md, var(--ui-shadow-md));
   }
 
   /* Segmented / Tablist（ダッシュボードの点除去） */
@@ -226,6 +290,6 @@
    Utilities
    ========================================= */
 @layer utilities {
-  .shadow-soft { box-shadow: var(--ui-shadow-sm); }
-  .shadow-soft-md { box-shadow: var(--ui-shadow-md); }
+  .shadow-soft { box-shadow: var(--shadow-sm, var(--ui-shadow-sm)); }
+  .shadow-soft-md { box-shadow: var(--shadow-md, var(--ui-shadow-md)); }
 }

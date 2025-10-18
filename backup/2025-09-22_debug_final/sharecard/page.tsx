@@ -17,7 +17,7 @@ export default function Page() {
         </p>
         <div className="flex gap-3">
           <Button asChild><Link href="/">トップへ</Link></Button>
-          <Button variant="outline" asChild><Link href="/dashboard">ダッシュボード</Link></Button>
+          <Button variant="secondary" asChild><Link href="/dashboard">ダッシュボード</Link></Button>
         </div>
       </header>
 
@@ -34,3 +34,4 @@ export default function Page() {
     </main>
   );
 }
+

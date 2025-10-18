@@ -74,3 +74,4 @@ const ShareCardBase: React.FC<ShareCardProps> = ({
 
 export { ShareCardBase as ShareCard };
 export default ShareCardBase;
+

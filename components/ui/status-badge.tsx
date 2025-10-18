@@ -81,3 +81,4 @@ export function StatusBadge({
 
 /** named / default 両対応（既存互換） */
 export default StatusBadge;
+

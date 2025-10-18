@@ -29,7 +29,7 @@ export default function DebugDialogPage() {
         <Button onClick={() => setOpen(true)}>開く（強制）</Button>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button variant="outline">開く（Trigger）</Button>
+            <Button variant="secondary">開く（Trigger）</Button>
           </DialogTrigger>
 
           <DialogContent>
@@ -44,7 +44,7 @@ export default function DebugDialogPage() {
 
             <DialogFooter>
               <DialogClose asChild>
-                <Button variant="outline">閉じる</Button>
+                <Button variant="secondary">閉じる</Button>
               </DialogClose>
               <Button onClick={() => setOpen(false)}>OK</Button>
             </DialogFooter>
@@ -54,3 +54,4 @@ export default function DebugDialogPage() {
     </main>
   );
 }
+

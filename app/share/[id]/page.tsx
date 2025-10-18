@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import * as React from "react";
 import Link from "next/link";
@@ -35,7 +35,7 @@ export default function ShareDetailPage({ params }: PageProps) {
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">基本情報</CardTitle>
-            <Button size="sm" variant="outline" onClick={copyId}>
+            <Button size="sm" variant="secondary" onClick={copyId}>
               ID をコピー
             </Button>
           </div>
@@ -54,7 +54,7 @@ export default function ShareDetailPage({ params }: PageProps) {
 
       {/* 戻る導線（UIトークン準拠のリンクボタン） */}
       <div>
-        <Button variant="link" asChild className="px-0">
+        <Button variant="ghost" asChild className="px-0">
           <Link href="/">← トップへ戻る</Link>
         </Button>
       </div>

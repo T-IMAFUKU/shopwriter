@@ -1,126 +1,250 @@
-/* ShopWriter UI Tokens & Utilities (Step 1.11) */
-/* Tailwind layers */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ===========================
-   Design Tokens (CSS Variables)
-   =========================== */
+/* =========================================
+   ベース設定（iOS風トークン）＋ ブランド正規化
+   ========================================= */
+
 :root {
-  /* Radius */
-  --ui-radius-sm: 0.375rem;  /* 6px */
-  --ui-radius-md: 0.5rem;    /* 8px */
-  --ui-radius-lg: 0.75rem;   /* 12px */
+  /* ===============================
+     ブランド（CI）トークン（唯一の真実）
+     =============================== */
+  /* CIネイビー（基準）：濃いめの知性トーン */
+  --brand-primary: 214 52% 24.5%;
+  /* CIブルー（600相当）：やや明るめ。Hover/強調で使用 */
+  --brand-primary-600: 214 60% 32%;
 
-  /* Shadow */
-  --ui-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.08);
-  --ui-shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.12);
-  --ui-shadow-lg: 0 12px 32px -8px rgb(0 0 0 / 0.18);
+  /* 既存P3系は brand を起点に定義（後方互換を確保） */
+  --background: 0 0% 100%;
+  --foreground: 222.2 47.4% 11.2%;
+  --card: 0 0% 100%;
+  --card-foreground: 222.2 47.4% 11.2%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222.2 47.4% 11.2%;
 
-  /* Spacing (baseline = 4px) */
-  --ui-space-1: 0.25rem;  /* 4 */
-  --ui-space-2: 0.5rem;   /* 8 */
-  --ui-space-3: 0.75rem;  /* 12 */
-  --ui-space-4: 1rem;     /* 16 */
-  --ui-space-5: 1.25rem;  /* 20 */
-  --ui-space-6: 1.5rem;   /* 24 */
+  /* ★ primary 系は brand 経由に一本化 */
+  --primary: var(--brand-primary);
+  --primary-foreground: 210 40% 98%;
+  --secondary: 210 40% 96.1%;
+  --secondary-foreground: 222.2 47.4% 11.2%;
+  --muted: 210 40% 96.1%;
+  --muted-foreground: 215.4 16.3% 46.9%;
+  --accent: 210 40% 96.1%;
+  --accent-foreground: 222.2 47.4% 11.2%;
 
-  /* Border / Ring (optional hooks) */
-  --ui-border: 1px;
-  --ui-ring: 2px;
+  /* S3（成功・破壊） */
+  --success: 194 70% 27%;
+  --success-foreground: 210 40% 98%;
+  --destructive: 0 74% 42%;
+  --destructive-foreground: 210 40% 98%;
 
-  /* Defaults applied by .ui-* helpers */
-  --ui-radius: var(--ui-radius-md);
-  --ui-shadow: var(--ui-shadow-md);
-  --ui-space-inline: var(--ui-space-3);
-  --ui-space-block: var(--ui-space-3);
-  --ui-gap: var(--ui-space-3);
+  --border: 214.3 31.8% 91.4%;
+  --input: 214.3 31.8% 91.4%;
+  /* ★ ring も brand 系へ */
+  --ring: var(--brand-primary);
+
+  /* 角丸（iOS寄り） */
+  --radius: 0.75rem;
+
+  /* ====== UIトークン（角丸） ====== */
+  --ui-radius-sm: 0.5rem;
+  --ui-radius-md: 0.75rem;
+  --ui-radius-lg: 1rem;
+  --ui-radius-full: 9999px;
+
+  /* ====== UIトークン（余白） ====== */
+  --spacing-0: 0rem;
+  --spacing-1: 0.25rem;
+  --spacing-2: 0.5rem;
+  --spacing-3: 0.75rem;
+  --spacing-4: 1rem;
+  --spacing-5: 1.25rem;
+  --spacing-6: 1.5rem;
+  --spacing-7: 1.75rem;
+  --spacing-8: 2rem;
+
+  /* 半透明ガラス */
+  --ui-glass-bg: 255 255 255 / 0.6;
+  --ui-glass-border: 0 0 0 / 0.06;
+  --ui-glass-blur: 16px;
+
+  /* 影 */
+  --ui-shadow-sm: 0 1px 2px rgba(0,0,0,0.06);
+  --ui-shadow-md: 0 8px 20px rgba(0,0,0,0.08);
+
+  /* Hairline区切り */
+  --ui-separator: 0 0 0 / 0.08;
+
+  /* ===============================
+     ボタントークン（唯一の真実）
+     =============================== */
+  --btn-px: 0.875rem;  /* px-3.5 */
+  --btn-py: 0.375rem;  /* py-1.5 */
+  --btn-h:  2.5rem;    /* h-10 */
 }
 
-/* Density presets */
-.ui-density-compact {
-  --ui-radius: var(--ui-radius-sm);
-  --ui-space-inline: var(--ui-space-2);
-  --ui-space-block: var(--ui-space-2);
-  --ui-gap: var(--ui-space-2);
-}
-.ui-density-comfortable {
-  --ui-radius: var(--ui-radius-lg);
-  --ui-space-inline: var(--ui-space-4);
-  --ui-space-block: var(--ui-space-3);
-  --ui-gap: var(--ui-space-3);
+.dark {
+  /* ===============================
+     ダーク用 ブランドトークン
+     =============================== */
+  /* ダークの基準は暗めのネイビーを採用 */
+  --brand-primary: 213 65% 15%;
+  --brand-primary-600: 213 65% 22%;
+
+  /* 既存P3系は brand を起点に再定義 */
+  --background: 222.2 47.4% 11.2%;
+  --foreground: 210 40% 98%;
+  --card: 222.2 47.4% 11.2%;
+  --card-foreground: 210 40% 98%;
+  --popover: 222.2 47.4% 11.2%;
+  --popover-foreground: 210 40% 98%;
+
+  --primary: var(--brand-primary);
+  --primary-foreground: 210 40% 98%;
+  --secondary: 217.2 32.6% 17.5%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 217.2 32.6% 17.5%;
+  --muted-foreground: 215 20.2% 65.1%;
+  --accent: 217.2 32.6% 17.5%;
+  --accent-foreground: 210 40% 98%;
+
+  --success: 194 70% 27%;
+  --success-foreground: 210 40% 98%;
+  --destructive: 0 74% 42%;
+  --destructive-foreground: 210 40% 98%;
+
+  --border: 217.2 32.6% 17.5%;
+  --input: 217.2 32.6% 17.5%;
+  --ring: var(--brand-primary);
+
+  --ui-glass-bg: 20 20 20 / 0.5;
+  --ui-glass-border: 255 255 255 / 0.08;
+  --ui-glass-blur: 16px;
+
+  --ui-shadow-sm: 0 1px 2px rgba(0,0,0,0.5);
+  --ui-shadow-md: 0 8px 20px rgba(0,0,0,0.45);
+
+  --ui-separator: 255 255 255 / 0.1;
 }
 
-/* ===========================
-   Base
-   =========================== */
+/* =========================================
+   Base（＋リスト再発対策）
+   ========================================= */
 @layer base {
-  html { scroll-behavior: smooth; }
+  * { @apply border-border; }
   body { @apply bg-background text-foreground; }
+
+  /* 通常コンテンツでは箇条書きを維持 */
+  ul { list-style: disc; padding-left: 1.25rem; margin: 0.5rem 0; }
+  ol { list-style: decimal; padding-left: 1.5rem;  margin: 0.5rem 0; }
+  li { line-height: 1.6; overflow: visible; margin: 0.25rem 0; }
+  li > ul, li > ol { margin-top: 0.25rem; margin-bottom: 0.25rem; }
+  :where(ul,ol) :where(p) { margin: 0.25rem 0; }
+
+  table { @apply w-full border-collapse; }
+  th, td { @apply p-3 align-middle; }
+  thead th { @apply text-sm text-muted-foreground; }
+
+  input, textarea, select, button { border-radius: var(--ui-radius-md); }
+  input:focus, textarea:focus, select:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px hsl(var(--ring) / 0.25);
+  }
 }
 
-/* ===========================
-   Component Patterns
-   =========================== */
+/* =========================================
+   Components
+   ========================================= */
+
+/* ガラス面（@applyを使っていないので @layer外でもOK） */
+.glass {
+  background: rgba(var(--ui-glass-bg));
+  backdrop-filter: blur(var(--ui-glass-blur));
+  -webkit-backdrop-filter: blur(var(--ui-glass-blur));
+  border: 1px solid rgba(var(--ui-glass-border));
+  border-radius: var(--ui-radius-lg);
+  box-shadow: var(--ui-shadow-sm);
+}
+
+/* Hairline 区切り */
+.hairline { border-top: 1px solid rgba(var(--ui-separator)); }
+
+/* =========================================
+   Buttons（@apply を使うため components レイヤー内に配置）
+   ========================================= */
 @layer components {
-  /* Card surface with unified spacing/radius/shadow */
-  .ui-card {
-    border-radius: var(--ui-radius);
-    box-shadow: var(--ui-shadow);
-    padding: var(--ui-space-block) var(--ui-space-inline);
-    background-color: hsl(var(--card));
-    color: hsl(var(--card-foreground));
+  .ui-btn,
+  .btn {
+    @apply inline-flex items-center justify-center text-sm font-medium
+           focus-visible:outline-none focus-visible:ring-2
+           focus-visible:ring-primary focus-visible:ring-offset-2
+           focus-visible:ring-offset-background select-none;
+    height: var(--btn-h);
+    padding-inline: var(--btn-px);
+    padding-block: var(--btn-py);
+    gap: 0.375rem;
+    line-height: 1;
+    white-space: nowrap;
+    border-radius: var(--ui-radius-md);
+    box-shadow: var(--ui-shadow-sm);
+    transition: background-color .15s ease, color .15s ease, box-shadow .15s ease;
+  }
+  .ui-btn:hover, .btn:hover { filter: brightness(0.98); }
+  .ui-btn:disabled, .btn:disabled,
+  .ui-btn[aria-disabled="true"], .btn[aria-disabled="true"] { opacity: .6; cursor: not-allowed; }
+
+  /* バリアント（色・枠のみ） */
+  .btn-primary {
+    @apply text-primary-foreground;
+    background-color: hsl(var(--primary));
+  }
+  /* Hoverは brand-600 を参照（やや明るく） */
+  .btn-primary:hover { background-color: hsl(var(--brand-primary-600)); }
+
+  .btn-outline {
+    @apply text-foreground;
+    background-color: hsl(var(--secondary) / .55);
+    border: 1px solid hsl(var(--border));
+    box-shadow: var(--ui-shadow-sm);
+  }
+  .btn-outline:hover { background-color: hsl(var(--secondary) / .75); }
+
+  .btn-success { color: hsl(var(--success-foreground)); background-color: hsl(var(--success)); }
+  .btn-success:hover { background-color: hsl(var(--success) / .9); }
+
+  .btn-danger { color: hsl(var(--destructive-foreground)); background-color: hsl(var(--destructive)); }
+  .btn-danger:hover { background-color: hsl(var(--destructive) / .9); }
+
+  /* サイズ差分（余白はトークンから算出） */
+  .btn-sm { height: calc(var(--btn-h) - 0.25rem); border-radius: var(--ui-radius-sm); }
+  .btn-lg { height: calc(var(--btn-h) + 0.25rem); border-radius: var(--ui-radius-lg); }
+
+  /* CTA（pill） */
+  .btn-cta {
+    @apply font-semibold;
+    border-radius: var(--ui-radius-full);
+    box-shadow: var(--ui-shadow-md);
   }
 
-  /* Header bar tokenized spacing & radius */
-  .ui-header {
-    border-radius: var(--ui-radius);
-    box-shadow: var(--ui-shadow-sm);
-    padding-inline: var(--ui-space-inline);
-    padding-block: var(--ui-space-2);
-    background-color: hsl(var(--background));
+  /* Segmented / Tablist（ダッシュボードの点除去） */
+  ul.segmented,
+  ul[role="tablist"],
+  nav ul.segmented {
+    list-style: none;
+    padding-left: 0;
+    margin-left: 0;
   }
-
-  /* Button container defaults (works with shadcn/ui Button) */
-  .ui-btn {
-    border-radius: var(--ui-radius);
-    box-shadow: var(--ui-shadow-sm);
+  ul.segmented > li,
+  ul[role="tablist"] > li {
+    display: inline-flex;
   }
 }
 
-/* ===========================
-   Utility Shims (token-first)
-   =========================== */
+/* =========================================
+   Utilities
+   ========================================= */
 @layer utilities {
-  /* Radius */
-  .ui-rounded      { border-radius: var(--ui-radius); }
-  .ui-rounded-sm   { border-radius: var(--ui-radius-sm); }
-  .ui-rounded-md   { border-radius: var(--ui-radius-md); }
-  .ui-rounded-lg   { border-radius: var(--ui-radius-lg); }
-
-  /* Shadow */
-  .ui-shadow       { box-shadow: var(--ui-shadow); }
-  .ui-shadow-sm    { box-shadow: var(--ui-shadow-sm); }
-  .ui-shadow-md    { box-shadow: var(--ui-shadow-md); }
-  .ui-shadow-lg    { box-shadow: var(--ui-shadow-lg); }
-
-  /* Padding & Gap (inline/block aware) */
-  .ui-p        { padding: var(--ui-space-block) var(--ui-space-inline); }
-  .ui-px       { padding-left: var(--ui-space-inline); padding-right: var(--ui-space-inline); }
-  .ui-py       { padding-top: var(--ui-space-block);  padding-bottom: var(--ui-space-block); }
-  .ui-gap      { gap: var(--ui-gap); }
-
-  /* Direct var() shortcuts compatible with Tailwind arbitrary values */
-  .rounded-var       { border-radius: var(--ui-radius); }
-  .shadow-var        { box-shadow: var(--ui-shadow); }
-  .p-var             { padding: var(--ui-space-3); } /* default */
+  .shadow-soft { box-shadow: var(--ui-shadow-sm); }
+  .shadow-soft-md { box-shadow: var(--ui-shadow-md); }
 }
-
-/* ===========================
-   Notes:
-   - Replace legacy classes like rounded-*, shadow-*, p-*, gap-* with .ui-* helpers
-   - Example: rounded-[var(--ui-radius-md)], shadow-[var(--ui-shadow-md)]
-   - Example: p-[var(--ui-space-3)], gap-[var(--ui-space-3)]
-   - Density can be switched via <body class="ui-density-compact">
-=========================== */

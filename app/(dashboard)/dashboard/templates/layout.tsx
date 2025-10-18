@@ -16,3 +16,4 @@ export default function TemplatesLayout({
     </React.Suspense>
   );
 }
+

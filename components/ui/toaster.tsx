@@ -1,4 +1,4 @@
-﻿// components/ui/toaster.tsx
+// components/ui/toaster.tsx
 "use client";
 
 /**
@@ -23,3 +23,4 @@ export function Toaster() {
 }
 
 export default Toaster;
+
