@@ -61,3 +61,30 @@ app/globals.css.bak
 
 .vercel
 
+
+# Retired Tailwind config
+tailwind.config.js.retired
+# === local backups / temp ===
+*.bak
+*_backup*
+*_before*
+_backup*/
+backup/
+_tmp*
+_snapshot*
+out.css
+.backup-step*/
+dev_user.sql
+scripts/seed-dev-user.mjs
+# === local backups / temp ===
+*.bak
+*_backup*
+*_before*
+_backup*/
+backup/
+_tmp*
+_snapshot*
+out.css
+.backup-step*/
+dev_user.sql
+scripts/seed-dev-user.mjs
