@@ -32,9 +32,9 @@ type WriterResponseOk = {
   output: string;
 };
 type WriterResponseErr = {
-  ok: false;
-  error: string;
-  details?: string;
+  ok: false,
+  error: string,
+  details?: string,
 };
 
 /* =========================
@@ -177,7 +177,7 @@ const EC_LEXICON: Record<string, ECLexicon> = {
   "家電": {
     cooccurrence: [
       "連続再生", "低遅延", "ノイズキャンセリング", "バッテリー", "充電時間",
-      "防水", "Bluetooth 5", "USB-C", "保証"
+    "防水", "Bluetooth 5", "USB-C", "保証"
     ],
     numericTemplates: [
       "連続再生：最大10時間／ケース併用で約30時間",
@@ -265,7 +265,7 @@ const EC_LEXICON: Record<string, ECLexicon> = {
       "ご不明点はチャットサポートで即時回答いたします。"
     ],
     faqSeeds: [
-      { q: "配送はどのくらいで届きますか？", a: "平日12時までのご注文は当日出荷、通常1〜3日でお届けします（地域により異なります）。" },
+      { q: "配送はどのくらいで届きますか？", a: "平日12時までのご注文は当日出荷、通常1〜3日でお届けします（地域・在庫により異なります）。" },
     ],
   },
 };
@@ -413,12 +413,12 @@ function postProcess(raw: string, n: NormalizedInput): string {
     }
   }
 
-  // 3) 既存の FAQ/CTA セクションを**完全に除去**してから再構築
-  //    - 「**FAQ** ...」形式
+  // 3) 既存の FAQ/CTA セクションを完全に除去してから再構築
+  // - 「**FAQ** …」形式
   out = out.replace(/\n\*\*FAQ\*\*[\s\S]*?(?=(?:\n##\s|^一次CTA|^代替CTA|$))/gim, "\n");
-  //    - 「## FAQ」見出し〜次の見出し/CTAまで
+  // - 「## FAQ」見出し〜次の見出し/CTAまで
   out = out.replace(/^##\s*FAQ[\s\S]*?(?=(?:^##\s|^一次CTA|^代替CTA|$))/gim, "");
-  //    - 旧CTAブロック（念のため）
+  // - 旧CTAブロック（念のため）
   out = out.replace(/^(\s*\*\*CTA\*\*[\s\S]*?)$/gim, "");
 
   // 4) FAQ 正規化・重複排除
@@ -494,7 +494,7 @@ function postProcess(raw: string, n: NormalizedInput): string {
   // 8) FAQブロックを生成（句読点ノイズを除去して整形）
   const cleanHead = (s: string) =>
     s.replace(/^[QＱ]\d*[：:.\)\]〉＞】」\s]*/i, "")
-     .replace(/^[\.\uFF0E\u30FB・\s]+/, "") // 先頭の「.」「．」「・」などを除去
+     .replace(/^[\.\uFF0E\u30FB・\s]+/, "")
      .trim();
   const cleanAns = (s: string) =>
     s.replace(/^[AＡ]\d*[：:.\)\]\s]*/i, "")
