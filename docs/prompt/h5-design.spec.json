@@ -1,0 +1,90 @@
+{
+  "version": "H5-design-1.0",
+  "note": "この仕様は Step④ の全文置換実装のための固定設計。API shape は tests-augmented の WriterResponseOk を厳守（data.text/output=string, meta={style,tone,locale} のみ返却）。SEO/CTA等の詳細メタは本文内へ自然に埋め込む。",
+  "runtime": "nodejs",
+  "openai": {
+    "endpoint": "https://api.openai.com/v1/chat/completions",
+    "default_model": "gpt-4o-mini",
+    "default_temperature": 0.7
+  },
+  "env_flags": {
+    "DEBUG_TEMPLATE_API": {
+      "stub": "stub => OpenAI呼び出しを行わず固定レスポンスを返す（既存維持）"
+    },
+    "WRITER_FEWSHOT": {
+      "off": "0/false => few-shot無効",
+      "on":  "1/true  => few-shot有効（ジャンル別の最小例を付与。初期は空で運用可）"
+    }
+  },
+  "inputs": {
+    "raw": "body.prompt（任意：自由文 or JSON）",
+    "optional_overrides": ["model","temperature","system"]
+  },
+  "normalizer": {
+    "goal": "自由文/ラフ指示を構造化 JSON に近似（Fail-softで補完）。",
+    "steps": [
+      "1) JSON っぽいなら JSON.parse を試行（失敗時は自由文処理へ）",
+      "2) 自由文 → 簡易抽出（product_name/category/goal/audience/keywords を正規表現＋キーワードで推定）",
+      "3) 欠損はデフォルト補完（goal='購入誘導', audience='一般購買者' など最小限）",
+      "4) 禁則・薬機/誇大の兆候ワードを blacklist（軽い置換/弱体化）"
+    ],
+    "output_shape": {
+      "product_name": "string",
+      "category": "string",
+      "goal": "string",
+      "audience": "string",
+      "platform": "string|null",
+      "keywords": "string[]",
+      "constraints": "string[]",
+      "brand_voice": "string|null",
+      "tone": "string|null",
+      "style": "string|null",
+      "length_hint": "string|null",
+      "selling_points": "string[]",
+      "objections": "string[]",
+      "evidence": "string[]",
+      "cta_preference": "string[]"
+    }
+  },
+  "system_prompt_builder": {
+    "modules": [
+      "前提宣言:『あなたはEC特化の日本語コピーライターAI。敬体、簡潔、数字優先、煽り禁止。』",
+      "構成:『媒体x目的でヘッドライン→概要→ベネフィット→根拠/比較→FAQ→CTA。H2まで、リスト3-7項目。』",
+      "日本語SEO:『不自然な羅列禁止。共起語/言い換えを自然に埋める。タイトル32字/説明80-120字は目安。』",
+      "CTA原則:『一次CTA=主目的直結（購入/カート/申込）。二次=低負荷行動（お気に入り/比較/レビュー）。動詞起点+利益+安心。』",
+      "ブランド:『落ち着いた知性。コーポレートネイビー世界観に合う語調。ユーザー原稿の否定ニュアンス禁止。』",
+      "禁則:『医薬的断定/No.1根拠なし/誇大/記号乱用の抑制。』",
+      "出力契約:『本文は完成文。必要に応じ見出し/箇条書き。最後にCTA文を1-3案。』"
+    ],
+    "few_shot": {
+      "policy": "カテゴリ（家電/コスメ/食品/アパレル）ごとに 1-2 例。初期は空で運用可。",
+      "placeholder": []
+    }
+  },
+  "messages_assembly": {
+    "order": [
+      "system: builder.modules を連結（\\n\\n）。",
+      "system2: 禁則・検証規則（語尾連続/重複/誤変換チェックの最終確認プロンプト）。",
+      "user: 正規化済みJSONと補足テキスト（『# 入力』見出しがあれば付与）"
+    ]
+  },
+  "post_process": {
+    "extract_meta": {
+      "style": "本文の体裁から summary/detail/bullet を粗推定（見出し/行数/リスト率で判定）",
+      "tone": "neutral/friendly/formal を語尾・語彙から近似推定（簡易）",
+      "locale": "常に ja-JP"
+    },
+    "hardening": [
+      "空/未定義の本文は 502（上流エラー詳細を details に格納）",
+      "data.text と output は同値を保存",
+      "最大長の安全制限（過長時は末尾『…』で丸め、文途中切断を避ける）"
+    ]
+  },
+  "api_contract": {
+    "response_ok": "WriterResponseOk を厳守（tests-augmented）。",
+    "response_error": "shape は現状維持（ok:false, error, optional details）"
+  },
+  "telemetry": {
+    "log_min": "開発時のみ：normalizerの分岐ログ（PIIなし）。本番はオフ。"
+  }
+}
