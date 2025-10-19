@@ -1,4 +1,5 @@
-﻿"use client";
+﻿// app/writer/ClientPage.tsx
+"use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
