@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   just-run:
+    name: smoke / just-run
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -19,37 +20,29 @@ jobs:
       DATABASE_URL: postgresql://user:pass@127.0.0.1:5432/db?schema=public
 
     steps:
-      - name: Checkout
+      - name: 🧾 Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
 
-      - name: Setup Node.js 20
+      - name: ⚙️ Setup Node.js 20
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'pnpm'
+          node-version: 20
           check-latest: true
 
-      - name: Setup pnpm 9.12.0
+      - name: 🪄 Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 9.12.0
           run_install: false
 
-      - name: Versions
-        run: |
-          node -v
-          pnpm -v
-
-      - name: Install
+      - name: 📦 Install dependencies
         run: pnpm install --no-frozen-lockfile
 
-      - name: Prisma generate (CI-safe)
+      - name: 🧬 Generate Prisma Client
         run: pnpm exec prisma generate
 
-      - name: Typecheck
+      - name: 🔍 Typecheck
         run: pnpm typecheck
 
-      - name: Build
+      - name: 🏗️ Build
         run: pnpm build
