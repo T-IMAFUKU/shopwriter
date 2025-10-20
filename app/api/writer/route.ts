@@ -31,9 +31,9 @@ type WriterResponseOk = {
   output: string;
 };
 type WriterResponseErr = {
-  ok: false,
-  error: string,
-  details?: string,
+  ok: false;
+  error: string;
+  details?: string;
 };
 
 /* =========================
@@ -110,7 +110,8 @@ function normalizeInput(raw: string | undefined): NormalizedInput {
 
   const split = (s: string) =>
     s
-      .split(/[、,\u3001\/\|;；\s]+/).map((v) => v.trim())
+      .split(/[、,\u3001\/\|;；\s]+/)
+      .map((v) => v.trim())
       .filter(Boolean);
 
   const keywords = split(pick(/(?:キーワード|keywords?)[：:]\s*(.+)/i) || "");
@@ -169,9 +170,10 @@ function coerceToShape(obj: any, raw: string): NormalizedInput {
 type ECLexicon = {
   cooccurrence: string[];     // 共起語（自然挿入）
   numericTemplates: string[]; // カテゴリ別の数値・単位テンプレ
-  safetyPhrases: string[];    // 不安低減（返品・配送・支払い等）
-  faqSeeds: { q: string; a: string }[]; // カテゴリ別FAQの候補（第3問の多様化）
+  safetyPhrases: string[];    // 不安低減（返品・配送など）
+  faqSeeds: { q: string; a: string }[]; // カテゴリFAQ候補（第3問の多様化）
 };
+
 const EC_LEXICON: Record<string, ECLexicon> = {
   "家電": {
     cooccurrence: [
@@ -189,12 +191,13 @@ const EC_LEXICON: Record<string, ECLexicon> = {
     ],
     faqSeeds: [
       { q: "防水等級はどの程度ですか？", a: "IPX4相当の生活防水です。水没は保証対象外となります。" },
-      { q: "配送はどのくらいで届きますか？", a: "平日12時までのご注文は当日出荷、通常1〜3日でお届けします（地域により異なります）。" },
+      { q: "配送はどのくらいで届きますか？", a: "平日12時までのご注文は当日出荷、通常1〜3日でお届けします（地域により異なります）。" }
     ],
   },
+
   "コスメ": {
     cooccurrence: [
-      "SPF/PA", "トーンアップ", "白浮き", "石けんオフ", "敏感肌", "無香料",
+      "SPF/PA", "トーンアップ", "白浮き", "石けんオフ", "敏感肌",
       "紫外線吸収剤フリー", "アルコールフリー"
     ],
     numericTemplates: [
@@ -208,13 +211,12 @@ const EC_LEXICON: Record<string, ECLexicon> = {
     ],
     faqSeeds: [
       { q: "石けんで落とせますか？", a: "単体使用時は洗顔料で落とせます。ウォータープルーフ製品との重ね使いは専用リムーバーをご検討ください。" },
-      { q: "白浮きしませんか？", a: "トーンアップ処方ですが、白浮きしにくい乳液テクスチャです。少量ずつなじませてください。" },
+      { q: "白浮きしませんか？", a: "トーンアップ処方ですが、白浮きしにくい乳液テクスチャです。少量ずつなじませてください。" }
     ],
   },
+
   "食品": {
-    cooccurrence: [
-      "個包装", "鮮度", "焙煎", "抽出量", "保存方法", "賞味期限", "原材料"
-    ],
+    cooccurrence: [ "個包装", "鮮度", "焙煎", "抽出量", "保存方法", "賞味期限", "原材料" ],
     numericTemplates: [
       "1杯あたりの粉量：10–12g／お湯150–180mLが目安",
       "鮮度管理：焙煎後24時間以内に充填",
@@ -225,9 +227,10 @@ const EC_LEXICON: Record<string, ECLexicon> = {
     ],
     faqSeeds: [
       { q: "賞味期限はどのくらいですか？", a: "未開封で製造から約12か月が目安です。開封後はお早めにお召し上がりください。" },
-      { q: "保存方法は？", a: "直射日光・高温多湿を避け常温で保存してください。開封後は密閉容器での保存を推奨します。" },
+      { q: "保存方法は？", a: "直射日光・高温多湿を避け常温で保存してください。開封後は密閉容器での保存を推奨します。" }
     ],
   },
+
   "汎用": {
     cooccurrence: [ "レビュー", "比較", "相性", "使い方", "保証", "返品" ],
     numericTemplates: [
@@ -237,10 +240,11 @@ const EC_LEXICON: Record<string, ECLexicon> = {
       "受領後30日以内の未使用品は返品を承ります。"
     ],
     faqSeeds: [
-      { q: "配送はどのくらいで届きますか？", a: "平日12時までのご注文は当日出荷、通常1〜3日でお届けします（地域により異なります）。" },
+      { q: "配送はどのくらいで届きますか？", a: "平日12時までのご注文は当日出荷、通常1〜3日でお届けします（地域により異なります）。" }
     ],
   },
 };
+
 function pickLexicon(category: string): ECLexicon {
   if (/家電|electronic|電動|イヤホン|ヘッドホン|掃除機|冷蔵庫/i.test(category)) return EC_LEXICON["家電"];
   if (/コスメ|化粧|美容|スキンケア|cosme|beauty/i.test(category)) return EC_LEXICON["コスメ"];
@@ -363,16 +367,16 @@ function postProcess(raw: string, n: NormalizedInput): string {
     }
   }
 
-  // ★ Final-4: Q/A 残骸の物理削除（本文に散在する「Q. … / A. …」を先に全て除去）
+  // ★ Q/A 残骸の物理削除（本文に散在する「Q. … / A. …」を先に全除去）
   out = out.replace(
     /^\s*(?:[QＱ]\s*\d*\s*[：:.\)\]]?\s.+\n\s*[AＡ]\s*\d*\s*[：:.\)\]]?\s.+\s*(?:\n|$))/gmi,
     ""
   );
 
-  // 既存の FAQ/CTA セクションを完全に除去してから再構築
+  // 既存の FAQ/CTA セクションを完全に除去してから再構築（**FAQ** と ## FAQ の両対応）
   out = out.replace(/\n\*\*FAQ\*\*[\s\S]*?(?=(?:\n##\s|^一次CTA|^代替CTA|$))/gim, "\n"); // **FAQ** …
   out = out.replace(/^##\s*FAQ[\s\S]*?(?=(?:^##\s|^一次CTA|^代替CTA|$))/gim, "");       // ## FAQ …
-  out = out.replace(/^(\s*\*\*CTA\*\*[\s\S]*?)$/gim, "");                                // 旧CTA
+  out = out.replace(/^(\s*\*\*CTA\*\*[\s\S]*?)$/gim, "");                                // 旧CTA（念のため）
 
   // 4) FAQ 正規化・重複排除
   const normalizeQ = (s: string) =>
@@ -396,14 +400,14 @@ function postProcess(raw: string, n: NormalizedInput): string {
       dedup.push({
         q: "返品や返金はできますか？",
         a: "受領後30日以内の未使用品は返品を承ります。詳しくはストアポリシーをご確認ください。",
-        idx: Number.MAX_SAFE_INTEGER-2,
+        idx: Number.MAX_SAFE_INTEGER - 2,
       });
     }
     if (!hasCompat) {
       dedup.push({
         q: "対応環境や相性に制限はありますか？",
         a: "使用環境により最適条件が異なります。互換・対応状況は商品ページの仕様欄をご確認ください。",
-        idx: Number.MAX_SAFE_INTEGER-1,
+        idx: Number.MAX_SAFE_INTEGER - 1,
       });
     }
   };
@@ -416,7 +420,10 @@ function postProcess(raw: string, n: NormalizedInput): string {
   for (const s of seeds) {
     if (dedup.length >= 3) break;
     const k = normalizeQ(s.q);
-    if (!seen.has(k)) { dedup.push({ q: s.q, a: s.a, idx: Number.MAX_SAFE_INTEGER }); seen.add(k); }
+    if (!seen.has(k)) {
+      dedup.push({ q: s.q, a: s.a, idx: Number.MAX_SAFE_INTEGER });
+      seen.add(k);
+    }
   }
   while (dedup.length < 3) {
     dedup.push({
@@ -438,7 +445,7 @@ function postProcess(raw: string, n: NormalizedInput): string {
   // 8) FAQブロック生成
   const cleanHead = (s: string) =>
     s.replace(/^[QＱ]\d*[：:.\)\]〉＞】」\s]*/i, "").replace(/^[\.\uFF0E\u30FB・\s]+/, "").trim();
-  const cleanAns  = (s: string) =>
+  const cleanAns = (s: string) =>
     s.replace(/^[AＡ]\d*[：:.\)\]\s]*/i, "").replace(/^[\.\uFF0E\u30FB・\s]+/, "").trim();
 
   const faqBlock =
@@ -447,7 +454,9 @@ function postProcess(raw: string, n: NormalizedInput): string {
 
   /* ---- 数値保証（最低2つ） ---- */
   const numericHits =
-    out.match(/(?:\d+(?:\.\d+)?\s?(?:g|kg|mm|cm|m|mAh|ms|時間|分|枚|袋|ml|mL|L|W|Hz|年|か月|ヶ月|日|回|%|％))/g) || [];
+    out.match(
+      /(?:\d+(?:\.\d+)?\s?(?:g|kg|mm|cm|m|mAh|ms|時間|分|枚|袋|ml|mL|L|W|Hz|年|か月|ヶ月|日|回|%|％))/g
+    ) || [];
   if (numericHits.length < 2) {
     const addLine = `*${lex.numericTemplates.slice(0, 2 - numericHits.length).join("／")}*`;
     out += `\n\n${addLine}`;
@@ -472,7 +481,8 @@ function postProcess(raw: string, n: NormalizedInput): string {
 
   /* ---- CTA 整形（不足時は付与） ---- */
   const hasFinalCTA2 = /^一次CTA[：:]\s?.+/m.test(out) && /^代替CTA[：:]\s?.+/m.test(out);
-  if (!hasFinalCTA2) out += `\n\n一次CTA：今すぐ購入—30日返品可\n代替CTA：詳細を見る—レビューで比較`;
+  if (!hasFinalCTA2)
+    out += `\n\n一次CTA：今すぐ購入—30日返品可\n代替CTA：詳細を見る—レビューで比較`;
 
   // 9) 長さ制限
   if (out.length > 5000) {
@@ -492,7 +502,11 @@ function escapeReg(s: string) {
    OpenAI 呼び出し補助
 ========================= */
 async function safeText(r: Response) {
-  try { return await r.text(); } catch { return ""; }
+  try {
+    return await r.text();
+  } catch {
+    return "";
+  }
 }
 
 /* =========================
