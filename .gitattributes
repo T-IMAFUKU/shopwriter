@@ -1,0 +1,9 @@
+# Writer APIは常に現在ブランチを優先（マージ競合でも右側＝oursを採用）
+app/api/writer/route.ts merge=ours
+
+# ついでに改行を安定化（WindowsでもLFに固定）
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.md text eol=lf
