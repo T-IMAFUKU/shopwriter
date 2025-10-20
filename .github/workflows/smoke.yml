@@ -17,17 +17,16 @@ jobs:
     env:
       NEXT_TELEMETRY_DISABLED: '1'
       PRISMA_GENERATE_SKIP_ENV_CHECK: '1'
-      DATABASE_URL: postgresql://user:pass@127.0.0.1:5432/db?schema=public
+      DATABASE_URL: file:./dev.db  # ← SQLite fallback に変更（ネオン接続不要）
 
     steps:
-      - name: 🧾 Checkout repository
+      - name: 🧾 Checkout
         uses: actions/checkout@v4
 
       - name: ⚙️ Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          check-latest: true
 
       - name: 🪄 Setup pnpm
         uses: pnpm/action-setup@v4
@@ -37,9 +36,15 @@ jobs:
 
       - name: 📦 Install dependencies
         run: pnpm install --no-frozen-lockfile
+        env:
+          PNPM_FETCH_RETRIES: '4'
+          PNPM_FETCH_RETRY_FACTOR: '3'
 
-      - name: 🧬 Generate Prisma Client
-        run: pnpm exec prisma generate
+      - name: 🧬 Generate Prisma Client (offline safe)
+        run: |
+          set -eux
+          pnpm exec prisma generate --data-proxy
+          echo "✅ Prisma Client generated successfully"
 
       - name: 🔍 Typecheck
         run: pnpm typecheck
