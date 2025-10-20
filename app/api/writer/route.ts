@@ -1,5 +1,4 @@
 // app/api/writer/route.ts
-// Runtime: Node.js（外部API・環境変数利用のため）
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
@@ -177,18 +176,16 @@ const EC_LEXICON: Record<string, ECLexicon> = {
   "家電": {
     cooccurrence: [
       "連続再生", "低遅延", "ノイズキャンセリング", "バッテリー", "充電時間",
-    "防水", "Bluetooth 5", "USB-C", "保証"
+      "防水", "Bluetooth 5", "USB-C", "保証"
     ],
     numericTemplates: [
       "連続再生：最大10時間／ケース併用で約30時間",
       "充電時間：約90分（USB-C）",
-      "重量：約120g／サイズ：約150mm",
       "通信：Bluetooth 5.3／コーデック対応は商品仕様をご確認ください"
     ],
     safetyPhrases: [
       "初期不良は受領後7日以内に交換対応いたします。",
-      "1年間のメーカー保証付きです（消耗品を除く）。",
-      "お支払いは各種クレジット・コンビニ払いに対応しています。"
+      "1年間のメーカー保証付きです（消耗品を除く）。"
     ],
     faqSeeds: [
       { q: "防水等級はどの程度ですか？", a: "IPX4相当の生活防水です。水没は保証対象外となります。" },
@@ -207,8 +204,7 @@ const EC_LEXICON: Record<string, ECLexicon> = {
     ],
     safetyPhrases: [
       "パッチテスト済みですが、すべての方に刺激がないわけではありません。",
-      "石けんで落とせます（単体使用時）。",
-      "香料・着色料フリー（※詳細は成分表をご確認ください）。"
+      "石けんで落とせます（単体使用時）。"
     ],
     faqSeeds: [
       { q: "石けんで落とせますか？", a: "単体使用時は洗顔料で落とせます。ウォータープルーフ製品との重ね使いは専用リムーバーをご検討ください。" },
@@ -225,47 +221,23 @@ const EC_LEXICON: Record<string, ECLexicon> = {
       "賞味期限：未開封で製造から約12か月（保存は直射日光を避け常温）"
     ],
     safetyPhrases: [
-      "原材料にアレルギーがある方は成分表示をご確認ください。",
-      "パッケージは予告なく変更される場合がありますが、中身は同一です。",
-      "定期便はいつでもスキップ可能です。"
+      "原材料にアレルギーがある方は成分表示をご確認ください。"
     ],
     faqSeeds: [
       { q: "賞味期限はどのくらいですか？", a: "未開封で製造から約12か月が目安です。開封後はお早めにお召し上がりください。" },
       { q: "保存方法は？", a: "直射日光・高温多湿を避け常温で保存してください。開封後は密閉容器での保存を推奨します。" },
     ],
   },
-  "アパレル": {
-    cooccurrence: [
-      "サイズ感", "生地厚", "伸縮性", "洗濯方法", "透け感", "シルエット", "着丈"
-    ],
-    numericTemplates: [
-      "サイズ目安：着丈68cm／身幅52cm（M）※個体差±1–2cm",
-      "生地：綿100%／生地厚：5.6oz",
-      "洗濯：ネット使用・中性洗剤・陰干し推奨"
-    ],
-    safetyPhrases: [
-      "自宅での試着後でも、未使用・タグ付きであれば30日以内の返品可。",
-      "色味はモニター環境により実物と異なる場合があります。",
-      "サイズ交換の送料は初回1回まで当店負担です。"
-    ],
-    faqSeeds: [
-      { q: "サイズ交換はできますか？", a: "未使用・タグ付きに限り30日以内のサイズ交換を承ります。初回1回まで送料は当店負担です。" },
-      { q: "洗濯方法は？", a: "ネット使用・中性洗剤・陰干しを推奨します。色移りを避けるため単独洗いをおすすめします。" },
-    ],
-  },
   "汎用": {
-    cooccurrence: [ "レビュー", "比較", "相性", "使い方", "保証", "サポート", "返品" ],
+    cooccurrence: [ "レビュー", "比較", "相性", "使い方", "保証", "返品" ],
     numericTemplates: [
-      "目安：本体約120g・長さ約150mm",
       "参考：30日返品保証／平日12時までの注文は当日出荷"
     ],
     safetyPhrases: [
-      "受領後30日以内の未使用品は返品を承ります。",
-      "土日祝の出荷は行っておりません（予約商品を除く）。",
-      "ご不明点はチャットサポートで即時回答いたします。"
+      "受領後30日以内の未使用品は返品を承ります。"
     ],
     faqSeeds: [
-      { q: "配送はどのくらいで届きますか？", a: "平日12時までのご注文は当日出荷、通常1〜3日でお届けします（地域・在庫により異なります）。" },
+      { q: "配送はどのくらいで届きますか？", a: "平日12時までのご注文は当日出荷、通常1〜3日でお届けします（地域により異なります）。" },
     ],
   },
 };
@@ -273,7 +245,6 @@ function pickLexicon(category: string): ECLexicon {
   if (/家電|electronic|電動|イヤホン|ヘッドホン|掃除機|冷蔵庫/i.test(category)) return EC_LEXICON["家電"];
   if (/コスメ|化粧|美容|スキンケア|cosme|beauty/i.test(category)) return EC_LEXICON["コスメ"];
   if (/食品|フード|グルメ|food|gourmet|菓子|コーヒー|茶/i.test(category)) return EC_LEXICON["食品"];
-  if (/アパレル|衣料|ファッション|服|ウェア/i.test(category)) return EC_LEXICON["アパレル"];
   return EC_LEXICON["汎用"];
 }
 
@@ -302,30 +273,9 @@ function buildSystemPrompt(overrides?: string): string {
 /* =========================
    Few-shot（WRITER_FEWSHOT=1/true時）
 ========================= */
-function buildFewShot(category: string): { role: "user" | "assistant"; content: string }[] {
+function buildFewShot(_category: string) {
   if (!/^(1|true)$/i.test(String(process.env.WRITER_FEWSHOT ?? ""))) return [];
-  const shots: { role: "user" | "assistant"; content: string }[] = [];
-
-  if (/(家電|electronic|電動|掃除機|冷蔵庫|イヤホン|ヘッドホン)/i.test(category ?? "")) {
-    shots.push(
-      { role: "user", content: "【カテゴリ:家電】product_name: ノイズキャンセリング完全ワイヤレスイヤホン / goal: 購入誘導 / audience: 通勤・リモートワーク / keywords: 連続再生, 低遅延, 高音質" },
-      { role: "assistant", content: "## 空間を自分の集中モードに\n通勤やオンライン会議に適したノイズキャンセリング。\n\n- 連続再生最大10時間／ケース併用で30時間\n- 低遅延（参考: 80–120ms程度）\n- IPX4相当の生活防水\n\n**FAQ**\nQ. iPhone/Android両対応？\nA. はい、Bluetooth 5.3に対応します。\n\n一次CTA：今すぐ購入—30日返品可\n代替CTA：詳細を見る—レビューで比較" }
-    );
-  }
-  if ((/(コスメ|化粧|美容|スキンケア|beauty|cosme)/i).test(category ?? "")) {
-    shots.push(
-      { role: "user", content: "【カテゴリ:コスメ】product_name: 低刺激UVミルク / goal: 購入誘導 / audience: 敏感肌 / keywords: 日焼け止め, 乳液, トーンアップ" },
-      { role: "assistant", content: "## やさしく守る、毎日のUVケア\n白浮きしにくい乳液テクスチャ。石けんオフ対応。\n\n- SPF50+・PA++++\n- 1回の使用量目安：パール粒2個分（約0.8g）\n- 紫外線吸収剤フリー\n\n**FAQ**\nQ. 敏感肌でも使えますか？\nA. パッチテスト済みですが、すべての方に刺激がないわけではありません。\nQ. 石けんで落ちますか？\nA. はい、単体使用時は洗顔料で落とせます。\n\n一次CTA：今すぐ購入—初回送料無料\n代替CTA：詳細を見る—成分表を確認" }
-    );
-  }
-  if (/(食品|フード|グルメ|スイーツ|food|gourmet|菓子|コーヒー|茶)/i.test(category ?? "")) {
-    shots.push(
-      { role: "user", content: "【カテゴリ:食品】product_name: プレミアムドリップコーヒー 10袋 / goal: 購入誘導 / audience: 在宅ワーク / keywords: 香り, 深煎り, 手軽" },
-      { role: "assistant", content: "## 仕事の合間に、淹れたてのご褒美\n1杯ずつ個包装のドリップタイプ。\n\n- 1杯あたり10–12gの粉量でしっかりコク\n- 焙煎後24時間以内に充填（鮮度管理）\n- お湯150–180mlが目安\n\n**FAQ**\nQ. ミルクとの相性は？\nA. 深煎りのためラテでも香りが活きます。\nQ. 賞味期限は？\nA. 未開封で製造から約12か月が目安です。\n\n一次CTA：今すぐ購入—定期便はスキップ可\n代替CTA：詳細を見る—レビューで比較" }
-    );
-  }
-
-  return shots;
+  return [] as { role: "user" | "assistant"; content: string }[];
 }
 
 /* =========================
@@ -395,8 +345,8 @@ function postProcess(raw: string, n: NormalizedInput): string {
   type QA = { q: string; a: string; idx: number };
   const lines = out.split(/\r?\n/);
 
-  const qRe = /^(?:Q(?:\s*|\.)|Q\s*\d+[\.\)：:）]|Q\d+[\.\)：:）]|Q[：:．．\)]|Q[0-9]*[：:.\)])\s*(.+)$/i;
-  const aRe = /^(?:A(?:\s*|\.)|A\s*\d+[\.\)：:）]|A\d+[\.\)：:）]|A[：:．．\)]|A[0-9]*[：:.\)])\s*(.+)$/i;
+  const qRe = /^(?:Q|Ｑ)\s*\d*\s*[：:.\)\]]?\s*(.+)$/i;
+  const aRe = /^(?:A|Ａ)\s*\d*\s*[：:.\)\]]?\s*(.+)$/i;
 
   const pairs: QA[] = [];
   let pendingQ: { text: string; idx: number } | null = null;
@@ -413,20 +363,23 @@ function postProcess(raw: string, n: NormalizedInput): string {
     }
   }
 
-  // 3) 既存の FAQ/CTA セクションを完全に除去してから再構築
-  // - 「**FAQ** …」形式
-  out = out.replace(/\n\*\*FAQ\*\*[\s\S]*?(?=(?:\n##\s|^一次CTA|^代替CTA|$))/gim, "\n");
-  // - 「## FAQ」見出し〜次の見出し/CTAまで
-  out = out.replace(/^##\s*FAQ[\s\S]*?(?=(?:^##\s|^一次CTA|^代替CTA|$))/gim, "");
-  // - 旧CTAブロック（念のため）
-  out = out.replace(/^(\s*\*\*CTA\*\*[\s\S]*?)$/gim, "");
+  // ★ Final-4: Q/A 残骸の物理削除（本文に散在する「Q. … / A. …」を先に全て除去）
+  out = out.replace(
+    /^\s*(?:[QＱ]\s*\d*\s*[：:.\)\]]?\s.+\n\s*[AＡ]\s*\d*\s*[：:.\)\]]?\s.+\s*(?:\n|$))/gmi,
+    ""
+  );
+
+  // 既存の FAQ/CTA セクションを完全に除去してから再構築
+  out = out.replace(/\n\*\*FAQ\*\*[\s\S]*?(?=(?:\n##\s|^一次CTA|^代替CTA|$))/gim, "\n"); // **FAQ** …
+  out = out.replace(/^##\s*FAQ[\s\S]*?(?=(?:^##\s|^一次CTA|^代替CTA|$))/gim, "");       // ## FAQ …
+  out = out.replace(/^(\s*\*\*CTA\*\*[\s\S]*?)$/gim, "");                                // 旧CTA
 
   // 4) FAQ 正規化・重複排除
   const normalizeQ = (s: string) =>
     s.replace(/^[\s\d\.\):：）\-・]+/, "")
-      .replace(/[？?\s]+$/g, "")
-      .replace(/\s+/g, " ")
-      .toLowerCase();
+     .replace(/[？?\s]+$/g, "")
+     .replace(/\s+/g, " ")
+     .toLowerCase();
 
   const byKey = new Map<string, QA>();
   for (const p of pairs) {
@@ -436,39 +389,34 @@ function postProcess(raw: string, n: NormalizedInput): string {
   let dedup = Array.from(byKey.values());
 
   // 5) 必須2問（返品／相性）をパッド
-  function ensurePadBase(list: QA[]): QA[] {
-    const result = [...list];
-    const hasReturn = result.some((p) => /(返品|返金|保証)/.test(p.q));
-    const hasCompat = result.some((p) => /(対応|互換|相性)/.test(p.q));
+  const ensureBase = () => {
+    const hasReturn = dedup.some((p) => /(返品|返金|保証)/.test(p.q));
+    const hasCompat = dedup.some((p) => /(対応|互換|相性)/.test(p.q));
     if (!hasReturn) {
-      result.push({
+      dedup.push({
         q: "返品や返金はできますか？",
         a: "受領後30日以内の未使用品は返品を承ります。詳しくはストアポリシーをご確認ください。",
-        idx: Number.MAX_SAFE_INTEGER - 2,
+        idx: Number.MAX_SAFE_INTEGER-2,
       });
     }
     if (!hasCompat) {
-      result.push({
+      dedup.push({
         q: "対応環境や相性に制限はありますか？",
         a: "使用環境により最適条件が異なります。互換・対応状況は商品ページの仕様欄をご確認ください。",
-        idx: Number.MAX_SAFE_INTEGER - 1,
+        idx: Number.MAX_SAFE_INTEGER-1,
       });
     }
-    return result;
-  }
-  dedup = ensurePadBase(dedup);
+  };
+  ensureBase();
 
-  // 6) **必ず3問化**：カテゴリ固有FAQで埋める
+  // 6) 3問化（カテゴリ固有で補完）
   const lex = pickLexicon(n.category);
-  const seeds = Array.isArray(lex.faqSeeds) && lex.faqSeeds.length ? lex.faqSeeds : EC_LEXICON["汎用"].faqSeeds;
+  const seeds = lex.faqSeeds.length ? lex.faqSeeds : EC_LEXICON["汎用"].faqSeeds;
   const seen = new Set(dedup.map((p) => normalizeQ(p.q)));
-  for (const seed of seeds) {
+  for (const s of seeds) {
     if (dedup.length >= 3) break;
-    const key = normalizeQ(seed.q);
-    if (!seen.has(key)) {
-      dedup.push({ q: seed.q, a: seed.a, idx: Number.MAX_SAFE_INTEGER });
-      seen.add(key);
-    }
+    const k = normalizeQ(s.q);
+    if (!seen.has(k)) { dedup.push({ q: s.q, a: s.a, idx: Number.MAX_SAFE_INTEGER }); seen.add(k); }
   }
   while (dedup.length < 3) {
     dedup.push({
@@ -478,12 +426,8 @@ function postProcess(raw: string, n: NormalizedInput): string {
     });
   }
 
-  // 7) 表示順（返品→相性→カテゴリ固有）
-  const priority = [
-    /(返品|返金|保証)/,
-    /(対応|互換|相性)/,
-    /(配送|送料|納期|到着|何日|賞味期限|保存|石けんオフ|防水|サイズ交換)/,
-  ];
+  // 7) 並び（返品→相性→カテゴリ固有）
+  const priority = [/(返品|返金|保証)/, /(対応|互換|相性)/];
   dedup.sort((a, b) => {
     const pa = priority.findIndex((re) => re.test(a.q));
     const pb = priority.findIndex((re) => re.test(b.q));
@@ -491,21 +435,15 @@ function postProcess(raw: string, n: NormalizedInput): string {
   });
   if (dedup.length > 3) dedup = dedup.slice(0, 3);
 
-  // 8) FAQブロックを生成（句読点ノイズを除去して整形）
+  // 8) FAQブロック生成
   const cleanHead = (s: string) =>
-    s.replace(/^[QＱ]\d*[：:.\)\]〉＞】」\s]*/i, "")
-     .replace(/^[\.\uFF0E\u30FB・\s]+/, "")
-     .trim();
-  const cleanAns = (s: string) =>
-    s.replace(/^[AＡ]\d*[：:.\)\]\s]*/i, "")
-     .replace(/^[\.\uFF0E\u30FB・\s]+/, "")
-     .trim();
+    s.replace(/^[QＱ]\d*[：:.\)\]〉＞】」\s]*/i, "").replace(/^[\.\uFF0E\u30FB・\s]+/, "").trim();
+  const cleanAns  = (s: string) =>
+    s.replace(/^[AＡ]\d*[：:.\)\]\s]*/i, "").replace(/^[\.\uFF0E\u30FB・\s]+/, "").trim();
 
   const faqBlock =
     "## FAQ\n" +
-    dedup
-      .map((p) => `Q. ${cleanHead(p.q)}\nA. ${cleanAns(p.a)}`)
-      .join("\n\n");
+    dedup.map((p) => `Q. ${cleanHead(p.q)}\nA. ${cleanAns(p.a)}`).join("\n\n");
 
   /* ---- 数値保証（最低2つ） ---- */
   const numericHits =
@@ -515,62 +453,30 @@ function postProcess(raw: string, n: NormalizedInput): string {
     out += `\n\n${addLine}`;
   }
 
-  /* ---- 共起語 濃度上限 & 脚注モード ---- */
+  /* ---- 共起語脚注（compact） ---- */
   const COOC_MAX = Math.max(0, Math.min(5, Number(process.env.WRITER_COOC_MAX ?? 3)));
-  const footnoteMode = String(process.env.WRITER_FOOTNOTE_MODE ?? "compact").toLowerCase();
-
   const needTerms = lex.cooccurrence.filter((kw) => !new RegExp(escapeReg(kw)).test(out));
   const picked = needTerms.slice(0, Math.min(COOC_MAX, needTerms.length));
-  const safety1 = lex.safetyPhrases[0] ?? "";
-
-  if (picked.length > 0 || safety1) {
-    if (footnoteMode === "inline") {
-      (globalThis as any).__WRITER_INLINE_SAFETY__ = safety1;
-    } else if (footnoteMode === "compact") {
-      const topic = picked.length ? `関連:${picked.join("・")}` : "";
-      const peace = safety1 ? `安心:${safety1}` : "";
-      const glue = topic && peace ? "／" : "";
-      const line = `*${topic}${glue}${peace}*`;
-      out += `\n\n${line}`;
-    }
+  const safety = lex.safetyPhrases[0] ?? "";
+  if (picked.length || safety) {
+    const topic = picked.length ? `関連:${picked.join("・")}` : "";
+    const peace = safety ? `安心:${safety}` : "";
+    const glue = topic && peace ? "／" : "";
+    out += `\n\n*${topic}${glue}${peace}*`;
   }
 
-  /* ---- FAQ の挿入位置：CTA直前 or 末尾 ---- */
+  /* ---- FAQ の挿入位置 ---- */
   const hasFinalCTA = /^一次CTA[：:]\s?.+/m.test(out) && /^代替CTA[：:]\s?.+/m.test(out);
-  if (hasFinalCTA) {
-    out = out.replace(/(\n)(一次CTA[：:].+?\n代替CTA[：:].+?$)/ms, `\n${faqBlock}\n\n$2`);
-  } else {
-    out = out.replace(/\s+$/, "") + `\n\n${faqBlock}\n`;
-  }
+  if (hasFinalCTA) out = out.replace(/(\n)(一次CTA[：:].+?\n代替CTA[：:].+?$)/ms, `\n${faqBlock}\n\n$2`);
+  else out = out.replace(/\s+$/, "") + `\n\n${faqBlock}\n`;
 
-  /* ---- CTA 統一＋ inline 安心織り込み ---- */
-  const hasFinalCTA2 =
-    /^一次CTA[：:]\s?.+/m.test(out) && /^代替CTA[：:]\s?.+/m.test(out);
-  if (!hasFinalCTA2) {
-    const pref = (n.cta_preference && n.cta_preference.length > 0) ? n.cta_preference : ["今すぐ購入", "カートに追加", "詳細を見る"];
-    const primary = pref[0] || "今すぐ購入";
-    const secondary = pref[1] || pref[2] || "詳細を見る";
-    let primaryLine = `一次CTA：${primary}—30日返品可`;
-    if ((globalThis as any).__WRITER_INLINE_SAFETY__) {
-      primaryLine = `一次CTA：${primary}—${(globalThis as any).__WRITER_INLINE_SAFETY__}`;
-    }
-    const secondaryLine = `代替CTA：${secondary}—レビューで比較`;
-    out = out.replace(/\s+$/, "") + `\n\n${primaryLine}\n${secondaryLine}`;
-  } else {
-    out = out.replace(/^(一次CTA：)(.+)$/gm, (_m, g1, g2) => {
-      const hasDash = /—/.test(g2);
-      const inline = (globalThis as any).__WRITER_INLINE_SAFETY__ || "30日返品可";
-      return `${g1}${hasDash ? g2 : `${g2}—${inline}`}`;
-    });
-    out = out.replace(/^(代替CTA：)(.+)$/gm, (_m, g1, g2) =>
-      /—/.test(g2) ? `${g1}${g2}` : `${g1}${g2}—レビューで比較`
-    );
-  }
+  /* ---- CTA 整形（不足時は付与） ---- */
+  const hasFinalCTA2 = /^一次CTA[：:]\s?.+/m.test(out) && /^代替CTA[：:]\s?.+/m.test(out);
+  if (!hasFinalCTA2) out += `\n\n一次CTA：今すぐ購入—30日返品可\n代替CTA：詳細を見る—レビューで比較`;
 
-  // 9) 長さ制限（安全）
-  const MAX = 5000;
-  if (out.length > MAX) {
-    const slice = out.slice(0, MAX);
+  // 9) 長さ制限
+  if (out.length > 5000) {
+    const slice = out.slice(0, 5000);
     const last = Math.max(slice.lastIndexOf("。"), slice.lastIndexOf("\n"));
     out = slice.slice(0, Math.max(0, last)) + "…";
   }
@@ -586,11 +492,7 @@ function escapeReg(s: string) {
    OpenAI 呼び出し補助
 ========================= */
 async function safeText(r: Response) {
-  try {
-    return await r.text();
-  } catch {
-    return "";
-  }
+  try { return await r.text(); } catch { return ""; }
 }
 
 /* =========================
@@ -613,7 +515,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // STUBモード
     if ((process.env.DEBUG_TEMPLATE_API ?? "").toLowerCase() === "stub") {
       const n = normalizeInput(rawPrompt);
       const sys = buildSystemPrompt(systemOverride);
@@ -646,13 +547,11 @@ export async function POST(req: Request) {
       );
     }
 
-    // 入力正規化 & メッセージ構築
     const n = normalizeInput(rawPrompt);
     const system = buildSystemPrompt(systemOverride);
     const userMessage = makeUserMessage(n);
     const fewShot = buildFewShot(n.category);
 
-    // OpenAI Chat Completions
     const resp = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
