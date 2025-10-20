@@ -1,40 +1,52 @@
-# .github/workflows/smoke.yml
 name: smoke
 
 on:
   push:
-    branches: ["**"]
+    branches:
+      - feat/h6-final-faq-dedupe-fix
   pull_request:
-    branches: ["**"]
-
-permissions:
-  contents: read
+    branches:
+      - main
+      - feat/h6-final-faq-dedupe-fix
 
 jobs:
   just-run:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      PRISMA_GENERATE_SKIP_ENV_CHECK: '1'
+      # Prisma の get-config を満たすダミー。生成のみで接続はしない
+      DATABASE_URL: postgresql://user:pass@127.0.0.1:5432/db?schema=public
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 縺薙％縺ｧ縺ｯ cache: pnpm 繧剃ｻ倥￠縺ｪ縺・ｼ井ｻ倥￠繧九→ pnpm 縺・PATH 縺ｫ辟｡縺上※螟ｱ謨励☆繧具ｼ・
-      - name: Setup Node 20
+      - name: Setup Node.js 20 & Corepack
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: '20'
+          cache: 'pnpm'
+          check-latest: true
+      - run: corepack enable
 
-      # pnpm 繧呈・遉ｺ繧､繝ｳ繧ｹ繝医・繝ｫ・・0邉ｻ縺ｫ蝗ｺ螳夲ｼ・
-      - name: Setup pnpm (10.x)
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10.14.0
-          run_install: false
+      - name: Use pnpm 9.12.0
+        run: corepack prepare pnpm@9.12.0 --activate
 
-      - name: Versions
+      - name: Show versions
         run: |
           node -v
           pnpm -v
 
-      - name: Just echo
-        run: echo "smoke ok"
+      - name: Install deps
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Prisma generate (CI-safe)
+        run: pnpm exec prisma generate
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
