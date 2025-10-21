@@ -1,40 +1,53 @@
-# .github/workflows/smoke.yml
 name: smoke
 
 on:
   push:
-    branches: ["**"]
+    branches: [ feat/h6-final-faq-dedupe-fix ]
   pull_request:
-    branches: ["**"]
+    branches: [ main, feat/h6-final-faq-dedupe-fix ]
 
 permissions:
   contents: read
 
 jobs:
   just-run:
+    name: smoke / just-run
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      PRISMA_GENERATE_SKIP_ENV_CHECK: '1'
+      DATABASE_URL: file:./dev.db  # ← SQLite fallback に変更（ネオン接続不要）
 
     steps:
-      - name: Checkout
+      - name: 🧾 Checkout
         uses: actions/checkout@v4
 
-      # 縺薙％縺ｧ縺ｯ cache: pnpm 繧剃ｻ倥￠縺ｪ縺・ｼ井ｻ倥￠繧九→ pnpm 縺・PATH 縺ｫ辟｡縺上※螟ｱ謨励☆繧具ｼ・
-      - name: Setup Node 20
+      - name: ⚙️ Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      # pnpm 繧呈・遉ｺ繧､繝ｳ繧ｹ繝医・繝ｫ・・0邉ｻ縺ｫ蝗ｺ螳夲ｼ・
-      - name: Setup pnpm (10.x)
+      - name: 🪄 Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10.14.0
+          version: 9.12.0
           run_install: false
 
-      - name: Versions
-        run: |
-          node -v
-          pnpm -v
+      - name: 📦 Install dependencies
+        run: pnpm install --no-frozen-lockfile
+        env:
+          PNPM_FETCH_RETRIES: '4'
+          PNPM_FETCH_RETRY_FACTOR: '3'
 
-      - name: Just echo
-        run: echo "smoke ok"
+      - name: 🧬 Generate Prisma Client (offline safe)
+        run: |
+          set -eux
+          pnpm exec prisma generate --data-proxy
+          echo "✅ Prisma Client generated successfully"
+
+      - name: 🔍 Typecheck
+        run: pnpm typecheck
+
+      - name: 🏗️ Build
+        run: pnpm build

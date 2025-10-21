@@ -1,0 +1,37 @@
+name: diag
+
+on:
+  pull_request:
+  push:
+    branches: [ feat/h6-final-faq-dedupe-fix ]
+
+permissions:
+  contents: read
+
+jobs:
+  env:
+    name: diag / env
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          check-latest: true
+
+      - name: Setup pnpm@9.12.0 (with corepack)
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+          run_install: false
+
+      - name: Print versions & exit
+        run: |
+          set -eux
+          node -v
+          pnpm -v
+          which node
+          which pnpm
