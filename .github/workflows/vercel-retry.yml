@@ -1,0 +1,63 @@
+name: Vercel Retry & Notify
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Choose deployment target"
+        required: true
+        default: "production"
+        type: choice
+        options: ["production", "preview"]
+
+jobs:
+  retry:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Retry failed Vercel deployments
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          TARGET: ${{ github.event.inputs.target }}
+        run: |
+          echo "🔄 Checking for failed or incomplete deployments in project..."
+          BASE_URL="https://api.vercel.com/v6/deployments?projectId=${VERCEL_PROJECT_ID}"
+          if [ -n "$VERCEL_TEAM_ID" ]; then
+            BASE_URL="${BASE_URL}&teamId=${VERCEL_TEAM_ID}"
+          fi
+
+          curl -s -H "Authorization: Bearer ${VERCEL_TOKEN}" "${BASE_URL}" \
+            | jq -r '.deployments[] | select(.state!="READY" and .state!="CANCELED") | "\(.uid) \(.state)"' > result.txt
+
+          if [ ! -s result.txt ]; then
+            echo "✅ No failed/incomplete deployment found. Nothing to retry."
+            exit 0
+          fi
+
+          echo "⚠️ Found deployments to retry:"
+          cat result.txt
+
+          while read -r uid state; do
+            echo "Redeploying $uid ($state)"
+            curl -s -X POST -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+              "https://api.vercel.com/v13/deployments/${uid}/retry"
+            echo "⏳ Waiting for READY state..."
+            for i in {1..20}; do
+              sleep 15
+              STATUS=$(curl -s -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+                "https://api.vercel.com/v13/deployments/${uid}" | jq -r '.state')
+              echo "Attempt $i → state=${STATUS}"
+              [ "$STATUS" = "READY" ] && echo "✅ Redeploy successful" && break
+            done
+          done < result.txt
+
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            STATUS_MSG=$(cat result.txt)
+            curl -s -X POST -H 'Content-type: application/json' \
+              --data "{\"text\": \"Vercel retry executed on ${TARGET}:\n${STATUS_MSG}\"}" \
+              "$SLACK_WEBHOOK_URL"
+          fi
