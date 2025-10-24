@@ -18,10 +18,10 @@ const faqSeeds = [
 ========================= */
 type WriterRequest = {
   provider?: "openai" | string;
-  prompt?: string;        // 自由文 or JSON
+  prompt?: string; // 自由文 or JSON
   model?: string;
   temperature?: number;
-  system?: string;        // 上書き可
+  system?: string; // 上書き可
 };
 type WriterResponseOk = {
   ok: true;
@@ -103,7 +103,10 @@ function normalizeInput(raw: string | undefined): NormalizedInput {
     (lower.includes("楽天") ? "楽天" : lower.includes("amazon") ? "アマゾン" : null);
 
   const split = (s: string) =>
-    s.split(/[、,\u3001\/\|;；\s]+/).map((v) => v.trim()).filter(Boolean);
+    s
+      .split(/[、,\u3001\/\|;；\s]+/)
+      .map((v) => v.trim())
+      .filter(Boolean);
 
   const keywords = split(pick(/(?:キーワード|keywords?)[：:]\s*(.+)/i) || "");
   const constraints = split(pick(/(?:制約|constraints?)[：:]\s*(.+)/i) || "");
@@ -159,13 +162,23 @@ function coerceToShape(obj: any, raw: string): NormalizedInput {
    EC Lexicon & Templates（拡張）
 ========================= */
 type ECLexicon = {
-  cooccurrence: string[];     // 共起語（自然挿入）
-  numericTemplates: string[]; // カテゴリ別の数値・単位テンプレ
-  safetyPhrases: string[];    // 不安低減（返品・配送・支払い等）
+  cooccurrence: string[];
+  numericTemplates: string[];
+  safetyPhrases: string[];
 };
 const EC_LEXICON: Record<string, ECLexicon> = {
-  "家電": {
-    cooccurrence: ["連続再生","低遅延","ノイズキャンセリング","バッテリー","充電時間","防水","Bluetooth 5","USB-C","保証"],
+  家電: {
+    cooccurrence: [
+      "連続再生",
+      "低遅延",
+      "ノイズキャンセリング",
+      "バッテリー",
+      "充電時間",
+      "防水",
+      "Bluetooth 5",
+      "USB-C",
+      "保証",
+    ],
     numericTemplates: [
       "連続再生：最大10時間／ケース併用で約30時間",
       "充電時間：約90分（USB-C）",
@@ -178,8 +191,17 @@ const EC_LEXICON: Record<string, ECLexicon> = {
       "お支払いは各種クレジット・コンビニ払いに対応しています。",
     ],
   },
-  "コスメ": {
-    cooccurrence: ["SPF/PA","トーンアップ","白浮き","石けんオフ","敏感肌","無香料","紫外線吸収剤フリー","アルコールフリー"],
+  コスメ: {
+    cooccurrence: [
+      "SPF/PA",
+      "トーンアップ",
+      "白浮き",
+      "石けんオフ",
+      "敏感肌",
+      "無香料",
+      "紫外線吸収剤フリー",
+      "アルコールフリー",
+    ],
     numericTemplates: [
       "UVカット：SPF50+・PA++++",
       "使用量目安：パール粒2個分（約0.8g）",
@@ -191,8 +213,8 @@ const EC_LEXICON: Record<string, ECLexicon> = {
       "香料・着色料フリー（詳細は成分表をご確認ください）。",
     ],
   },
-  "食品": {
-    cooccurrence: ["個包装","鮮度","焙煎","抽出量","保存方法","賞味期限","原材料"],
+  食品: {
+    cooccurrence: ["個包装", "鮮度", "焙煎", "抽出量", "保存方法", "賞味期限", "原材料"],
     numericTemplates: [
       "1杯あたり粉量：10–12g／お湯150–180mLが目安",
       "鮮度管理：焙煎後24時間以内に充填",
@@ -204,8 +226,16 @@ const EC_LEXICON: Record<string, ECLexicon> = {
       "定期便はいつでもスキップ可能です。",
     ],
   },
-  "アパレル": {
-    cooccurrence: ["サイズ感","生地厚","伸縮性","洗濯方法","透け感","シルエット","着丈"],
+  アパレル: {
+    cooccurrence: [
+      "サイズ感",
+      "生地厚",
+      "伸縮性",
+      "洗濯方法",
+      "透け感",
+      "シルエット",
+      "着丈",
+    ],
     numericTemplates: [
       "サイズ目安：着丈68cm／身幅52cm（M）※個体差±1–2cm",
       "生地：綿100%／生地厚：5.6oz",
@@ -217,8 +247,8 @@ const EC_LEXICON: Record<string, ECLexicon> = {
       "サイズ交換の送料は初回1回まで当店負担です。",
     ],
   },
-  "汎用": {
-    cooccurrence: ["レビュー","比較","相性","使い方","保証","サポート","返品"],
+  汎用: {
+    cooccurrence: ["レビュー", "比較", "相性", "使い方", "保証", "サポート", "返品"],
     numericTemplates: [
       "参考：30日返品保証／平日12時までの注文は当日出荷",
       "目安：本体約120g・長さ約150mm",
@@ -231,10 +261,14 @@ const EC_LEXICON: Record<string, ECLexicon> = {
   },
 };
 function pickLexicon(category: string): ECLexicon {
-  if (/家電|electronic|電動|イヤホン|ヘッドホン|掃除機|冷蔵庫/i.test(category)) return EC_LEXICON["家電"];
-  if (/コスメ|化粧|美容|スキンケア|cosme|beauty/i.test(category)) return EC_LEXICON["コスメ"];
-  if (/食品|フード|グルメ|food|gourmet|菓子|コーヒー|茶/i.test(category)) return EC_LEXICON["食品"];
-  if (/アパレル|衣料|ファッション|服|ウェア/i.test(category)) return EC_LEXICON["アパレル"];
+  if (/家電|electronic|電動|イヤホン|ヘッドホン|掃除機|冷蔵庫/i.test(category))
+    return EC_LEXICON["家電"];
+  if (/コスメ|化粧|美容|スキンケア|cosme|beauty/i.test(category))
+    return EC_LEXICON["コスメ"];
+  if (/食品|フード|グルメ|food|gourmet|菓子|コーヒー|茶/i.test(category))
+    return EC_LEXICON["食品"];
+  if (/アパレル|衣料|ファッション|服|ウェア/i.test(category))
+    return EC_LEXICON["アパレル"];
   return EC_LEXICON["汎用"];
 }
 
@@ -262,29 +296,55 @@ function buildSystemPrompt(overrides?: string): string {
 /* =========================
    Few-shot（WRITER_FEWSHOT=1/true時）
 ========================= */
-function buildFewShot(category: string): { role: "user" | "assistant"; content: string }[] {
+function buildFewShot(
+  category: string
+): { role: "user" | "assistant"; content: string }[] {
   if (!/^(1|true)$/i.test(String(process.env.WRITER_FEWSHOT ?? ""))) return [];
   const shots: { role: "user" | "assistant"; content: string }[] = [];
 
   // 家電
   if (/(家電|electronic|電動|掃除機|冷蔵庫|イヤホン|ヘッドホン)/i.test(category ?? "")) {
     shots.push(
-      { role: "user", content: "【カテゴリ:家電】product_name: ノイズキャンセリング完全ワイヤレスイヤホン / goal: 購入誘導 / audience: 通勤・リモートワーク / keywords: 連続再生, 低遅延, 高音質" },
-      { role: "assistant", content: "## 空間を自分の集中モードに\n通勤やオンライン会議に適したノイズキャンセリング。\n\n- 連続再生最大10時間／ケース併用で30時 間\n- 低遅延（参考: 80–120ms程度）\n- IPX4相当の生活防水\n\n## FAQ\nQ. iPhone/Android両対応？\nA. はい、Bluetooth 5.3に対応します。\n\n一次CTA：今すぐ購入—30日返品可\n代替CTA：詳細を見る—レビューで比較" }
+      {
+        role: "user",
+        content:
+          "【カテゴリ:家電】product_name: ノイズキャンセリング完全ワイヤレスイヤホン / goal: 購入誘導 / audience: 通勤・リモートワーク / keywords: 連続再生, 低遅延, 高音質",
+      },
+      {
+        role: "assistant",
+        content:
+          "## 空間を自分の集中モードに\n通勤やオンライン会議に適したノイズキャンセリング。\n\n- 連続再生最大10時間／ケース併用で30時間\n- 低遅延（参考: 80–120ms程度）\n- IPX4相当の生活防水\n\n## FAQ\nQ. iPhone/Android両対応？\nA. はい、Bluetooth 5.3に対応します。\n\n一次CTA：今すぐ購入—30日返品可\n代替CTA：詳細を見る—レビューで比較",
+      }
     );
   }
   // コスメ
-  if ((/(コスメ|化粧|美容|スキンケア|beauty|cosme)/i).test(category ?? "")) {
+  if (/(コスメ|化粧|美容|スキンケア|beauty|cosme)/i.test(category ?? "")) {
     shots.push(
-      { role: "user", content: "【カテゴリ:コスメ】product_name: 低刺激UVミルク / goal: 購入誘導 / audience: 素肌思い / keywords: 日焼け止め, 乳液, トーンアップ" },
-      { role: "assistant", content: "## やさしく守る、毎日のUVケア\n白浮きしにくい乳液テクスチャ。石けんオフ対応。\n\n- SPF50+・PA++++\n- 1回の使用量目安：パール粒2個分（約0.8g）\n- 紫外線吸収剤フリー\n\n## FAQ\nQ. 敏感肌でも使えますか？\nA. パッチテスト済みですが、すべての方に刺激がないわけではありません。\nQ. 石け んで落とせますか？\nA. はい、単体使用時は洗顔料で落とせます。\n\n一次CTA：今すぐ購入—初回送料無料\n代替CTA：詳細を見る—成分表を確認" }
+      {
+        role: "user",
+        content:
+          "【カテゴリ:コスメ】product_name: 低刺激UVミルク / goal: 購入誘導 / audience: 素肌思い / keywords: 日焼け止め, 乳液, トーンアップ",
+      },
+      {
+        role: "assistant",
+        content:
+          "## やさしく守る、毎日のUVケア\n白浮きしにくい乳液テクスチャ。石けんオフ対応。\n\n- SPF50+・PA++++\n- 1回の使用量目安：パール粒2個分（約0.8g）\n- 紫外線吸収剤フリー\n\n## FAQ\nQ. 敏感肌でも使えますか？\nA. パッチテスト済ですが、すべての方に刺激がないとは限りません。心配な場合は腕内側で試してください。\nQ. 石けんで落ちますか？\nA. はい、単体使用時は洗顔料で落とせます。重ね使い時はクレンジングをおすすめします。\n\n一次CTA：今すぐ購入—初回送料無料\n代替CTA：詳細を見る—成分表を確認",
+      }
     );
   }
   // 食品
   if (/(食品|フード|グルメ|スイーツ|food|gourmet|菓子|コーヒー|茶)/i.test(category ?? "")) {
     shots.push(
-      { role: "user", content: "【カテゴリ:食品】product_name: プレミアムドリップコーヒー 10袋 / goal: 購入誘導 / audience: 在宅ワーク / keywords: 香り, 深煎り, 手軽" },
-      { role: "assistant", content: "## 仕事の合間に、淹れたてのご褒美\n1杯ずつ個包装のドリップタイプ。\n\n- 1杯あたり10–12gの粉量でしっかりコク\n- 焙煎後24時 間以内に充填（鮮度管理）\n- お湯150–180mlが目安\n\n## FAQ\nQ. ミルクとの相性は？\nA. 深煎りのためラテでも香りが活きます。\nQ. 賞味期限は？\nA. 未開封で製造から約12か月が目安です。\n\n一次CTA：今すぐ購入—定期便はスキップ可\n代替CTA：詳細を見る—レビューで比較" }
+      {
+        role: "user",
+        content:
+          "【カテゴリ:食品】product_name: プレミアムドリップコーヒー 10袋 / goal: 購入誘導 / audience: 在宅ワーク / keywords: 香り, 深煎り, 手軽",
+      },
+      {
+        role: "assistant",
+        content:
+          "## 仕事の合間に、淹れたてのご褒美\n1杯ずつ個包装のドリップタイプ。\n\n- 1杯あたり10–12gの粉量でしっかりコク\n- 焙煎後24時間以内に充填（鮮度管理）\n- お湯150–180mlが目安\n\n## FAQ\nQ. ミルクとの相性は？\nA. 深煎りのためラテでも香りが活きます。\nQ. 賞味期限は？\nA. 未開封で製造から約12か月が目安です。\n\n一次CTA：今すぐ購入—定期便はスキップ可\n代替CTA：詳細を見る—レビューで比較",
+      }
     );
   }
   return shots;
@@ -306,14 +366,22 @@ function makeUserMessage(n: NormalizedInput): string {
     n.tone ? `tone: ${n.tone}` : null,
     n.style ? `style: ${n.style}` : null,
     n.length_hint ? `length_hint: ${n.length_hint}` : null,
-    n.selling_points.length ? `selling_points: ${n.selling_points.join(" / ")}` : null,
-    n.objections.length ? `objections: ${n.objections.join(" / ")}` : null,
+    n.selling_points.length
+      ? `selling_points: ${n.selling_points.join(" / ")}`
+      : null,
+    n.objections.length
+      ? `objections: ${n.objections.join(" / ")}`
+      : null,
     n.evidence.length ? `evidence: ${n.evidence.join(" / ")}` : null,
-    n.cta_preference.length ? `cta_preference: ${n.cta_preference.join(" / ")}` : null,
-  ].filter(Boolean).join("\n");
+    n.cta_preference.length
+      ? `cta_preference: ${n.cta_preference.join(" / ")}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   const guide =
-    "上記の条件に基づいて、日本語で媒体最適化した本文を作成してください。必要に応じて見出し(H2まで)と箇条書きを用い、FAQは2〜3問をQ/A形式で、最後に一次CTAと代 替CTAを示してください。感嘆符は使わず、数値・単位を最低2つ含めてください。";
+    "上記の条件に基づいて、日本語で媒体最適化した本文を作成してください。必要に応じて見出し(H2まで)と箇条書きを用い、FAQは2〜3問をQ/A形式で、最後に一次CTAと代替CTAを示してください。感嘆符は使わず、数値・単位を最低2つ含めてください。";
 
   return `# 入力\n${kv}\n\n# 指示\n${guide}`;
 }
@@ -321,10 +389,14 @@ function makeUserMessage(n: NormalizedInput): string {
 /* =========================
    Meta 推定
 ========================= */
-function extractMeta(text: string): { style: string; tone: string; locale: string } {
+function extractMeta(
+  text: string
+): { style: string; tone: string; locale: string } {
   const t = (text || "").trim();
   const lines = t.split(/\r?\n/);
-  const bulletCount = lines.filter((l) => /^[\-\*\u30fb・]/.test(l.trim())).length;
+  const bulletCount = lines.filter((l) =>
+    /^[\-\*\u30fb・]/.test(l.trim())
+  ).length;
   const h2Count = lines.filter((l) => /^##\s/.test(l.trim())).length;
   const charCount = t.length;
 
@@ -335,38 +407,70 @@ function extractMeta(text: string): { style: string; tone: string; locale: strin
 }
 
 /* =========================
-   FAQ ユーティリティ（カテゴリ別シード＋同義正規化）
+   FAQユーティリティ（カテゴリ別シード＋同義正規化）
 ========================= */
 type QA = { q: string; a: string; idx: number };
 function categoryFaqSeeds(cat: string): QA[] {
   const C = cat || "";
-  const mk = (q: string, a: string): QA => ({ q, a, idx: Number.MAX_SAFE_INTEGER });
+  const mk = (q: string, a: string): QA => ({
+    q,
+    a,
+    idx: Number.MAX_SAFE_INTEGER,
+  });
   if (/家電|electronic|電動|イヤホン|ヘッドホン|掃除機|冷蔵庫/i.test(C)) {
     return [
-      mk("保証期間はどのくらいですか？", "メーカー保証は1年間です（消耗品を除く）。延長保証も選べます。"),
-      mk("対応機種や互換性は？", "Bluetooth 5.3対応。詳細な対応コーデックは商品仕様をご確認ください。"),
+      mk(
+        "保証期間はどのくらいですか？",
+        "メーカー保証は1年間です（消耗品を除く）。延長保証も選べます。"
+      ),
+      mk(
+        "対応機種や互換性は？",
+        "Bluetooth 5.3対応。詳細な対応コーデックは商品仕様をご確認ください。"
+      ),
     ];
   }
   if (/コスメ|化粧|美容|スキンケア|cosme|beauty/i.test(C)) {
     return [
-      mk("敏感肌でも使えますか？", "パッチテスト済ですが、全ての方に刺激がないとは限りません。心配な場合は腕内側で試してください。"),
-      mk("石けんで落ちますか？", "単体使用時は洗顔料で落とせます。重ね使い時はクレンジングをおすすめします。"),
+      mk(
+        "敏感肌でも使えますか？",
+        "パッチテスト済ですが、全ての方に刺激がないとは限りません。心配な場合は腕内側で試してください。"
+      ),
+      mk(
+        "石けんで落ちますか？",
+        "単体使用時は洗顔料で落とせます。重ね使い時はクレンジングをおすすめします。"
+      ),
     ];
   }
   if (/食品|フード|グルメ|food|gourmet|菓子|コーヒー|茶/i.test(C)) {
     return [
-      mk("賞味期限はどのくらいですか？", "未開封で製造から約12か月（常温）。開封後はお早めにお召し上がりください。"),
-      mk("アレルギー表示は？", "主要7品目を含むアレルギー情報を商品ページに明記しています。"),
+      mk(
+        "賞味期限はどのくらいですか？",
+        "未開封で製造から約12か月（常温）。開封後はお早めにお召し上がりください。"
+      ),
+      mk(
+        "アレルギー表示は？",
+        "主要7品目を含むアレルギー情報を商品ページに明記しています。"
+      ),
     ];
   }
   if (/アパレル|衣料|ファッション|服|ウェア/i.test(C)) {
     return [
-      mk("サイズ交換は可能ですか？", "未使用・タグ付きで到着後30日以内は交換を承ります（初回送料は当店負担）。"),
-      mk("洗濯方法は？", "ネット使用・中性洗剤・陰干し推奨です。乾燥機は縮みの原因となるため避けてください。"),
+      mk(
+        "サイズ交換は可能ですか？",
+        "未使用・タグ付きで到着後30日以内は交換を承ります（初回送料は当店負担）。"
+      ),
+      mk(
+        "洗濯方法は？",
+        "ネット使用・中性洗剤・陰干し推奨です。乾燥機は縮みの原因となるため避けてください。"
+      ),
     ];
   }
   // 汎用
-  return faqSeeds.map((s) => ({ q: s.q, a: s.a, idx: Number.MAX_SAFE_INTEGER }));
+  return faqSeeds.map((s) => ({
+    q: s.q,
+    a: s.a,
+    idx: Number.MAX_SAFE_INTEGER,
+  }));
 }
 
 /** 表記ゆれ＋同義をひとつの“意味キー”へ正規化（満点仕様） */
@@ -398,7 +502,9 @@ function normalizeQ(s: string): string {
 }
 
 /* =========================
-   Post Process（正規化＋EC拡張・FAQ重複排除・最終版）
+   Post Process（H-7-⑤最終仕様）
+   - FAQ一元化（常に1ブロック）
+   - CTAに「行動後の具体的な変化」を必ず含める
 ========================= */
 function postProcess(raw: string, n: NormalizedInput): string {
   let out = (raw ?? "").toString().trim();
@@ -413,14 +519,19 @@ function postProcess(raw: string, n: NormalizedInput): string {
   out = out.replace(/^#{3,}\s?/gm, "## ");
 
   // 3) 既存 CTA/FAQ ブロックを除去（書式揺れ吸収）
+  //    - 旧FAQ/CTAを消してから改めて差し込む
   out = out.replace(/\n\*\*CTA\*\*[\s\S]*?(?=\n##\s|$)/gi, "\n");
   out = out.replace(/\n\*\*FAQ\*\*[\s\S]*?(?=\n##\s|$)/gi, "\n");
   out = out.replace(/\n##\s*FAQ[\s\S]*?(?=\n##\s|$)/gi, "\n"); // 既存の H2 FAQ も除去
+  out = out.replace(/^\s*一次CTA[：:]\s?.+$/gim, "");
+  out = out.replace(/^\s*代替CTA[：:]\s?.+$/gim, "");
 
   /* ---- 生成文中の Q/A を抽出 ---- */
   const lines = out.split(/\r?\n/);
-  const qRe = /^(?:Q(?:\s*|\.)|Q\s*\d+[\.\)：:）]|Q\d+[\.\)：:）]|Q[：:．．\)]|Q[0-9]*[：:.\)])\s*(.+)$/i;
-  const aRe = /^(?:A(?:\s*|\.)|A\s*\d+[\.\)：:）]|A\d+[\.\)：:）]|A[：:．．\)]|A[0-9]*[：:.\)])\s*(.+)$/i;
+  const qRe =
+    /^(?:Q(?:\s*|\.)|Q\s*\d+[\.\)：:）]|Q\d+[\.\)：:）]|Q[：:．．\)]|Q[0-9]*[：:.\)])\s*(.+)$/i;
+  const aRe =
+    /^(?:A(?:\s*|\.)|A\s*\d+[\.\)：:）]|A\d+[\.\)：:）]|A[：:．．\)]|A[0-9]*[：:.\)])\s*(.+)$/i;
 
   const pairs: QA[] = [];
   let pendingQ: { text: string; idx: number } | null = null;
@@ -428,7 +539,10 @@ function postProcess(raw: string, n: NormalizedInput): string {
   for (let i = 0; i < lines.length; i++) {
     const L = lines[i].trim();
     const qm = qRe.exec(L);
-    if (qm) { pendingQ = { text: qm[1].trim(), idx: i }; continue; }
+    if (qm) {
+      pendingQ = { text: qm[1].trim(), idx: i };
+      continue;
+    }
     const am = aRe.exec(L);
     if (am && pendingQ) {
       const ans = am[1].trim();
@@ -451,12 +565,20 @@ function postProcess(raw: string, n: NormalizedInput): string {
   }
 
   // 優先度：返品/返金/保証 → 対応/互換/相性 → 配送/納期/到着 → その他
-  const priority = [/(返品|返金|交換|保証)/, /(対応|互換|相性)/, /(配送|送料|納期|到着)/];
+  const priority = [
+    /(返品|返金|交換|保証)/,
+    /(対応|互換|相性)/,
+    /(配送|送料|納期|到着)/,
+  ];
   let list = Array.from(dedupMap.values());
   list.sort((a, b) => {
     const pa = priority.findIndex((re) => re.test(a.q));
     const pb = priority.findIndex((re) => re.test(b.q));
-    return (pa === -1 ? 99 : pa) - (pb === -1 ? 99 : pb) || a.idx - b.idx;
+    return (
+      (pa === -1 ? 99 : pa) -
+        (pb === -1 ? 99 : pb) ||
+      a.idx - b.idx
+    );
   });
 
   // ちょうど3問に整形（不足は汎用シードで埋める）
@@ -465,7 +587,11 @@ function postProcess(raw: string, n: NormalizedInput): string {
     for (const s of faqSeeds) {
       const key = normalizeQ(s.q);
       if (!list.some((x) => normalizeQ(x.q) === key)) {
-        list.push({ q: s.q, a: s.a, idx: Number.MAX_SAFE_INTEGER });
+        list.push({
+          q: s.q,
+          a: s.a,
+          idx: Number.MAX_SAFE_INTEGER,
+        });
         if (list.length >= 3) break;
       }
     }
@@ -473,29 +599,50 @@ function postProcess(raw: string, n: NormalizedInput): string {
   }
 
   // FAQ ブロック（H2）
-  const faqMd = `${faqBlock}${list
-    .map((p) => {
-      const q = p.q.replace(/^[QＱ]\d*[：:.\)\]〉＞＞】】」」\s]*/i, "").trim();
-      const a = p.a.replace(/^[AＡ]\d*[：:.\)\]\s]*/i, "").trim();
-      return `Q. ${q}\nA. ${a}`;
-    })
-    .join("\n\n")}`;
+  const faqMd =
+    `${faqBlock}` +
+    list
+      .map((p) => {
+        const q = p.q
+          .replace(/^[QＱ]\d*[：:.\)\]〉＞＞】】」」\s]*/i, "")
+          .trim();
+        const a = p.a
+          .replace(/^[AＡ]\d*[：:.\)\]\s]*/i, "")
+          .trim();
+        return `Q. ${q}\nA. ${a}`;
+      })
+      .join("\n\n");
 
   /* ---- EC数値保証（本文ベース） ---- */
-  const numericHits = out.match(/(?:\d+(?:\.\d+)?\s?(?:g|kg|mm|cm|m|mAh|ms|時間|分|枚|袋|ml|mL|L|W|Hz|年|か月|ヶ月|日|回|%|％))/g) || [];
+  const numericHits =
+    out.match(
+      /(?:\d+(?:\.\d+)?\s?(?:g|kg|mm|cm|m|mAh|ms|時間|分|枚|袋|ml|mL|L|W|Hz|年|か月|ヶ月|日|回|%|％))/g
+    ) || [];
   const lex = pickLexicon(n.category);
   if (numericHits.length < 2) {
-    const addLine = `*${lex.numericTemplates.slice(0, 2 - numericHits.length).join("／")}*`;
+    const addLine = `*${lex.numericTemplates
+      .slice(0, 2 - numericHits.length)
+      .join("／")}*`;
     out += `\n\n${addLine}`;
   }
 
   /* ---- 共起語 濃度上限 & 表示モード ---- */
-  const COOC_MAX = Math.max(0, Math.min(5, Number(process.env.WRITER_COOC_MAX ?? 3)));
-  const footnoteMode = String(process.env.WRITER_FOOTNOTE_MODE ?? "compact").toLowerCase();
+  const COOC_MAX = Math.max(
+    0,
+    Math.min(5, Number(process.env.WRITER_COOC_MAX ?? 3))
+  );
+  const footnoteMode = String(
+    process.env.WRITER_FOOTNOTE_MODE ?? "compact"
+  ).toLowerCase();
   const escapeReg = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-  const needTerms = lex.cooccurrence.filter((kw) => !new RegExp(escapeReg(kw)).test(out));
-  const picked = needTerms.slice(0, Math.min(COOC_MAX, needTerms.length));
+  const needTerms = lex.cooccurrence.filter(
+    (kw) => !new RegExp(escapeReg(kw)).test(out)
+  );
+  const picked = needTerms.slice(
+    0,
+    Math.min(COOC_MAX, needTerms.length)
+  );
   const safety1 = lex.safetyPhrases[0] ?? "";
 
   if (picked.length > 0 || safety1) {
@@ -504,7 +651,9 @@ function postProcess(raw: string, n: NormalizedInput): string {
     } else if (footnoteMode === "inline") {
       (globalThis as any).__WRITER_INLINE_SAFETY__ = safety1;
     } else {
-      const topic = picked.length ? `関連:${picked.join("・")}` : "";
+      const topic = picked.length
+        ? `関連:${picked.join("・")}`
+        : "";
       const peace = safety1 ? `安心:${safety1}` : "";
       const glue = topic && peace ? "／" : "";
       const line = `*${topic}${glue}${peace}*`;
@@ -512,42 +661,63 @@ function postProcess(raw: string, n: NormalizedInput): string {
     }
   }
 
-  /* ---- FAQ の挿入位置：CTA直前 or 末尾 ---- */
-  const hasFinalCTA = /^一次CTA[：:]\s?.+/m.test(out) && /^代替CTA[：:]\s?.+/m.test(out);
-  if (hasFinalCTA) {
-    out = out.replace(/(\n)(一次CTA[：:].+?\n代替CTA[：:].+?$)/ms, `\n${faqMd}\n\n$2`);
-  } else {
-    out = out.replace(/\s+$/, "") + `\n\n${faqMd}\n`;
-  }
+  // CTA 生成用フレーズ（H-7-⑤: 行動後の未来価値を必ず明示）
+  // primaryFuture: 「まず試せます（30日以内は返品可）」= 買ってもリスク低い未来
+  // secondaryFuture: 「実際の使用感を確認できます（レビューで比較）」= 迷ってる人でも前進できる未来
+  const pref =
+    n.cta_preference && n.cta_preference.length > 0
+      ? n.cta_preference
+      : ["今すぐ購入", "カートに追加", "詳細を見る"];
+  const primaryAction = pref[0] || "今すぐ購入";
+  const secondaryAction = pref[1] || pref[2] || "詳細を見る";
 
-  /* ---- 末尾CTAの統一（必ず2行：一次/代替）＋ inline 安心織り込み ---- */
-  const hasFinalCTA2 = /^一次CTA[：:]\s?.+/m.test(out) && /^代替CTA[：:]\s?.+/m.test(out);
-  if (!hasFinalCTA2) {
-    const pref = (n.cta_preference && n.cta_preference.length > 0) ? n.cta_preference : ["今すぐ購入", "カートに追加", "詳細を見る"];
-    const primary = pref[0] || "今すぐ購入";
-    const secondary = pref[1] || pref[2] || "詳細を見る";
-    let primaryLine = `一次CTA：${primary}—30日返品可`;
-    if (footnoteMode === "inline" && (globalThis as any).__WRITER_INLINE_SAFETY__) {
-      primaryLine = `一次CTA：${primary}—${(globalThis as any).__WRITER_INLINE_SAFETY__}`;
+  let primaryFuture =
+    "まず試せます（30日以内は返品可）";
+  if (
+    footnoteMode === "inline" &&
+    (globalThis as any).__WRITER_INLINE_SAFETY__
+  ) {
+    // inlineモードでは、購入後の安心材料を差し替え
+    primaryFuture = `まず試せます（${
+      (globalThis as any).__WRITER_INLINE_SAFETY__
+    }）`;
+  }
+  const secondaryFuture =
+    "実際の使用感を確認できます（レビューで比較）";
+
+  const primaryLine = `一次CTA：${primaryAction}—${primaryFuture}`;
+  const secondaryLine = `代替CTA：${secondaryAction}—${secondaryFuture}`;
+
+  // FAQ の挿入位置：CTA直前 or 末尾
+  // まだCTAは差していないので、ここでFAQ→CTAの順番で必ず一箇所だけ差し込む
+  out = out.replace(/\s+$/, "");
+  out = `${out}\n\n${faqMd}\n\n${primaryLine}\n${secondaryLine}`;
+
+  // FAQ一元化の最終ガード：
+  // 万一「## FAQ」が複数混入した場合は、先頭1ブロックだけ残し後続FAQを除去
+  {
+    const faqMatches = [...out.matchAll(/^## FAQ[\s\S]*?(?=(?:\n## |\n一次CTA|$))/gm)];
+    if (faqMatches.length > 1) {
+      // keep first block text
+      const firstFaqText = faqMatches[0][0];
+      // remove all FAQ blocks
+      out = out.replace(/^## FAQ[\s\S]*?(?=(?:\n## |\n一次CTA|$))/gm, "");
+      // insert first block once before CTA again
+      out = out.replace(
+        /\n一次CTA[：:]/m,
+        `\n${firstFaqText}\n\n一次CTA：`
+      );
     }
-    const secondaryLine = `代替CTA：${secondary}—レビューで比較`;
-    out = out.replace(/\s+$/, "") + `\n\n${primaryLine}\n${secondaryLine}`;
-  } else {
-    out = out.replace(/^(一次CTA：)(.+)$/gm, (_m, g1, g2) => {
-      const hasDash = /—/.test(g2);
-      const inline = (footnoteMode === "inline" && (globalThis as any).__WRITER_INLINE_SAFETY__) ? (globalThis as any).__WRITER_INLINE_SAFETY__ : "30日返品可";
-      return `${g1}${hasDash ? g2 : `${g2}—${inline}`}`;
-    });
-    out = out.replace(/^(代替CTA：)(.+)$/gm, (_m, g1, g2) =>
-      /—/.test(g2) ? `${g1}${g2}` : `${g1}${g2}—レビューで比較`
-    );
   }
 
-  // 9) 長さ制限（安全）
+  // 長さ制限（安全）
   const MAX = 5000;
   if (out.length > MAX) {
     const slice = out.slice(0, MAX);
-    const last = Math.max(slice.lastIndexOf("。"), slice.lastIndexOf("\n"));
+    const last = Math.max(
+      slice.lastIndexOf("。"),
+      slice.lastIndexOf("\n")
+    );
     out = slice.slice(0, Math.max(0, last)) + "…";
   }
 
@@ -568,10 +738,15 @@ type WriterMetrics = {
 function analyzeText(text: string): WriterMetrics {
   const t = (text || "").trim();
   const lines = t.split(/\r?\n/);
-  const bulletCount = lines.filter((l) => /^[\-\*\u30fb・]/.test(l.trim())).length;
+  const bulletCount = lines.filter((l) =>
+    /^[\-\*\u30fb・]/.test(l.trim())
+  ).length;
   const h2Count = lines.filter((l) => /^##\s/.test(l.trim())).length;
-  const faqCount = (t.match(new RegExp("^" + faqBlock.replace(/\n$/, ""), "m")) || []).length;
-  const hasFinalCTA = /^一次CTA[：:]\s?.+/m.test(t) && /^代替CTA[：:]\s?.+/m.test(t);
+  const faqCount =
+    t.match(new RegExp("^" + faqBlock.replace(/\n$/, ""), "m"))?.length ??
+    0;
+  const hasFinalCTA =
+    /^一次CTA[：:]\s?.+/m.test(t) && /^代替CTA[：:]\s?.+/m.test(t);
   return {
     charCount: t.length,
     lineCount: lines.length,
@@ -581,28 +756,108 @@ function analyzeText(text: string): WriterMetrics {
     hasFinalCTA,
   };
 }
-const WRITER_LOG_ENABLED = String(process.env.WRITER_LOG ?? "1") !== "0";
+const WRITER_LOG_ENABLED =
+  String(process.env.WRITER_LOG ?? "1") !== "0";
 function sha256Hex(s: string): string {
   return createHash("sha256").update(s || "").digest("hex");
 }
+
+/**
+ * 観測ログ関数:
+ * - WRITER_LOG_ENABLED が "0" でなければ console.log
+ * - Better Stack用 emitWriterEvent() とは別
+ */
 function logEvent(kind: "ok" | "error", payload: any) {
   if (!WRITER_LOG_ENABLED) return;
-  // 一行JSON（grep容易） / 秘匿: 本文は保存せずハッシュのみ
   const wrapped = {
     ts: new Date().toISOString(),
     route: "/api/writer",
     kind,
     ...payload,
   };
-  // 先頭に固有タグを付与（ログ検索用）
   console.log("WRITER_EVENT " + JSON.stringify(wrapped));
+}
+
+/**
+ * 強制ログ (本番Vercel Logsで必ず1行出すための保険)
+ * - 環境変数に関係なく出す
+ * - 「No logs found for this request」を潰す最終保証ライン
+ */
+function forceConsoleEvent(
+  kind: "ok" | "error",
+  payload: any
+) {
+  try {
+    const wrapped = {
+      ts: new Date().toISOString(),
+      route: "/api/writer",
+      kind,
+      ...payload,
+    };
+    console.log("WRITER_EVENT " + JSON.stringify(wrapped));
+  } catch {
+    // 握りつぶす
+  }
+}
+
+/* =========================
+   🔵 Better Stack Direct Ingest
+========================= */
+/**
+ * WRITER_LOG_MODE=direct のときだけ Better Stack(HTTP Source) へPOSTする。
+ * LOGTAIL_SOURCE_TOKEN: Better Stack側のSource token
+ * LOGTAIL_ENDPOINT: 例 https://in.logtail.com
+ */
+const WRITER_LOG_MODE = String(
+  process.env.WRITER_LOG_MODE ?? ""
+).toLowerCase();
+const LOGTAIL_ENDPOINT =
+  process.env.LOGTAIL_ENDPOINT ?? "https://in.logtail.com";
+
+async function emitWriterEvent(
+  kind: "ok" | "error",
+  payload: any
+) {
+  try {
+    if (!WRITER_LOG_ENABLED) return;
+    if (WRITER_LOG_MODE !== "direct") return;
+    const token = process.env.LOGTAIL_SOURCE_TOKEN;
+    if (!token) return;
+
+    const body = {
+      event: "WRITER_EVENT",
+      route: "/api/writer",
+      kind,
+      payload,
+      ts: new Date().toISOString(),
+      env: process.env.VERCEL_ENV ?? "local",
+    };
+
+    await fetch(LOGTAIL_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (e: any) {
+    console.warn(
+      "emitWriterEvent failed:",
+      e?.message ?? "unknown"
+    );
+  }
 }
 
 /* =========================
    OpenAI 呼び出し補助
 ========================= */
 async function safeText(r: Response) {
-  try { return await r.text(); } catch { return ""; }
+  try {
+    return await r.text();
+  } catch {
+    return "";
+  }
 }
 
 /* =========================
@@ -616,25 +871,70 @@ export async function POST(req: Request) {
     const provider = (body?.provider ?? "openai").toLowerCase();
     const rawPrompt = (body?.prompt ?? "").toString();
     const model = (body?.model ?? "gpt-4o-mini").toString();
-    const temperature = typeof body?.temperature === "number" ? body!.temperature : 0.7;
+    const temperature =
+      typeof body?.temperature === "number"
+        ? body!.temperature
+        : 0.7;
     const systemOverride = (body?.system ?? "").toString();
 
     if (!rawPrompt || rawPrompt.trim().length === 0) {
-      const err = { ok: false, error: "prompt is required" } as const;
-      logEvent("error", { ok: false, reason: "bad_request", provider, model, meta: null });
-      return NextResponse.json<WriterResponseErr>(err, { status: 400 });
+      const err = {
+        ok: false,
+        error: "prompt is required",
+      } as const;
+      const payload = {
+        ok: false,
+        reason: "bad_request",
+        provider,
+        model,
+        meta: null,
+      };
+      logEvent("error", payload);
+      forceConsoleEvent("error", payload);
+      await emitWriterEvent("error", payload);
+      return NextResponse.json<WriterResponseErr>(err, {
+        status: 400,
+      });
     }
     if (provider !== "openai") {
-      const err = { ok: false, error: `unsupported provider: ${provider}` } as const;
-      logEvent("error", { ok: false, reason: "unsupported_provider", provider, model, meta: null });
-      return NextResponse.json<WriterResponseErr>(err, { status: 400 });
+      const err = {
+        ok: false,
+        error: `unsupported provider: ${provider}`,
+      } as const;
+      const payload = {
+        ok: false,
+        reason: "unsupported_provider",
+        provider,
+        model,
+        meta: null,
+      };
+      logEvent("error", payload);
+      forceConsoleEvent("error", payload);
+      await emitWriterEvent("error", payload);
+      return NextResponse.json<WriterResponseErr>(err, {
+        status: 400,
+      });
     }
 
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      const err = { ok: false, error: "OPENAI_API_KEY is not set" } as const;
-      logEvent("error", { ok: false, reason: "missing_api_key", provider, model, meta: null });
-      return NextResponse.json<WriterResponseErr>(err, { status: 500 });
+      const err = {
+        ok: false,
+        error: "OPENAI_API_KEY is not set",
+      } as const;
+      const payload = {
+        ok: false,
+        reason: "missing_api_key",
+        provider,
+        model,
+        meta: null,
+      };
+      logEvent("error", payload);
+      forceConsoleEvent("error", payload);
+      await emitWriterEvent("error", payload);
+      return NextResponse.json<WriterResponseErr>(err, {
+        status: 500,
+      });
     }
 
     // 入力正規化 & メッセージ構築
@@ -644,37 +944,73 @@ export async function POST(req: Request) {
     const fewShot = buildFewShot(n.category);
 
     const t1 = Date.now();
-    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model,
-        temperature,
-        messages: [{ role: "system", content: system }, ...fewShot, { role: "user", content: userMessage }],
-      }),
-    });
+    const resp = await fetch(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          temperature,
+          messages: [
+            { role: "system", content: system },
+            ...fewShot,
+            { role: "user", content: userMessage },
+          ],
+        }),
+      }
+    );
     const apiMs = Date.now() - t1;
 
     if (!resp.ok) {
       const errText = await safeText(resp);
-      logEvent("error", {
+      const payload = {
         ok: false,
         reason: "openai_api_error",
         provider,
         model,
-        api: { status: resp.status, statusText: resp.statusText, ms: apiMs },
-      });
+        api: {
+          status: resp.status,
+          statusText: resp.statusText,
+          ms: apiMs,
+        },
+      };
+      logEvent("error", payload);
+      forceConsoleEvent("error", payload);
+      await emitWriterEvent("error", payload);
       return NextResponse.json<WriterResponseErr>(
-        { ok: false, error: `openai api error: ${resp.status} ${resp.statusText}`, details: errText?.slice(0, 2000) ?? "" },
+        {
+          ok: false,
+          error: `openai api error: ${resp.status} ${resp.statusText}`,
+          details: errText?.slice(0, 2000) ?? "",
+        },
         { status: 502 }
       );
     }
 
     const data = (await resp.json()) as any;
-    const content = data?.choices?.[0]?.message?.content?.toString()?.trim() ?? "";
+    const content =
+      data?.choices?.[0]?.message?.content
+        ?.toString()
+        ?.trim() ?? "";
     if (!content) {
-      logEvent("error", { ok: false, reason: "empty_content", provider, model, api: { ms: apiMs } });
-      return NextResponse.json<WriterResponseErr>({ ok: false, error: "empty content" }, { status: 502 });
+      const payload = {
+        ok: false,
+        reason: "empty_content",
+        provider,
+        model,
+        api: { ms: apiMs },
+      };
+      logEvent("error", payload);
+      forceConsoleEvent("error", payload);
+      await emitWriterEvent("error", payload);
+      return NextResponse.json<WriterResponseErr>(
+        { ok: false, error: "empty content" },
+        { status: 502 }
+      );
     }
 
     const text = postProcess(content, n);
@@ -683,23 +1019,46 @@ export async function POST(req: Request) {
     const totalMs = Date.now() - t0;
 
     // 本文は保存せず、ハッシュとメトリクスのみ記録（冗長ログ防止）
-    logEvent("ok", {
+    const payloadOk = {
       ok: true,
       provider,
       model,
       temperature,
-      input: { category: n.category, goal: n.goal, platform: n.platform ?? null },
-      meta,                       // Precision Plan: style/tone/locale
-      metrics,                    // 出力観測メトリクス
+      input: {
+        category: n.category,
+        goal: n.goal,
+        platform: n.platform ?? null,
+      },
+      meta, // Precision Plan: style/tone/locale
+      metrics, // 出力観測メトリクス
       durations: { apiMs, totalMs },
       hash: { text_sha256_16: sha256Hex(text).slice(0, 16) },
-    });
+    };
 
-    const payload: WriterResponseOk = { ok: true, data: { text, meta }, output: text };
+    // Precision監視ライン: 必ずログを吐く
+    logEvent("ok", payloadOk);
+    forceConsoleEvent("ok", payloadOk);
+    await emitWriterEvent("ok", payloadOk);
+
+    const payload: WriterResponseOk = {
+      ok: true,
+      data: { text, meta },
+      output: text,
+    };
     return NextResponse.json(payload, { status: 200 });
   } catch (e: any) {
-    logEvent("error", { ok: false, reason: "exception", message: e?.message ?? "unknown" });
-    return NextResponse.json<WriterResponseErr>({ ok: false, error: e?.message ?? "unexpected error" }, { status: 500 });
+    const payload = {
+      ok: false,
+      reason: "exception",
+      message: e?.message ?? "unknown",
+    };
+    logEvent("error", payload);
+    forceConsoleEvent("error", payload);
+    await emitWriterEvent("error", payload);
+    return NextResponse.json<WriterResponseErr>(
+      { ok: false, error: e?.message ?? "unexpected error" },
+      { status: 500 }
+    );
   }
 }
 
