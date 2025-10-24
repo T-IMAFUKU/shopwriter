@@ -852,14 +852,16 @@ async function emitWriterEvent(
 =======
    🔵 Better Stack Direct Ingest 送信機能（追加）
 ========================= */
-
 /**
  * WRITER_LOG_MODE=direct のときだけ Better Stack(HTTP Source) へPOSTする。
  * LOGTAIL_SOURCE_TOKEN: Better Stack側のSource token
- * LOGTAIL_ENDPOINT: https://sxxxxx.eu-nbg-2.betterstackdata.com 等（未設定なら https://in.logtail.com）
+ * LOGTAIL_ENDPOINT: 例 https://in.logtail.com
  */
-const WRITER_LOG_MODE = String(process.env.WRITER_LOG_MODE ?? "").toLowerCase();
-const LOGTAIL_ENDPOINT = process.env.LOGTAIL_ENDPOINT ?? "https://in.logtail.com";
+const WRITER_LOG_MODE = String(
+  process.env.WRITER_LOG_MODE ?? ""
+).toLowerCase();
+const LOGTAIL_ENDPOINT =
+  process.env.LOGTAIL_ENDPOINT ?? "https://in.logtail.com";
 
 async function emitWriterEvent(kind: "ok" | "error", payload: any) {
 >>>>>>> 94844c12 (feat(H-7-④): force console WRITER_EVENT for production Precision monitoring)
@@ -970,11 +972,22 @@ export async function POST(req: Request) {
       logEvent("error", payload);
       forceConsoleEvent("error", payload);
       await emitWriterEvent("error", payload);
-      return NextResponse.json<WriterResponseErr>(err, { status: 400 });
+      return NextResponse.json<WriterResponseErr>(err, {
+        status: 400,
+      });
     }
     if (provider !== "openai") {
-      const err = { ok: false, error: `unsupported provider: ${provider}` } as const;
-      const payload = { ok: false, reason: "unsupported_provider", provider, model, meta: null };
+      const err = {
+        ok: false,
+        error: `unsupported provider: ${provider}`,
+      } as const;
+      const payload = {
+        ok: false,
+        reason: "unsupported_provider",
+        provider,
+        model,
+        meta: null,
+      };
       logEvent("error", payload);
       forceConsoleEvent("error", payload);
       await emitWriterEvent("error", payload);
@@ -1124,7 +1137,7 @@ export async function POST(req: Request) {
 <<<<<<< HEAD
 =======
 
-    // Precision監視ライン: ここで必ずログを吐く（本番Vercel Logsで見えることが目的）
+    // Precision監視ライン: 必ずログを吐く
     logEvent("ok", payloadOk);
     forceConsoleEvent("ok", payloadOk);
     await emitWriterEvent("ok", payloadOk);
