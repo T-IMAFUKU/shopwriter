@@ -159,9 +159,9 @@ function coerceToShape(obj: any, raw: string): NormalizedInput {
    EC Lexicon & Templates（拡張）
 ========================= */
 type ECLexicon = {
-  cooccurrence: string[];     // 共起語（自然挿入）
-  numericTemplates: string[]; // カテゴリ別の数値・単位テンプレ
-  safetyPhrases: string[];    // 不安低減（返品・配送・支払い等）
+  cooccurrence: string[];
+  numericTemplates: string[];
+  safetyPhrases: string[];
 };
 const EC_LEXICON: Record<string, ECLexicon> = {
   "家電": {
@@ -277,14 +277,14 @@ function buildFewShot(category: string): { role: "user" | "assistant"; content: 
   if ((/(コスメ|化粧|美容|スキンケア|beauty|cosme)/i).test(category ?? "")) {
     shots.push(
       { role: "user", content: "【カテゴリ:コスメ】product_name: 低刺激UVミルク / goal: 購入誘導 / audience: 素肌思い / keywords: 日焼け止め, 乳液, トーンアップ" },
-      { role: "assistant", content: "## やさしく守る、毎日のUVケア\n白浮きしにくい乳液テクスチャ。石けんオフ対応。\n\n- SPF50+・PA++++\n- 1回の使用量目安：パール粒2個分（約0.8g）\n- 紫外線吸収剤フリー\n\n## FAQ\nQ. 敏感肌でも使えますか？\nA. パッチテスト済みですが、すべての方に刺激がないわけではありません。\nQ. 石け んで落とせますか？\nA. はい、単体使用時は洗顔料で落とせます。\n\n一次CTA：今すぐ購入—初回送料無料\n代替CTA：詳細を見る—成分表を確認" }
+      { role: "assistant", content: "## やさしく守る、毎日のUVケア\n白浮きしにくい乳液テクスチャ。石けんオフ対応。\n\n- SPF50+・PA++++\n- 1回の使用量目安：パール粒2個分（約0.8g）\n- 紫外線吸収剤フリー\n\n## FAQ\nQ. 敏感肌でも 使えますか？\nA. パッチテスト済ですが、すべての方に刺激がないとは限りません。心配な場合は腕内側で試してください。\nQ. 石け んで落ちますか？\nA. はい、単体使用時は洗顔料で落とせます。重ね使い時はクレンジングをおすすめします。\n\n一次CTA：今すぐ購入—初回送料無料\n代替CTA：詳細を見る—成分表を確認" }
     );
   }
   // 食品
   if (/(食品|フード|グルメ|スイーツ|food|gourmet|菓子|コーヒー|茶)/i.test(category ?? "")) {
     shots.push(
       { role: "user", content: "【カテゴリ:食品】product_name: プレミアムドリップコーヒー 10袋 / goal: 購入誘導 / audience: 在宅ワーク / keywords: 香り, 深煎り, 手軽" },
-      { role: "assistant", content: "## 仕事の合間に、淹れたてのご褒美\n1杯ずつ個包装のドリップタイプ。\n\n- 1杯あたり10–12gの粉量でしっかりコク\n- 焙煎後24時 間以内に充填（鮮度管理）\n- お湯150–180mlが目安\n\n## FAQ\nQ. ミルクとの相性は？\nA. 深煎りのためラテでも香りが活きます。\nQ. 賞味期限は？\nA. 未開封で製造から約12か月が目安です。\n\n一次CTA：今すぐ購入—定期便はスキップ可\n代替CTA：詳細を見る—レビューで比較" }
+      { role: "assistant", content: "## 仕事の合間に、淹れたてのご褒美\n1杯ずつ個包装のドリップタイプ。\n\n- 1杯あたり10–12gの粉量でしっかりコク\n- 焙煎後24時 間以内に充填（鮮度管理）\n- お湯150–180mlが目安\n\n## FAQ\nQ. ミル クとの相性は？\nA. 深煎りのためラテでも香りが活きます。\nQ. 賞味期限は？\nA. 未開封で製造から約12か月が目安です。\n\n一次CTA：今すぐ購入—定期便はスキップ可\n代替CTA：詳細を見る—レビューで比較" }
     );
   }
   return shots;
@@ -313,7 +313,7 @@ function makeUserMessage(n: NormalizedInput): string {
   ].filter(Boolean).join("\n");
 
   const guide =
-    "上記の条件に基づいて、日本語で媒体最適化した本文を作成してください。必要に応じて見出し(H2まで)と箇条書きを用い、FAQは2〜3問をQ/A形式で、最後に一次CTAと代 替CTAを示してください。感嘆符は使わず、数値・単位を最低2つ含めてください。";
+    "上記の条件に基づいて、日本語で媒体最適化した本文を作成してください。必要に応じて見出し(H2まで)と箇条書きを用い、FAQは2〜3問をQ/A形式で、最後に一次CTAと代 替CTAを示してください。感嘆符は使わず、数値・単位を最低2つ含めてく ださい。";
 
   return `# 入力\n${kv}\n\n# 指示\n${guide}`;
 }
@@ -585,17 +585,81 @@ const WRITER_LOG_ENABLED = String(process.env.WRITER_LOG ?? "1") !== "0";
 function sha256Hex(s: string): string {
   return createHash("sha256").update(s || "").digest("hex");
 }
+
+/**
+ * 既存の観測ログ関数:
+ * - WRITER_LOG_ENABLED が "0" でなければ console.log する
+ * - Better Stack用の emitWriterEvent() とは別
+ */
 function logEvent(kind: "ok" | "error", payload: any) {
   if (!WRITER_LOG_ENABLED) return;
-  // 一行JSON（grep容易） / 秘匿: 本文は保存せずハッシュのみ
   const wrapped = {
     ts: new Date().toISOString(),
     route: "/api/writer",
     kind,
     ...payload,
   };
-  // 先頭に固有タグを付与（ログ検索用）
   console.log("WRITER_EVENT " + JSON.stringify(wrapped));
+}
+
+/**
+ * 強制ログ (本番Vercel Logsで必ず1行出すための保険)
+ * - 環境変数に関係なく出す
+ * - Vercel Logsの「No logs found for this request」を潰すための最終保証ライン
+ */
+function forceConsoleEvent(kind: "ok" | "error", payload: any) {
+  try {
+    const wrapped = {
+      ts: new Date().toISOString(),
+      route: "/api/writer",
+      kind,
+      ...payload,
+    };
+    console.log("WRITER_EVENT " + JSON.stringify(wrapped));
+  } catch {
+    // ここでの例外は握りつぶす（本体レスポンスを壊さない）
+  }
+}
+
+/* =========================
+   🔵 Better Stack Direct Ingest 送信機能（追加）
+========================= */
+
+/**
+ * WRITER_LOG_MODE=direct のときだけ Better Stack(HTTP Source) へPOSTする。
+ * LOGTAIL_SOURCE_TOKEN: Better Stack側のSource token
+ * LOGTAIL_ENDPOINT: https://sxxxxx.eu-nbg-2.betterstackdata.com 等（未設定なら https://in.logtail.com）
+ */
+const WRITER_LOG_MODE = String(process.env.WRITER_LOG_MODE ?? "").toLowerCase();
+const LOGTAIL_ENDPOINT = process.env.LOGTAIL_ENDPOINT ?? "https://in.logtail.com";
+
+async function emitWriterEvent(kind: "ok" | "error", payload: any) {
+  try {
+    if (!WRITER_LOG_ENABLED) return;
+    if (WRITER_LOG_MODE !== "direct") return;
+    const token = process.env.LOGTAIL_SOURCE_TOKEN;
+    if (!token) return;
+
+    const body = {
+      event: "WRITER_EVENT",
+      route: "/api/writer",
+      kind,
+      payload,
+      ts: new Date().toISOString(),
+      env: process.env.VERCEL_ENV ?? "local",
+    };
+
+    await fetch(LOGTAIL_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (e: any) {
+    console.warn("emitWriterEvent failed:", e?.message ?? "unknown");
+  }
 }
 
 /* =========================
@@ -621,19 +685,28 @@ export async function POST(req: Request) {
 
     if (!rawPrompt || rawPrompt.trim().length === 0) {
       const err = { ok: false, error: "prompt is required" } as const;
-      logEvent("error", { ok: false, reason: "bad_request", provider, model, meta: null });
+      const payload = { ok: false, reason: "bad_request", provider, model, meta: null };
+      logEvent("error", payload);
+      forceConsoleEvent("error", payload);
+      await emitWriterEvent("error", payload);
       return NextResponse.json<WriterResponseErr>(err, { status: 400 });
     }
     if (provider !== "openai") {
       const err = { ok: false, error: `unsupported provider: ${provider}` } as const;
-      logEvent("error", { ok: false, reason: "unsupported_provider", provider, model, meta: null });
+      const payload = { ok: false, reason: "unsupported_provider", provider, model, meta: null };
+      logEvent("error", payload);
+      forceConsoleEvent("error", payload);
+      await emitWriterEvent("error", payload);
       return NextResponse.json<WriterResponseErr>(err, { status: 400 });
     }
 
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
       const err = { ok: false, error: "OPENAI_API_KEY is not set" } as const;
-      logEvent("error", { ok: false, reason: "missing_api_key", provider, model, meta: null });
+      const payload = { ok: false, reason: "missing_api_key", provider, model, meta: null };
+      logEvent("error", payload);
+      forceConsoleEvent("error", payload);
+      await emitWriterEvent("error", payload);
       return NextResponse.json<WriterResponseErr>(err, { status: 500 });
     }
 
@@ -657,13 +730,16 @@ export async function POST(req: Request) {
 
     if (!resp.ok) {
       const errText = await safeText(resp);
-      logEvent("error", {
+      const payload = {
         ok: false,
         reason: "openai_api_error",
         provider,
         model,
         api: { status: resp.status, statusText: resp.statusText, ms: apiMs },
-      });
+      };
+      logEvent("error", payload);
+      forceConsoleEvent("error", payload);
+      await emitWriterEvent("error", payload);
       return NextResponse.json<WriterResponseErr>(
         { ok: false, error: `openai api error: ${resp.status} ${resp.statusText}`, details: errText?.slice(0, 2000) ?? "" },
         { status: 502 }
@@ -673,7 +749,10 @@ export async function POST(req: Request) {
     const data = (await resp.json()) as any;
     const content = data?.choices?.[0]?.message?.content?.toString()?.trim() ?? "";
     if (!content) {
-      logEvent("error", { ok: false, reason: "empty_content", provider, model, api: { ms: apiMs } });
+      const payload = { ok: false, reason: "empty_content", provider, model, api: { ms: apiMs } };
+      logEvent("error", payload);
+      forceConsoleEvent("error", payload);
+      await emitWriterEvent("error", payload);
       return NextResponse.json<WriterResponseErr>({ ok: false, error: "empty content" }, { status: 502 });
     }
 
@@ -683,7 +762,7 @@ export async function POST(req: Request) {
     const totalMs = Date.now() - t0;
 
     // 本文は保存せず、ハッシュとメトリクスのみ記録（冗長ログ防止）
-    logEvent("ok", {
+    const payloadOk = {
       ok: true,
       provider,
       model,
@@ -693,12 +772,20 @@ export async function POST(req: Request) {
       metrics,                    // 出力観測メトリクス
       durations: { apiMs, totalMs },
       hash: { text_sha256_16: sha256Hex(text).slice(0, 16) },
-    });
+    };
+
+    // Precision監視ライン: ここで必ずログを吐く（本番Vercel Logsで見えることが目的）
+    logEvent("ok", payloadOk);
+    forceConsoleEvent("ok", payloadOk);
+    await emitWriterEvent("ok", payloadOk);
 
     const payload: WriterResponseOk = { ok: true, data: { text, meta }, output: text };
     return NextResponse.json(payload, { status: 200 });
   } catch (e: any) {
-    logEvent("error", { ok: false, reason: "exception", message: e?.message ?? "unknown" });
+    const payload = { ok: false, reason: "exception", message: e?.message ?? "unknown" };
+    logEvent("error", payload);
+    forceConsoleEvent("error", payload);
+    await emitWriterEvent("error", payload);
     return NextResponse.json<WriterResponseErr>({ ok: false, error: e?.message ?? "unexpected error" }, { status: 500 });
   }
 }
