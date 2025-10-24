@@ -1,6 +1,7 @@
 // app/api/writer/route.ts
 export const runtime = "nodejs";
 import { NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 
 /** FAQ セクション見出し（tests-augmented 前提 / カウント検知用） */
 const faqBlock = "## FAQ\n";
@@ -247,12 +248,12 @@ function buildSystemPrompt(overrides?: string): string {
     "あなたはEC特化の日本語コピーライターAIです。敬体（です・ます）で、簡潔かつ具体的に記述します。数値・固有名詞を優先し、過度な煽りを避けます。",
     "媒体と目的に応じて、ヘッドライン→概要→ベネフィット→根拠/比較→FAQ→CTAの流れで整理します。見出しは最大H2、箇条書きは3〜7項目を目安とします。",
     "不自然なキーワード羅列を禁止し、共起語・言い換え・上位語を自然に埋め込みます。タイトルは目安32字、説明文は80〜120字を参考にします（厳密ではありません）。",
-    "一次CTAは主目的に直結（購入/カート/申込など）。二次CTAは低負荷行動（お気に入り/比較/レビュー閲覧など）。CTA文は動詞起点＋利益提示＋不安低減要素を含めます。",
+    "一次CTAは主目的に直結（購入/カート/申込など）。二次CTAは低負荷行動（お気に入り/比較/レビュー閲覧など）。CTA文は動詞起点＋利益提示＋不安低減要素を含めます 。",
     "落ち着いた知性を保ち、ユーザー原稿を否定しない語調にします。過剰な絵文字や擬声語は使用しません。",
     "医薬的効能の断定、根拠のないNo.1表現、誇大広告、記号乱用を抑制してください。",
     "本文は完成文として出力し、必要に応じて見出しや箇条書きを用います。最後にCTA文を1〜3案示します。",
-    "【出力契約】必ず本文末尾に「一次CTA」と「代替CTA」をそれぞれ1行で明示してください（例：一次CTA：今すぐ購入—30日返品可／代替CTA：詳細を見る—レビューで比較）。",
-    "【厳格条件】感嘆符（！）は使用しません。FAQは必ず2〜3問（誤解/相性/返品など）をQ/A形式で含めます。数値・単位（g, mm, mAh, ms, SPF/PA, 抽出量など）は最低2つ含めます。",
+    "【出力契約】必ず本文末尾に「一次CTA」と「代替CTA」をそれぞれ1行で明示してください（例：一次CTA：今すぐ購入—30日返品可／代替CTA：詳細を見る—レビューで比較 ）。",
+    "【厳格条件】感嘆符（！）は使用しません。FAQは必ず2〜3問（誤解/相性/返品など）をQ/A形式で含めます。数値・単位（g, mm, mAh, ms, SPF/PA, 抽出量など）は最低2 つ含めます。",
     "語尾の重複、誤変換、冗長な反復、記号の不整合を最終確認して簡潔に整えます。",
   ];
   return modules.join("\n\n");
@@ -269,21 +270,21 @@ function buildFewShot(category: string): { role: "user" | "assistant"; content: 
   if (/(家電|electronic|電動|掃除機|冷蔵庫|イヤホン|ヘッドホン)/i.test(category ?? "")) {
     shots.push(
       { role: "user", content: "【カテゴリ:家電】product_name: ノイズキャンセリング完全ワイヤレスイヤホン / goal: 購入誘導 / audience: 通勤・リモートワーク / keywords: 連続再生, 低遅延, 高音質" },
-      { role: "assistant", content: "## 空間を自分の集中モードに\n通勤やオンライン会議に適したノイズキャンセリング。\n\n- 連続再生最大10時間／ケース併用で30時間\n- 低遅延（参考: 80–120ms程度）\n- IPX4相当の生活防水\n\n## FAQ\nQ. iPhone/Android両対応？\nA. はい、Bluetooth 5.3に対応します。\n\n一次CTA：今すぐ購入—30日返品可\n代替CTA：詳細を見る—レビューで比較" }
+      { role: "assistant", content: "## 空間を自分の集中モードに\n通勤やオンライン会議に適したノイズキャンセリング。\n\n- 連続再生最大10時間／ケース併用で30時 間\n- 低遅延（参考: 80–120ms程度）\n- IPX4相当の生活防水\n\n## FAQ\nQ. iPhone/Android両対応？\nA. はい、Bluetooth 5.3に対応します。\n\n一次CTA：今すぐ購入—30日返品可\n代替CTA：詳細を見る—レビューで比較" }
     );
   }
   // コスメ
   if ((/(コスメ|化粧|美容|スキンケア|beauty|cosme)/i).test(category ?? "")) {
     shots.push(
-      { role: "user", content: "【カテゴリ:コスメ】product_name: 低刺激UVミルク / goal: 購入誘導 / audience: 敏感肌 / keywords: 日焼け止め, 乳液, トーンアップ" },
-      { role: "assistant", content: "## やさしく守る、毎日のUVケア\n白浮きしにくい乳液テクスチャ。石けんオフ対応。\n\n- SPF50+・PA++++\n- 1回の使用量目安：パール粒2個分（約0.8g）\n- 紫外線吸収剤フリー\n\n## FAQ\nQ. 敏感肌でも使えますか？\nA. パッチテスト済みですが、すべての方に刺激がないわけではありません。\nQ. 石けんで落とせますか？\nA. はい、単体使用時は洗顔料で落とせます。\n\n一次CTA：今すぐ購入—初回送料無料\n代替CTA：詳細を見る—成分表を確認" }
+      { role: "user", content: "【カテゴリ:コスメ】product_name: 低刺激UVミルク / goal: 購入誘導 / audience: 素肌思い / keywords: 日焼け止め, 乳液, トーンアップ" },
+      { role: "assistant", content: "## やさしく守る、毎日のUVケア\n白浮きしにくい乳液テクスチャ。石けんオフ対応。\n\n- SPF50+・PA++++\n- 1回の使用量目安：パール粒2個分（約0.8g）\n- 紫外線吸収剤フリー\n\n## FAQ\nQ. 敏感肌でも使えますか？\nA. パッチテスト済みですが、すべての方に刺激がないわけではありません。\nQ. 石け んで落とせますか？\nA. はい、単体使用時は洗顔料で落とせます。\n\n一次CTA：今すぐ購入—初回送料無料\n代替CTA：詳細を見る—成分表を確認" }
     );
   }
   // 食品
   if (/(食品|フード|グルメ|スイーツ|food|gourmet|菓子|コーヒー|茶)/i.test(category ?? "")) {
     shots.push(
       { role: "user", content: "【カテゴリ:食品】product_name: プレミアムドリップコーヒー 10袋 / goal: 購入誘導 / audience: 在宅ワーク / keywords: 香り, 深煎り, 手軽" },
-      { role: "assistant", content: "## 仕事の合間に、淹れたてのご褒美\n1杯ずつ個包装のドリップタイプ。\n\n- 1杯あたり10–12gの粉量でしっかりコク\n- 焙煎後24時間以内に充填（鮮度管理）\n- お湯150–180mlが目安\n\n## FAQ\nQ. ミルクとの相性は？\nA. 深煎りのためラテでも香りが活きます。\nQ. 賞味期限は？\nA. 未開封で製造から約12か月が目安です。\n\n一次CTA：今すぐ購入—定期便はスキップ可\n代替CTA：詳細を見る—レビューで比較" }
+      { role: "assistant", content: "## 仕事の合間に、淹れたてのご褒美\n1杯ずつ個包装のドリップタイプ。\n\n- 1杯あたり10–12gの粉量でしっかりコク\n- 焙煎後24時 間以内に充填（鮮度管理）\n- お湯150–180mlが目安\n\n## FAQ\nQ. ミルクとの相性は？\nA. 深煎りのためラテでも香りが活きます。\nQ. 賞味期限は？\nA. 未開封で製造から約12か月が目安です。\n\n一次CTA：今すぐ購入—定期便はスキップ可\n代替CTA：詳細を見る—レビューで比較" }
     );
   }
   return shots;
@@ -312,7 +313,7 @@ function makeUserMessage(n: NormalizedInput): string {
   ].filter(Boolean).join("\n");
 
   const guide =
-    "上記の条件に基づいて、日本語で媒体最適化した本文を作成してください。必要に応じて見出し(H2まで)と箇条書きを用い、FAQは2〜3問をQ/A形式で、最後に一次CTAと代替CTAを示してください。感嘆符は使わず、数値・単位を最低2つ含めてください。";
+    "上記の条件に基づいて、日本語で媒体最適化した本文を作成してください。必要に応じて見出し(H2まで)と箇条書きを用い、FAQは2〜3問をQ/A形式で、最後に一次CTAと代 替CTAを示してください。感嘆符は使わず、数値・単位を最低2つ含めてください。";
 
   return `# 入力\n${kv}\n\n# 指示\n${guide}`;
 }
@@ -554,6 +555,50 @@ function postProcess(raw: string, n: NormalizedInput): string {
 }
 
 /* =========================
+   観測ログ（Precision Plan連動 / JSON-L）
+========================= */
+type WriterMetrics = {
+  charCount: number;
+  lineCount: number;
+  bulletCount: number;
+  h2Count: number;
+  faqCount: number;
+  hasFinalCTA: boolean;
+};
+function analyzeText(text: string): WriterMetrics {
+  const t = (text || "").trim();
+  const lines = t.split(/\r?\n/);
+  const bulletCount = lines.filter((l) => /^[\-\*\u30fb・]/.test(l.trim())).length;
+  const h2Count = lines.filter((l) => /^##\s/.test(l.trim())).length;
+  const faqCount = (t.match(new RegExp("^" + faqBlock.replace(/\n$/, ""), "m")) || []).length;
+  const hasFinalCTA = /^一次CTA[：:]\s?.+/m.test(t) && /^代替CTA[：:]\s?.+/m.test(t);
+  return {
+    charCount: t.length,
+    lineCount: lines.length,
+    bulletCount,
+    h2Count,
+    faqCount,
+    hasFinalCTA,
+  };
+}
+const WRITER_LOG_ENABLED = String(process.env.WRITER_LOG ?? "1") !== "0";
+function sha256Hex(s: string): string {
+  return createHash("sha256").update(s || "").digest("hex");
+}
+function logEvent(kind: "ok" | "error", payload: any) {
+  if (!WRITER_LOG_ENABLED) return;
+  // 一行JSON（grep容易） / 秘匿: 本文は保存せずハッシュのみ
+  const wrapped = {
+    ts: new Date().toISOString(),
+    route: "/api/writer",
+    kind,
+    ...payload,
+  };
+  // 先頭に固有タグを付与（ログ検索用）
+  console.log("WRITER_EVENT " + JSON.stringify(wrapped));
+}
+
+/* =========================
    OpenAI 呼び出し補助
 ========================= */
 async function safeText(r: Response) {
@@ -564,6 +609,7 @@ async function safeText(r: Response) {
    Route: POST /api/writer
 ========================= */
 export async function POST(req: Request) {
+  const t0 = Date.now();
   try {
     const body = (await req.json()) as WriterRequest | null;
 
@@ -574,15 +620,21 @@ export async function POST(req: Request) {
     const systemOverride = (body?.system ?? "").toString();
 
     if (!rawPrompt || rawPrompt.trim().length === 0) {
-      return NextResponse.json<WriterResponseErr>({ ok: false, error: "prompt is required" }, { status: 400 });
+      const err = { ok: false, error: "prompt is required" } as const;
+      logEvent("error", { ok: false, reason: "bad_request", provider, model, meta: null });
+      return NextResponse.json<WriterResponseErr>(err, { status: 400 });
     }
     if (provider !== "openai") {
-      return NextResponse.json<WriterResponseErr>({ ok: false, error: `unsupported provider: ${provider}` }, { status: 400 });
+      const err = { ok: false, error: `unsupported provider: ${provider}` } as const;
+      logEvent("error", { ok: false, reason: "unsupported_provider", provider, model, meta: null });
+      return NextResponse.json<WriterResponseErr>(err, { status: 400 });
     }
 
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      return NextResponse.json<WriterResponseErr>({ ok: false, error: "OPENAI_API_KEY is not set" }, { status: 500 });
+      const err = { ok: false, error: "OPENAI_API_KEY is not set" } as const;
+      logEvent("error", { ok: false, reason: "missing_api_key", provider, model, meta: null });
+      return NextResponse.json<WriterResponseErr>(err, { status: 500 });
     }
 
     // 入力正規化 & メッセージ構築
@@ -591,6 +643,7 @@ export async function POST(req: Request) {
     const userMessage = makeUserMessage(n);
     const fewShot = buildFewShot(n.category);
 
+    const t1 = Date.now();
     const resp = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -600,9 +653,17 @@ export async function POST(req: Request) {
         messages: [{ role: "system", content: system }, ...fewShot, { role: "user", content: userMessage }],
       }),
     });
+    const apiMs = Date.now() - t1;
 
     if (!resp.ok) {
       const errText = await safeText(resp);
+      logEvent("error", {
+        ok: false,
+        reason: "openai_api_error",
+        provider,
+        model,
+        api: { status: resp.status, statusText: resp.statusText, ms: apiMs },
+      });
       return NextResponse.json<WriterResponseErr>(
         { ok: false, error: `openai api error: ${resp.status} ${resp.statusText}`, details: errText?.slice(0, 2000) ?? "" },
         { status: 502 }
@@ -611,13 +672,33 @@ export async function POST(req: Request) {
 
     const data = (await resp.json()) as any;
     const content = data?.choices?.[0]?.message?.content?.toString()?.trim() ?? "";
-    if (!content) return NextResponse.json<WriterResponseErr>({ ok: false, error: "empty content" }, { status: 502 });
+    if (!content) {
+      logEvent("error", { ok: false, reason: "empty_content", provider, model, api: { ms: apiMs } });
+      return NextResponse.json<WriterResponseErr>({ ok: false, error: "empty content" }, { status: 502 });
+    }
 
     const text = postProcess(content, n);
     const meta = extractMeta(text);
+    const metrics = analyzeText(text);
+    const totalMs = Date.now() - t0;
+
+    // 本文は保存せず、ハッシュとメトリクスのみ記録（冗長ログ防止）
+    logEvent("ok", {
+      ok: true,
+      provider,
+      model,
+      temperature,
+      input: { category: n.category, goal: n.goal, platform: n.platform ?? null },
+      meta,                       // Precision Plan: style/tone/locale
+      metrics,                    // 出力観測メトリクス
+      durations: { apiMs, totalMs },
+      hash: { text_sha256_16: sha256Hex(text).slice(0, 16) },
+    });
+
     const payload: WriterResponseOk = { ok: true, data: { text, meta }, output: text };
     return NextResponse.json(payload, { status: 200 });
   } catch (e: any) {
+    logEvent("error", { ok: false, reason: "exception", message: e?.message ?? "unknown" });
     return NextResponse.json<WriterResponseErr>({ ok: false, error: e?.message ?? "unexpected error" }, { status: 500 });
   }
 }
