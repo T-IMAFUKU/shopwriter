@@ -1,153 +1,28 @@
-name: Vercel Retry & Notify
+name: Vercel Retry & Notify (frozen)
 
 on:
+  # 自動実行は一切しない。必要なら手動起動のみ（それでもジョブは強制スキップ）
   workflow_dispatch:
     inputs:
-      target:
-        description: "Retry target environment (production or preview)"
+      note:
+        description: "This workflow is frozen (no-op)."
         required: false
-        default: "production"
+        default: "frozen"
 
+# 同時実行の押し込み事故を避けるためにグルーピング
 concurrency:
-  group: vercel-retry
-  cancel-in-progress: false
+  group: vercel-retry-frozen
+  cancel-in-progress: true
+
+# 権限は最小化（念のため読み取りのみに近い形）
+permissions:
+  contents: read
 
 jobs:
-  retry:
+  noop:
+    # 常に実行しない（強制スキップ）
+    if: ${{ false }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-      VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
-      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-      TARGET: ${{ github.event.inputs.target || 'production' }}
-      VERCEL_API: https://api.vercel.com
-
     steps:
-      - name: Preflight / Validate secrets
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -z "${VERCEL_TOKEN:-}" || -z "${VERCEL_PROJECT_ID:-}" ]]; then
-            echo "❌ Missing VERCEL_TOKEN or VERCEL_PROJECT_ID."
-            exit 1
-          fi
-          echo "Target=${TARGET}"
-          echo "Project=${VERCEL_PROJECT_ID}"
-          if [[ -n "${VERCEL_TEAM_ID:-}" ]]; then echo "Team=${VERCEL_TEAM_ID}"; fi
-
-      - name: Install jq
-        shell: bash
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y jq
-
-      - name: Probe latest failed/incomplete deployment
-        id: probe
-        shell: bash
-        run: |
-          set -euo pipefail
-          q_team=""
-          [[ -n "${VERCEL_TEAM_ID:-}" ]] && q_team="&teamId=${VERCEL_TEAM_ID}"
-          echo "🔎 Fetching recent deployments…"
-          resp="$(curl -fsSL -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-            "${VERCEL_API}/v6/deployments?projectId=${VERCEL_PROJECT_ID}&limit=20${q_team}")"
-          candidate="$(echo "$resp" \
-            | jq --arg tgt "${TARGET}" '
-                .deployments
-                | map(select((.target // "preview")==$tgt))
-                | map(select((.state // "") != "READY"))
-                | sort_by(.created) | last // empty
-              ')"
-          if [[ -z "${candidate}" || "${candidate}" == "null" ]]; then
-            echo "✅ No failed/incomplete deployment found. Nothing to retry."
-            echo "noop=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          dep_id="$(echo "$candidate" | jq -r '.uid')"
-          dep_url="$(echo "$candidate" | jq -r '.url')"
-          dep_state="$(echo "$candidate" | jq -r '.state')"
-          echo "🟡 Non-ready deployment: id=${dep_id} state=${dep_state} url=${dep_url}"
-          echo "deployment_id=${dep_id}" >> "$GITHUB_OUTPUT"
-          echo "deployment_url=${dep_url}" >> "$GITHUB_OUTPUT"
-
-      - name: Early exit (no-op)
-        if: steps.probe.outputs.noop == 'true'
-        shell: bash
-        run: echo "No retry needed. Exit."
-
-      - name: Redeploy (Vercel API)
-        if: steps.probe.outputs.noop != 'true'
-        id: redeploy
-        shell: bash
-        run: |
-          set -euo pipefail
-          dep_id="${{ steps.probe.outputs.deployment_id }}"
-          q_team=""
-          [[ -n "${VERCEL_TEAM_ID:-}" ]] && q_team="?teamId=${VERCEL_TEAM_ID}"
-          echo "🚀 Redeploying ${dep_id} (target=${TARGET}) …"
-          r="$(curl -fsSL -X POST -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-              "${VERCEL_API}/v13/deployments/${dep_id}/redeploy${q_team}")"
-          new_id="$(echo "$r" | jq -r '.deployment?.id // .id // empty')"
-          if [[ -z "${new_id}" || "${new_id}" == "null" ]]; then
-            echo "⚠️ Redeploy API returned no new id, falling back to original."
-            new_id="${dep_id}"
-          fi>
-          echo "new_deployment_id=${new_id}" >> "$GITHUB_OUTPUT"
-          echo "✅ Redeploy accepted: ${new_id}"
-
-      - name: Poll until READY (with backoff)
-        if: steps.probe.outputs.noop != 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          new_id="${{ steps.redeploy.outputs.new_deployment_id }}"
-          q_team=""
-          [[ -n "${VERCEL_TEAM_ID:-}" ]] && q_team="&teamId=${VERCEL_TEAM_ID}"
-          tries=0
-          max_tries=60
-          delay=10
-          last_state="UNKNOWN"
-          echo "⏳ Polling ${new_id} …"
-          while (( tries < max_tries )); do
-            st_json="$(curl -fsSL -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-              "${VERCEL_API}/v13/deployments/${new_id}?projectId=${VERCEL_PROJECT_ID}${q_team}")" || true
-            state="$(echo "${st_json:-{}}" | jq -r '.readyState // .state // empty')"
-            url="$(echo "${st_json:-{}}" | jq -r '.url // empty')"
-            if [[ -n "${state}" && "${state}" != "${last_state}" ]]; then
-              echo "  • state=${state} url=${url}"
-              last_state="${state}"
-            fi
-            case "$state" in
-              READY|READY_STATE_READY|SUCCEEDED) echo "🎉 Deployment READY: ${url}"; exit 0 ;;
-              ERROR|CANCELED|FAILED) echo "❌ Deployment finished with ${state}"; exit 1 ;;
-            esac
-            ((tries++)); sleep "${delay}"
-          done
-          echo "⚠️ Poll timeout (last=${last_state})"; exit 1
-
-      - name: Slack notify (success)
-        if: success() && env.SLACK_WEBHOOK_URL != '' && steps.probe.outputs.noop != 'true'
-        shell: bash
-        run: |
-          curl -fsSL -X POST -H 'Content-type: application/json' \
-            --data "{\"text\":\"✅ Vercel redeploy succeeded (target=${TARGET}).\"}" \
-            "$SLACK_WEBHOOK_URL"
-
-      - name: Slack notify (noop)
-        if: env.SLACK_WEBHOOK_URL != '' && steps.probe.outputs.noop == 'true'
-        shell: bash
-        run: |
-          curl -fsSL -X POST -H 'Content-type: application/json' \
-            --data "{\"text\":\"ℹ️ No failed/incomplete deployment found (target=${TARGET}).\"}" \
-            "$SLACK_WEBHOOK_URL"
-
-      - name: Slack notify (failure or timeout)
-        if: failure() && env.SLACK_WEBHOOK_URL != ''
-        shell: bash
-        run: |
-          curl -fsSL -X POST -H 'Content-type: application/json' \
-            --data "{\"text\":\"⚠️ Vercel retry failed or timed out (target=${TARGET}). Check Actions & Vercel console.\"}" \
-            "$SLACK_WEBHOOK_URL"
+      - name: Frozen (No-Op)
+        run: echo "This workflow is frozen and does nothing."
