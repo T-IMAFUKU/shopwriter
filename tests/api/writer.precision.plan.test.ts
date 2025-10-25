@@ -8,12 +8,16 @@
  * - NODE_OPTIONS=--require=./tests/preload-env.cjs で OPENAI_API_KEY を注入済み
  * - vitest.config.ts は setupFiles に tests/setup.writers.ts が入っている想定
  *   → 本テスト内で `vi.unmock("openai")` を宣言してモック解除し、動的 import
+ *
+ * H-7-⑧対応:
+ * - OpenAI応答が 10〜11s ×3 回 ≒ 30s を超える場合があるため、1ケースあたり 60s まで許容
+ * - 本質は「構造崩れてないか」「ブランドトーン/メタが安定してるか」「速度の観測ログを吐けるか」
+ *   なので、時間切れで赤くなるよりも、余裕を持って完走させることを優先する
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 
-// Vitest の実行デフォルト 5s だと足りないことがあるため、このスイート内は余裕を持たせる
-const TEST_TIMEOUT_MS = 20000;
+const TEST_TIMEOUT_MS = 60_000; // 60s
 
 // 便利関数: リクエスト作成
 function makeRequest(body: unknown) {
@@ -33,7 +37,7 @@ function tokenize(s: string): string[] {
     .filter(Boolean);
 }
 
-// トークン重複率（Jaccard に近い簡易版: 共有トークン / 和集合）
+// トークン重複率（Jaccardに近い簡易版: 共有トークン / 和集合）
 function tokenOverlap(a: string, b: string): number {
   const A = new Set(tokenize(a));
   const B = new Set(tokenize(b));
@@ -93,7 +97,10 @@ describe("Precision Plan /api/writer (real OpenAI)", () => {
         // 失敗時は詳細を出して即落とす
         if (!ok || typeof text !== "string" || text.trim().length === 0) {
           // eslint-disable-next-line no-console
-          console.error("writer response (debug):", JSON.stringify(json, null, 2));
+          console.error(
+            "writer response (debug):",
+            JSON.stringify(json, null, 2)
+          );
           throw new Error("writer response shape invalid");
         }
 
