@@ -6,8 +6,9 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Crown } from "lucide-react";
+import { Logo } from "@/components/Logo"; // ← ブランドアイコン
 
-// ===== グローバル・ヘルプ（遅延なしで安定読込）
+// ===== グローバル・ヘルプ（遅延なしで安定読込）=====
 const HelpDropdown = dynamic(() => import("@/components/global/HelpDropdown"), {
   ssr: true,
 });
@@ -116,13 +117,18 @@ export default function RootLayout({
                 {/* 左：ブランド（ホームリンク） */}
                 <Link
                   href="/"
-                  className="inline-flex items-center gap-2 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                  className="inline-flex items-center gap-1 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
                   aria-label="ShopWriter ホームへ"
                 >
-                  <span className="inline-grid size-6 place-items-center rounded-md bg-indigo-600 text-white text-[11px] font-bold">
-                    SW
-                  </span>
-                  <span className="text-sm font-semibold tracking-tight">
+                  {/* ブランドロゴ（アイコン） */}
+                  <Logo
+                    variant="icon"
+                    size="md"
+                    className="shrink-0"
+                    priority={true}
+                  />
+                  {/* ブランド名（濃紺で統一） */}
+                  <span className="text-[1.05rem] font-semibold tracking-tight text-[#0A1F61]">
                     ShopWriter
                   </span>
                 </Link>
@@ -168,4 +174,3 @@ export default function RootLayout({
     </html>
   );
 }
-
