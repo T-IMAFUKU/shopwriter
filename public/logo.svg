@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 640 200"
+     role="img"
+     aria-label="ShopWriter Logo">
+  <defs>
+    <!-- ダイヤ形アイコン用グラデーション: 左下ネイビー -> 右上バイオレット -->
+    <linearGradient id="swGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0A1F61"/>
+      <stop offset="100%" stop-color="#6A1FBF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- ダイヤ形ベース（角丸の正方形を45°回転した雰囲気のプレート） -->
+  <rect x="40" y="20" width="120" height="120" rx="28" fill="url(#swGrad)"/>
+
+  <!-- ノード＋接続ライン（白）: 知性/接続/AI -->
+  <g fill="white" stroke="white" stroke-linecap="round" stroke-linejoin="round">
+    <!-- 中心ノード -->
+    <circle cx="100" cy="80" r="12" />
+    <!-- 上ノード -->
+    <circle cx="100" cy="50" r="12" />
+    <!-- 右ノード -->
+    <circle cx="130" cy="80" r="12" />
+    <!-- 下ノード -->
+    <circle cx="100" cy="110" r="12" />
+    <!-- 線（中心-上） -->
+    <path d="M100 68 L100 62" stroke-width="10"/>
+    <!-- 線（中心-右） -->
+    <path d="M112 80 L118 80" stroke-width="10"/>
+    <!-- 線（中心-下） -->
+    <path d="M100 92 L100 98" stroke-width="10"/>
+    <!-- 斜めの知能ライン（上→右） -->
+    <path d="M108 58 L122 72" stroke-width="10"/>
+  </g>
+
+  <!-- ブランド名 "ShopWriter" -->
+  <text x="200" y="110"
+        font-family="Segoe UI, Helvetica, Arial, sans-serif"
+        font-size="64"
+        font-weight="600"
+        fill="#101a64">
+    ShopWriter
+  </text>
+</svg>

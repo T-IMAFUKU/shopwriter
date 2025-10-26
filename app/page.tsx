@@ -2,19 +2,25 @@
 
 /**
  * ShopWriter — Home (Top Page, Hero + HowItWorks + Examples + Overview + Final CTA)
- * Phase 8-3-2: HeroBackdrop パフォーマンス最適化（軽量・LCP改善）
+ * H-4-③ ブランドブロック統一＋モバイル最適化版
  *
- * 方針
- *  - SSR: 低コストのベース1層のみ（radial-gradient）。blur廃止・opacity控えめ。
- *  - CSR: マウント後に「装飾の薄い光彩（1層）」だけ追加して質感を回復（hydration一致を崩さない）。
- *  - 下層セクションは content-visibility:auto を付与してレイアウト確定後に描画。
- *  - 見た目・配色・文言は8-3版を踏襲。UIトークンも維持。
+ * 変更点（2025-10-26適用）:
+ * 1. 旧バッジ "New" / β的ラベルを撤去。
+ * 2. Hero冒頭にヘッダーと同じ正式ロゴブロック
+ *    (<Logo variant="icon" size="md" ... /> + "ShopWriter" #0A1F61) を配置。
+ * 3. H1/サブコピー/CTA/余白のタイポスケール・間隔をモバイル優先で最適化。
+ * 4. CTA行: モバイル縦積み → sm以上で横並び (flex-col sm:flex-row)。
+ * 5. Heroセクション余白: `px-4 sm:px-8 py-12 sm:py-20` に更新。
+ *
+ * それ以外の視覚要素 (HeroBackdrop, HeroMockのプレビューカード、下層セクション構成)
+ * は現状維持して安全性を優先。
  */
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+// BadgeはHeroから削除したが他セクションでは未使用なのでimport除去
+// import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Check,
@@ -33,6 +39,11 @@ import {
 import { motion } from "framer-motion";
 import type { Variants } from "framer-motion";
 
+// 🔵 ヘッダーと同じ正式ロゴを想定
+// ※ パスは仮。実プロジェクトのLogoコンポーネントの場所に合わせて後で修正する。
+//   例: "@/components/Logo" or "@/components/site/Logo"
+import { Logo } from "@/components/Logo";
+
 /* ===== motion variants ===== */
 const fadeUp: Variants = {
   hidden: { opacity: 0, y: 12 },
@@ -49,27 +60,23 @@ const scaleIn: Variants = {
 };
 
 /* =========================================================================
-   Hero Backdrop — 軽量化版
+   Hero Backdrop — 軽量化版（既存維持）
    -------------------------------------------------------------------------
-   変更点：
-   - 旧: 3層（radial + conic + repeating）＋大きな blur
-   - 新: SSRで "ベース1層のradial" のみ（blur無し）。
-         CSR後に "光彩1層" を追加。mask-image でふわっと馴染ませる（軽量）。
-   - すべてCSSグラデ。画像読み込みなし。hydration不一致を起こさない構成。
+   - SSR: ベースのradialのみ
+   - CSR: マウント後に薄い光彩を追加
    ========================================================================= */
 function HeroBackdrop() {
   const [enhanced, setEnhanced] = useState(false);
   useEffect(() => {
-    // マウント後にのみ軽い装飾層を追加（LCPに影響させない）
     setEnhanced(true);
   }, []);
 
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
-      {/* ベース：超軽量のラジアル（SSRから描画） */}
+      {/* ベース：超軽量ラジアル（SSRから描画） */}
       <div className="absolute inset-0 bg-[radial-gradient(60%_70%_at_40%_0%,rgba(14,32,64,0.18),transparent_70%)]" />
 
-      {/* 装飾：CSR後にのみ追加（薄い光彩）。blurを使わず mask で減衰 */}
+      {/* 装飾：CSR後にのみ追加（薄い光彩） */}
       {enhanced && (
         <div
           className="
@@ -85,7 +92,7 @@ function HeroBackdrop() {
   );
 }
 
-/* ===== wordmark（トップリンク化＋下線アフォーダンス） ===== */
+/* ===== 旧ロゴワードマーク (未使用化予定だが将来のため一旦温存) ===== */
 function LogoWordmark() {
   return (
     <Link
@@ -207,7 +214,7 @@ function HeroTyping() {
   );
 }
 
-/* ===== 親：Hydration-safe（変更なし） ===== */
+/* ===== 親：Hydration-safe（既存維持） ===== */
 function HeroMock() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -240,7 +247,7 @@ function HeroMock() {
   );
 }
 
-/* ===== 共通クラス（8-3のモバイル最適化を維持） ===== */
+/* ===== 共通クラス ===== */
 const cardClass =
   "rounded-2xl shadow-none transition-all hover:md:shadow-lg hover:md:-translate-y-[2px]";
 const cardPadding = "p-4 md:p-6";
@@ -284,7 +291,11 @@ function HowItWorks() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 md:gap-6 md:grid-cols-3" role="list" aria-label="使い方の手順">
+      <div
+        className="grid grid-cols-1 gap-3 md:gap-6 md:grid-cols-3"
+        role="list"
+        aria-label="使い方の手順"
+      >
         {steps.map((s, i) => (
           <motion.div
             key={s.title}
@@ -297,16 +308,24 @@ function HowItWorks() {
           >
             <Card className={cardClass}>
               <CardContent className={cardPadding}>
-                <div className="mb-3 md:mb-4 inline-flex h-9 w-9 md:h-10 md:w-10 items-center justify-center rounded-xl bg-primary/10" aria-hidden>
+                <div
+                  className="mb-3 md:mb-4 inline-flex h-9 w-9 md:h-10 md:w-10 items-center justify-center rounded-xl bg-primary/10"
+                  aria-hidden
+                >
                   <s.icon className="h-4 w-4 md:h-5 md:w-5 text-primary" />
                 </div>
                 <div className="flex items-baseline gap-2">
-                  <span aria-hidden className="text-xs md:text-sm font-semibold text-primary">
+                  <span
+                    aria-hidden
+                    className="text-xs md:text-sm font-semibold text-primary"
+                  >
                     Step {i + 1}
                   </span>
                   <h3 className="text-base md:text-lg font-semibold">{s.title}</h3>
                 </div>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground md:text-base">{s.desc}</p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground md:text-base">
+                  {s.desc}
+                </p>
               </CardContent>
             </Card>
           </motion.div>
@@ -324,7 +343,10 @@ function Examples() {
       className="mx-auto max-w-7xl px-4 md:px-6 py-6 md:py-10 [content-visibility:auto]"
     >
       <div className="mb-5 md:mb-8">
-        <h2 id="examples-title" className="text-lg md:text-2xl font-semibold tracking-tight">
+        <h2
+          id="examples-title"
+          className="text-lg md:text-2xl font-semibold tracking-tight"
+        >
           生成例（入力から出力まで）
         </h2>
         <p className="mt-1 text-sm text-muted-foreground md:text-base">
@@ -346,17 +368,30 @@ function Examples() {
               <ListIcon className="h-5 w-5 text-primary" aria-hidden />
               入力（要点）
             </div>
-            <ul className="space-y-2 text-sm md:text-base" role="list" aria-label="入力の要点">
+            <ul
+              className="space-y-2 text-sm md:text-base"
+              role="list"
+              aria-label="入力の要点"
+            >
               <li className="flex gap-2" role="listitem">
-                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary/60" aria-hidden />
+                <span
+                  className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary/60"
+                  aria-hidden
+                />
                 北欧デザインのマグカップ／軽量・割れにくい
               </li>
               <li className="flex gap-2" role="listitem">
-                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary/60" aria-hidden />
+                <span
+                  className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary/60"
+                  aria-hidden
+                />
                 マットな質感／電子レンジ・食洗機OK
               </li>
               <li className="flex gap-2" role="listitem">
-                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary/60" aria-hidden />
+                <span
+                  className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary/60"
+                  aria-hidden
+                />
                 朝のコーヒーが楽しみになる一杯に
               </li>
             </ul>
@@ -390,16 +425,31 @@ function Examples() {
         </Card>
       </motion.div>
 
-      {/* 例の下CTA（モバイルはボタン高さを抑制） */}
+      {/* 例の下CTA */}
       <div className="mt-5 md:mt-6 flex flex-wrap items-center gap-3">
-        <Link href="/writer" className={linkText} aria-label="無料で文章をつくってみる（生成例を試す）">
-          <Button size="lg" className={btnPrimary + " h-10 md:h-11 px-5 md:px-6"}>
+        <Link
+          href="/writer"
+          className={linkText}
+          aria-label="無料で文章をつくってみる（生成例を試す）"
+        >
+          <Button
+            size="lg"
+            className={btnPrimary + " h-10 md:h-11 px-5 md:px-6"}
+          >
             無料で文章をつくってみる
             <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
           </Button>
         </Link>
-        <Link href="/shares" className={linkText} aria-label="他のサンプルを見る">
-          <Button size="lg" variant="secondary" className={btnOutline + " h-10 md:h-11 px-5 md:px-6"}>
+        <Link
+          href="/shares"
+          className={linkText}
+          aria-label="他のサンプルを見る"
+        >
+          <Button
+            size="lg"
+            variant="secondary"
+            className={btnOutline + " h-10 md:h-11 px-5 md:px-6"}
+          >
             他のサンプルを見る
           </Button>
         </Link>
@@ -416,10 +466,18 @@ function TrustBar() {
       role="list"
       aria-label="採用技術"
     >
-      <span role="listitem" className="font-medium">Neon × Prisma</span>
-      <span role="listitem" className="font-medium">NextAuth (GitHub OAuth)</span>
-      <span role="listitem" className="font-medium">Vercel</span>
-      <span role="listitem" className="font-medium">shadcn/ui</span>
+      <span role="listitem" className="font-medium">
+        Neon × Prisma
+      </span>
+      <span role="listitem" className="font-medium">
+        NextAuth (GitHub OAuth)
+      </span>
+      <span role="listitem" className="font-medium">
+        Vercel
+      </span>
+      <span role="listitem" className="font-medium">
+        shadcn/ui
+      </span>
     </div>
   );
 }
@@ -427,15 +485,35 @@ function TrustBar() {
 /* ===== サービス概要（3カラム） ===== */
 function Features() {
   const items = [
-    { icon: Sparkles, title: "“魅力”を引き出す設計", desc: "質問に答えるだけ。AIが構成と要点を整理し、伝わる流れに仕上げます。" },
-    { icon: Search,   title: "検索にも配慮",           desc: "見出し・要約・導入文を最適化。専門用語は必要な範囲で自然に表現します。" },
-    { icon: Share2,   title: "かんたん共有＆レビュー", desc: "共有URLを送るだけ。下書きの確認やフィードバックがスムーズに。" },
+    {
+      icon: Sparkles,
+      title: "“魅力”を引き出す設計",
+      desc: "質問に答えるだけ。AIが構成と要点を整理し、伝わる流れに仕上げます。",
+    },
+    {
+      icon: Search,
+      title: "検索にも配慮",
+      desc: "見出し・要約・導入文を最適化。専門用語は必要な範囲で自然に表現します。",
+    },
+    {
+      icon: Share2,
+      title: "かんたん共有＆レビュー",
+      desc: "共有URLを送るだけ。下書きの確認やフィードバックがスムーズに。",
+    },
   ] as const;
 
   return (
-    <section aria-labelledby="features-heading" className="mx-auto max-w-7xl px-4 md:px-6 py-8 md:py-14 [content-visibility:auto]">
+    <section
+      aria-labelledby="features-heading"
+      className="mx-auto max-w-7xl px-4 md:px-6 py-8 md:py-14 [content-visibility:auto]"
+    >
       <div className="mb-5 md:mb-8">
-        <h2 id="features-heading" className="text-lg md:text-2xl font-semibold tracking-tight">サービス概要</h2>
+        <h2
+          id="features-heading"
+          className="text-lg md:text-2xl font-semibold tracking-tight"
+        >
+          サービス概要
+        </h2>
         <p className="mt-1 text-sm text-muted-foreground md:text-base">
           説明文ではなく、魅力が伝わる文章をだれでも。ShopWriterが下書きから公開前のレビューまで支えます。
         </p>
@@ -452,13 +530,30 @@ function Features() {
             custom={i}
             role="listitem"
           >
-            <Card className={cardClass} aria-labelledby={`feature-${i}-title`} aria-describedby={`feature-${i}-desc`}>
+            <Card
+              className={cardClass}
+              aria-labelledby={`feature-${i}-title`}
+              aria-describedby={`feature-${i}-desc`}
+            >
               <CardContent className={cardPadding}>
-                <div className="mb-3 md:mb-4 inline-flex h-9 w-9 md:h-10 md:w-10 items-center justify-center rounded-xl bg-primary/10" aria-hidden>
+                <div
+                  className="mb-3 md:mb-4 inline-flex h-9 w-9 md:h-10 md:w-10 items-center justify-center rounded-xl bg-primary/10"
+                  aria-hidden
+                >
                   <it.icon className="h-4 w-4 md:h-5 md:w-5 text-primary" />
                 </div>
-                <h3 id={`feature-${i}-title`} className="text-base md:text-lg font-semibold">{it.title}</h3>
-                <p id={`feature-${i}-desc`} className="mt-2 text-sm leading-6 text-muted-foreground md:text-base">{it.desc}</p>
+                <h3
+                  id={`feature-${i}-title`}
+                  className="text-base md:text-lg font-semibold"
+                >
+                  {it.title}
+                </h3>
+                <p
+                  id={`feature-${i}-desc`}
+                  className="mt-2 text-sm leading-6 text-muted-foreground md:text-base"
+                >
+                  {it.desc}
+                </p>
               </CardContent>
             </Card>
           </motion.div>
@@ -471,7 +566,10 @@ function Features() {
 /* ===== 最終CTA ===== */
 function FinalCTA() {
   return (
-    <section aria-labelledby="final-cta-title" className="mx-auto max-w-7xl px-4 md:px-6 pb-14 md:pb-24 [content-visibility:auto]">
+    <section
+      aria-labelledby="final-cta-title"
+      className="mx-auto max-w-7xl px-4 md:px-6 pb-14 md:pb-24 [content-visibility:auto]"
+    >
       <motion.div
         variants={scaleIn}
         initial={false}
@@ -481,13 +579,14 @@ function FinalCTA() {
       >
         <div
           aria-hidden
-          className="pointer-events-none absolute -top-16 right-0 h-40 md:h-48 w-40 md:w-48 rounded-full
-            bg-[radial-gradient(ellipse_at_center,rgba(37,99,235,0.14),transparent_60%)]
-            "
+          className="pointer-events-none absolute -top-16 right-0 h-40 md:h-48 w-40 md:w-48 rounded-full bg-[radial-gradient(ellipse_at_center,rgba(37,99,235,0.14),transparent_60%)]"
         />
         <div className="flex flex-col items-start gap-3 md:gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h3 id="final-cta-title" className="text-lg md:text-2xl font-bold tracking-tight">
+            <h3
+              id="final-cta-title"
+              className="text-lg md:text-2xl font-bold tracking-tight"
+            >
               文章づくりを、もっとやさしく。
             </h3>
             <p className="mt-1 text-sm text-muted-foreground md:text-base">
@@ -496,13 +595,24 @@ function FinalCTA() {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Link href="/writer" className={linkText} aria-label="無料で試す">
-              <Button size="lg" className={btnPrimary + " h-10 md:h-11 px-5 md:px-6"}>
+              <Button
+                size="lg"
+                className={btnPrimary + " h-10 md:h-11 px-5 md:px-6"}
+              >
                 無料で試す
                 <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
               </Button>
             </Link>
-            <Link href="/shares" className={linkText} aria-label="デモを見る">
-              <Button size="lg" variant="secondary" className={btnOutline + " h-10 md:h-11 px-5 md:px-6"}>
+            <Link
+              href="/shares"
+              className={linkText}
+              aria-label="デモを見る"
+            >
+              <Button
+              size="lg"
+              variant="secondary"
+              className={btnOutline + " h-10 md:h-11 px-5 md:px-6"}
+              >
                 デモを見る
               </Button>
             </Link>
@@ -518,22 +628,38 @@ export default function HomePage() {
   return (
     <main className="relative" aria-labelledby="hero-title">
       {/* ===== Hero ===== */}
-      <section id="hero" className="relative overflow-hidden" aria-labelledby="hero-title">
+      <section
+        id="hero"
+        className="relative overflow-hidden"
+        aria-labelledby="hero-title"
+      >
         <HeroBackdrop />
 
-        <div className="mx-auto max-w-7xl px-4 md:px-6 py-14 md:py-28">
+        {/* Hero内コンテナ: 余白をH-4-③仕様に合わせて更新 */}
+        <div className="mx-auto max-w-7xl px-4 sm:px-8 py-12 sm:py-20">
           <div className="grid grid-cols-12 items-center gap-6 md:gap-8">
             {/* 左：テキスト */}
             <div className="col-span-12 space-y-4 md:space-y-5 md:col-span-7">
-              <motion.div variants={fadeUp} initial={false} whileInView="show" viewport={{ once: true, amount: 0.9 }} custom={0} className="inline-flex">
-                <Badge className="rounded-full px-2.5 py-1 md:px-3" variant="secondary" aria-label="新着">
-                  New
-                </Badge>
-              </motion.div>
-
-              {/* wordmark */}
-              <motion.div variants={fadeUp} initial={false} whileInView="show" viewport={{ once: true, amount: 0.9 }} custom={1} className="inline-flex">
-                <LogoWordmark />
+              {/* ブランドブロック（ヘッダと同じ / βバッジ廃止） */}
+              <motion.div
+                variants={fadeUp}
+                initial={false}
+                whileInView="show"
+                viewport={{ once: true, amount: 0.9 }}
+                custom={0}
+                className="inline-flex"
+              >
+                <span className="inline-flex items-center gap-1">
+                  <Logo
+                    variant="icon"
+                    size="md"
+                    className="shrink-0"
+                    priority={true}
+                  />
+                  <span className="text-[#0A1F61] font-semibold text-base sm:text-lg leading-none">
+                    ShopWriter
+                  </span>
+                </span>
               </motion.div>
 
               {/* H1 */}
@@ -543,10 +669,12 @@ export default function HomePage() {
                 initial={false}
                 whileInView="show"
                 viewport={{ once: true, amount: 0.9 }}
-                custom={2}
-                className="whitespace-pre-line text-[32px] md:text-6xl font-bold leading-tight tracking-tight"
+                custom={1}
+                className="whitespace-pre-line text-[2rem] leading-[1.3] font-bold tracking-tight text-foreground
+                           sm:text-5xl sm:leading-tight
+                           md:text-6xl md:leading-tight max-w-3xl"
               >
-                {"「伝える」を自動化する。"}
+                {"届く文章を、AIがデザインする。"}
               </motion.h1>
 
               {/* サブコピー */}
@@ -555,8 +683,8 @@ export default function HomePage() {
                 initial={false}
                 whileInView="show"
                 viewport={{ once: true, amount: 0.9 }}
-                custom={3}
-                className="max-w-2xl text-[15px] md:text-lg text-muted-foreground"
+                custom={2}
+                className="mt-7 text-base sm:text-lg leading-relaxed text-foreground/80 max-w-2xl"
               >
                 ShopWriterは、商品説明文をスピーディーに整えるAIライティングツールです。登録なしですぐに試せます。
               </motion.p>
@@ -567,7 +695,7 @@ export default function HomePage() {
                 initial={false}
                 whileInView="show"
                 viewport={{ once: true, amount: 0.9 }}
-                custom={4}
+                custom={3}
                 className="space-y-2 md:space-y-2 text-sm md:text-base"
                 role="list"
                 aria-label="主な特長"
@@ -577,32 +705,77 @@ export default function HomePage() {
                   "自然な日本語と読みやすい流れを素早く提案",
                   "レビューは共有URLでスムーズに依頼",
                 ].map((t, i) => (
-                  <li key={i} className="flex items-start gap-2" role="listitem">
-                    <Check className="mt-0.5 h-5 w-5 text-primary" aria-hidden />
+                  <li
+                    key={i}
+                    className="flex items-start gap-2"
+                    role="listitem"
+                  >
+                    <Check
+                      className="mt-0.5 h-5 w-5 text-primary"
+                      aria-hidden
+                    />
                     <span>{t}</span>
                   </li>
                 ))}
               </motion.ul>
 
               {/* CTA */}
-              <motion.div variants={fadeUp} initial={false} whileInView="show" viewport={{ once: true, amount: 0.9 }} custom={5} className="flex flex-col gap-2">
-                <div className="flex flex-wrap items-center gap-3 md:gap-4">
-                  <Link href="/writer" className={linkText} aria-label="無料で文章をつくってみる">
-                    <Button size="lg" className={btnPrimary + " h-10 md:h-11 px-5 md:px-6"}>
+              <motion.div
+                variants={fadeUp}
+                initial={false}
+                whileInView="show"
+                viewport={{ once: true, amount: 0.9 }}
+                custom={4}
+                className="flex flex-col gap-2"
+              >
+                <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+                  <Link
+                    href="/writer"
+                    className={linkText}
+                    aria-label="無料で文章をつくってみる"
+                  >
+                    <Button
+                      size="lg"
+                      className={
+                        btnPrimary + " h-10 md:h-11 px-5 md:px-6"
+                      }
+                    >
                       無料で文章をつくってみる
-                      <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
+                      <ArrowRight
+                        className="ml-2 h-4 w-4"
+                        aria-hidden
+                      />
                     </Button>
                   </Link>
-                  <Link href="/shares" className={linkText} aria-label="仕組みを見る">
-                    <Button size="lg" variant="secondary" className={btnOutline + " h-10 md:h-11 px-5 md:px-6"}>
+                  <Link
+                    href="/shares"
+                    className={linkText}
+                    aria-label="仕組みを見る"
+                  >
+                    <Button
+                      size="lg"
+                      variant="secondary"
+                      className={
+                        btnOutline + " h-10 md:h-11 px-5 md:px-6"
+                      }
+                    >
                       仕組みを見る
                     </Button>
                   </Link>
                 </div>
-                <p className="text-[11px] md:text-xs text-muted-foreground">ブラウザだけで完結。インストール不要。</p>
+                <p className="text-[11px] md:text-xs text-muted-foreground">
+                  ブラウザだけで完結。インストール不要。
+                </p>
               </motion.div>
 
-              <motion.div variants={fadeUp} initial={false} whileInView="show" viewport={{ once: true, amount: 0.9 }} custom={6}>
+              {/* TrustBar */}
+              <motion.div
+                variants={fadeUp}
+                initial={false}
+                whileInView="show"
+                viewport={{ once: true, amount: 0.9 }}
+                custom={5}
+              >
                 <TrustBar />
               </motion.div>
             </div>
@@ -629,4 +802,3 @@ export default function HomePage() {
     </main>
   );
 }
-
