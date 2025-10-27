@@ -1,3 +1,16 @@
+// app/writer/ClientPage.tsx
+// ClientPage = /writer の唯一のインタラクティブ実装(SSOT)
+// - "use client"（ブラウザ側）
+// - 入力フォーム / 生成ハンドラ / トースト演出 / 共有カード作成 などすべてここで完結
+// page.tsx 側はこのコンポーネントをラップして返すだけにすること
+//
+// 注意:
+// - ここからビジネスロジックを page.tsx 側にコピーしないこと
+// - runtime / dynamic の指定は page.tsx 側で行うこと
+// - UIのステップ表示 (①入力 / ②生成 / ③出力 + 完了バッジ) は必ずここから描画すること
+//
+// このファイルは Precision Plan の「Writer UI」の単一情報源として扱う
+
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -33,7 +46,7 @@ import {
 import { toast } from "sonner";
 
 /* =========================
-   Durations（演出時間をやや延長）
+   Durations（演出時間 少し長め）
    ========================= */
 const DUR = {
   TYPEWRITER_MS: 35,
@@ -65,7 +78,10 @@ const FormSchema = z.object({
     .max(120, "120文字以内で要約してください"),
   features: z
     .string()
-    .min(MIN_FEATURES, `特徴・強みは${MIN_FEATURES}文字以上で入力してください`),
+    .min(
+      MIN_FEATURES,
+      `特徴・強みは${MIN_FEATURES}文字以上で入力してください`
+    ),
   audience: z.string().min(2, "ターゲットは2文字以上で入力してください"),
   tone: z
     .enum(["friendly", "professional", "casual", "energetic"])
@@ -79,9 +95,12 @@ const FormSchema = z.object({
 type FormValues = z.infer<typeof FormSchema>;
 
 /* =========================
-   API
+   API helpers
    ========================= */
-async function callWriterAPI(payload: { meta: Record<string, any>; prompt: string }) {
+async function callWriterAPI(payload: {
+  meta: Record<string, any>;
+  prompt: string;
+}) {
   const res = await fetch("/api/writer", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -89,6 +108,7 @@ async function callWriterAPI(payload: { meta: Record<string, any>; prompt: strin
   });
   return res.json();
 }
+
 async function createShare(params: { title: string; body: string }) {
   const headers: HeadersInit = { "content-type": "application/json" };
   const devUser = process.env.NEXT_PUBLIC_DEV_USER_ID;
@@ -96,16 +116,21 @@ async function createShare(params: { title: string; body: string }) {
   return fetch("/api/shares", {
     method: "POST",
     headers,
-    body: JSON.stringify({ title: params.title, body: params.body, isPublic: false }),
+    body: JSON.stringify({
+      title: params.title,
+      body: params.body,
+      isPublic: false,
+    }),
   });
 }
 
 /* =========================
-   Typewriter
+   Typewriter effect
    ========================= */
 function useTypewriter(fullText: string, speed = DUR.TYPEWRITER_MS) {
   const [shown, setShown] = useState("");
   const prev = useRef<string>("");
+
   const timer = useRef<number | null>(null);
 
   useEffect(() => {
@@ -113,15 +138,19 @@ function useTypewriter(fullText: string, speed = DUR.TYPEWRITER_MS) {
     prev.current = fullText;
     setShown("");
     if (!fullText) return;
+
     let i = 0;
     let stop = false;
     const tick = () => {
       if (stop) return;
       i = Math.min(i + 1, fullText.length);
       setShown(fullText.slice(0, i));
-      if (i < fullText.length) timer.current = window.setTimeout(tick, speed);
+      if (i < fullText.length) {
+        timer.current = window.setTimeout(tick, speed);
+      }
     };
     timer.current = window.setTimeout(tick, speed);
+
     return () => {
       stop = true;
       if (timer.current) clearTimeout(timer.current);
@@ -132,7 +161,7 @@ function useTypewriter(fullText: string, speed = DUR.TYPEWRITER_MS) {
 }
 
 /* =========================
-   Badges
+   Badges row (Hero下の指標表示)
    ========================= */
 function BadgeRow() {
   return (
@@ -154,9 +183,10 @@ function BadgeRow() {
 }
 
 /* =========================
-   Page
+   Main Component
    ========================= */
-export default function WriterPage() {
+export default function ClientPage() {
+  // 状態
   const [result, setResult] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [shareId, setShareId] = useState<string | null>(null);
@@ -169,8 +199,10 @@ export default function WriterPage() {
   const celebTimerRef = useRef<number | null>(null);
   const badgeTimerRef = useRef<number | null>(null);
 
+  // 出力カードへのスクロール用
   const resultRef = useRef<HTMLDivElement | null>(null);
 
+  // React Hook Form
   const {
     register,
     handleSubmit,
@@ -193,6 +225,7 @@ export default function WriterPage() {
     },
   });
 
+  // 派生状態
   const product = watch("product");
   const featuresLen = [...(watch("features") ?? "")].length;
 
@@ -204,26 +237,32 @@ export default function WriterPage() {
       `# 特徴: ${v.features}`,
       `# ターゲット: ${v.audience}`,
       `# トーン: ${v.tone}`,
-      `# テンプレ: ${v.template} / 長さ: ${v.length} / CTA: ${v.cta ? "あり" : "なし"}`,
+      `# テンプレ: ${v.template} / 長さ: ${v.length} / CTA: ${
+        v.cta ? "あり" : "なし"
+      }`,
       "",
       "## 出力要件",
       "- 日本語",
       "- 具体的・簡潔・販売導線を意識",
     ];
-    if (v.template === "lp") sections.push("- 見出し→特長→CTA の順でセクション化");
-    if (v.template === "email") sections.push("- 件名→本文（導入/要点/CTA）");
-    if (v.template === "sns_short") sections.push("- 140字以内を目安、ハッシュタグ2つまで");
-    if (v.template === "headline_only") sections.push("- ヘッドライン案を3つ");
+    if (v.template === "lp")
+      sections.push("- 見出し→特長→CTA の順でセクション化");
+    if (v.template === "email")
+      sections.push("- 件名→本文（導入/要点/CTA）");
+    if (v.template === "sns_short")
+      sections.push("- 140字以内を目安、ハッシュタグ2つまで");
+    if (v.template === "headline_only")
+      sections.push("- ヘッドライン案を3つ");
     return sections.join("\n");
   }, [watch]);
 
-  /* ===== Reduce initial animations when needed ===== */
+  // アニメーションの簡略化フラグ
   const prefersReduce = useReducedMotion();
   const [hasMounted, setHasMounted] = useState(false);
   useEffect(() => setHasMounted(true), []);
   const disableInitialAnim = prefersReduce || !hasMounted;
 
-  /* ===== Smart scroll to result ===== */
+  // 出力カードへスクロール（生成完了時）
   const scrollToResultSmart = useCallback(() => {
     const el = resultRef.current;
     if (!el) return;
@@ -241,7 +280,7 @@ export default function WriterPage() {
     requestAnimationFrame(() => requestAnimationFrame(run));
   }, [prefersReduce]);
 
-  /* ===== Submit ===== */
+  // 送信（生成リクエスト）
   const onSubmit = useCallback(
     async (vals: FormValues) => {
       setError(null);
@@ -250,6 +289,8 @@ export default function WriterPage() {
       setResult("");
       setJustCompleted(false);
       setShowDoneBadge(false);
+
+      // 既存タイマーのクリア
       if (celebTimerRef.current) {
         clearTimeout(celebTimerRef.current);
         celebTimerRef.current = null;
@@ -259,7 +300,9 @@ export default function WriterPage() {
         badgeTimerRef.current = null;
       }
 
+      // 最低スピン時間を確保（UIの"生成中"演出を見せる）
       const minSpin = new Promise((r) => setTimeout(r, DUR.SPIN_MIN_MS));
+
       try {
         const payload = {
           meta: {
@@ -271,23 +314,31 @@ export default function WriterPage() {
           prompt,
         };
         const j = await callWriterAPI(payload);
+
         const text =
           (j?.data?.text as string) ??
           (j?.output as string) ??
           (typeof j === "string" ? j : "");
         if (!text) throw new Error(j?.message || "生成結果が空でした。");
+
+        // UI演出の最低時間を待つ
         await minSpin;
 
+        // 結果セット＆祝演出ON
         setResult(text);
         setJustCompleted(true);
         setShowDoneBadge(true);
 
+        // 出力枠までスクロール
         scrollToResultSmart();
 
+        // 祝演出の寿命タイマー
         celebTimerRef.current = window.setTimeout(() => {
           setJustCompleted(false);
           celebTimerRef.current = null;
         }, DUR.CELEB_MS);
+
+        // 完了バッジの寿命タイマー
         badgeTimerRef.current = window.setTimeout(() => {
           setShowDoneBadge(false);
           badgeTimerRef.current = null;
@@ -304,7 +355,7 @@ export default function WriterPage() {
     [prompt, scrollToResultSmart]
   );
 
-  /* ===== Cleanup ===== */
+  // アンマウント時にタイマー破棄
   useEffect(() => {
     return () => {
       if (celebTimerRef.current) clearTimeout(celebTimerRef.current);
@@ -312,9 +363,10 @@ export default function WriterPage() {
     };
   }, []);
 
-  /* ===== Global hotkey (Ctrl/⌘ + Enter) ===== */
+  // Ctrl/⌘ + Enter ショートカット
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // IME変換中は発火しない
       // @ts-ignore
       if ((e as any).isComposing) return;
       const isMac = navigator.platform.toLowerCase().includes("mac");
@@ -328,7 +380,7 @@ export default function WriterPage() {
     return () => document.removeEventListener("keydown", handler);
   }, [handleSubmit, onSubmit]);
 
-  /* ===== Copy / Share ===== */
+  // コピー機能
   const doCopy = useCallback(async () => {
     if (!result) return;
     try {
@@ -347,19 +399,25 @@ export default function WriterPage() {
     }
   }, [result]);
 
+  // 共有カード作成
   const doShare = useCallback(async () => {
     setError(null);
     setShareId(null);
     try {
-      if (!result) throw new Error("共有する本文がありません。先に生成してください。");
+      if (!result)
+        throw new Error(
+          "共有する本文がありません。先に生成してください。"
+        );
       const res = await createShare({
         title: product ? `${product} / Writer出力` : "Writer出力",
         body: result,
       });
+
       if (res.status === 201) {
         const created = await res.json();
         const id = created.id || created?.data?.id || null;
         setShareId(id);
+
         toast.success("共有が完了しました", {
           description: "共有カードを作成しました。",
           action: id
@@ -367,7 +425,11 @@ export default function WriterPage() {
                 label: "開く",
                 onClick: () => {
                   try {
-                    window.open(`/share/${id}`, "_blank", "noopener,noreferrer");
+                    window.open(
+                      `/share/${id}`,
+                      "_blank",
+                      "noopener,noreferrer"
+                    );
                   } catch {}
                 },
               }
@@ -375,7 +437,10 @@ export default function WriterPage() {
         });
       } else {
         const j = await res.json().catch(() => ({}));
-        const msg = j?.message || j?.error || `共有に失敗しました（${res.status}）`;
+        const msg =
+          j?.message ||
+          j?.error ||
+          `共有に失敗しました（${res.status}）`;
         throw new Error(msg);
       }
     } catch (e: any) {
@@ -385,13 +450,16 @@ export default function WriterPage() {
     }
   }, [product, result]);
 
-  /* ===== Parallax BG (cosmetic) ===== */
+  // 背景オーブのパララックス
   const { scrollYProgress } = useScroll();
   const orbUp = useTransform(scrollYProgress, [0, 1], [0, -80]);
   const orbDown = useTransform(scrollYProgress, [0, 1], [0, 120]);
   const fadeBg = useTransform(scrollYProgress, [0, 0.3], [1, 0.85]);
 
+  // 出力がStubかどうか
   const isStub = result.includes("【STUB出力】");
+
+  // ボタン活性制御
   const submitDisabled = !isValid || isLoading || isSubmitting;
   const submitReason = !isValid
     ? "必須項目の入力条件を満たしていません（それぞれのエラーメッセージを確認）"
@@ -399,11 +467,12 @@ export default function WriterPage() {
     ? "実行中です"
     : "";
 
+  // タイプライタ表示
   const typed = useTypewriter(result, DUR.TYPEWRITER_MS);
 
   return (
     <div className={TOKENS.pageBg}>
-      {/* Global brand vars（既存の brand 補助） */}
+      {/* グローバルブランド変数（ブランドネイビー等） */}
       <style jsx global>{`
         :root {
           --brand-navy: #0B3BA7;
@@ -419,7 +488,7 @@ export default function WriterPage() {
         }
       `}</style>
 
-      {/* 背景（視覚効果のみ） */}
+      {/* ===== 背景オーブ（視覚効果） ===== */}
       <motion.div
         aria-hidden
         className="pointer-events-none absolute -z-10 -top-24 -left-20 h-60 w-60 rounded-full bg-indigo-400/25 blur-3xl"
@@ -431,7 +500,7 @@ export default function WriterPage() {
         style={{ y: orbDown, opacity: fadeBg as MotionValue<number> }}
       />
 
-      {/* ===== Hero（上余白少し増量） ===== */}
+      {/* ===== Heroセクション ===== */}
       <div className="mx-auto max-w-7xl px-8 md:px-12 pt-8 md:pt-10">
         <motion.div
           initial={disableInitialAnim ? false : { opacity: 0, y: 10 }}
@@ -464,7 +533,7 @@ export default function WriterPage() {
         </motion.div>
       </div>
 
-      {/* ===== Step Nav（②生成は常駐、生成中は文言切替） ===== */}
+      {/* ===== ステップナビ (②生成は常駐 / 実行中は文言変更) ===== */}
       <div className="mx-auto max-w-7xl px-8 md:px-12 mt-3">
         <div className="flex items-center gap-2 text-[12px] text-neutral-600">
           <span className="inline-flex items-center gap-1 rounded-full border px-2 py-1 bg-white/70">
@@ -473,6 +542,7 @@ export default function WriterPage() {
             </span>
             入力
           </span>
+
           <span
             className={clsx(
               "inline-flex items-center gap-1 rounded-full border px-2 py-1",
@@ -484,12 +554,14 @@ export default function WriterPage() {
             </span>
             {isLoading ? "生成しています…" : "生成"}
           </span>
+
           <span className="inline-flex items-center gap-1 rounded-full border px-2 py-1 bg-white/70">
             <span className="inline-flex size-4 items-center justify-center rounded-full bg-indigo-600/15 text-indigo-700 text-[10px] font-semibold">
               3
             </span>
             出力
           </span>
+
           <AnimatePresence>
             {showDoneBadge && (
               <motion.span
@@ -508,9 +580,9 @@ export default function WriterPage() {
         </div>
       </div>
 
-      {/* ===== Input / Output ===== */}
+      {/* ===== 入力フォーム / 出力プレビュー領域 ===== */}
       <div className="mx-auto max-w-7xl px-8 md:px-12 py-6 grid grid-cols-1 lg:grid-cols-[1.1fr,0.9fr] gap-8">
-        {/* 入力（Cardで統一） */}
+        {/* 左カラム: 入力 */}
         <motion.section
           initial={disableInitialAnim ? false : { opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
@@ -542,38 +614,50 @@ export default function WriterPage() {
               }}
             >
               <div>
-                <Label className="text-sm text-neutral-700 dark:text-neutral-300">商品名</Label>
+                <Label className="text-sm text-neutral-700 dark:text-neutral-300">
+                  商品名
+                </Label>
                 <Input
                   placeholder="例）ShopWriter（AIライティング支援）"
                   aria-invalid={!!errors.product}
                   className={clsx(
-                    errors.product && "border-red-300 focus-visible:ring-red-400"
+                    errors.product &&
+                      "border-red-300 focus-visible:ring-red-400"
                   )}
                   {...register("product")}
                 />
                 {errors.product && (
-                  <p className="text-xs text-red-500">{errors.product.message}</p>
+                  <p className="text-xs text-red-500">
+                    {errors.product.message}
+                  </p>
                 )}
               </div>
 
               <div>
-                <Label className="text-sm text-neutral-700 dark:text-neutral-300">用途・目的</Label>
+                <Label className="text-sm text-neutral-700 dark:text-neutral-300">
+                  用途・目的
+                </Label>
                 <Input
                   placeholder="例）LP導入文を作る／告知文を作る など"
                   aria-invalid={!!errors.purpose}
                   className={clsx(
-                    errors.purpose && "border-red-300 focus-visible:ring-red-400"
+                    errors.purpose &&
+                      "border-red-300 focus-visible:ring-red-400"
                   )}
                   {...register("purpose")}
                 />
                 {errors.purpose && (
-                  <p className="text-xs text-red-500">{errors.purpose.message}</p>
+                  <p className="text-xs text-red-500">
+                    {errors.purpose.message}
+                  </p>
                 )}
               </div>
 
               <div>
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm text-neutral-700 dark:text-neutral-300">特徴・強み</Label>
+                  <Label className="text-sm text-neutral-700 dark:text-neutral-300">
+                    特徴・強み
+                  </Label>
                   <span className="text-[11px] text-neutral-500">
                     {featuresLen} / {MIN_FEATURES}
                   </span>
@@ -583,12 +667,15 @@ export default function WriterPage() {
                   placeholder="例）3分で構成〜出力〜共有まで完了。共有カード、差分比較に対応。"
                   aria-invalid={!!errors.features}
                   className={clsx(
-                    errors.features && "border-red-300 focus-visible:ring-red-400"
+                    errors.features &&
+                      "border-red-300 focus-visible:ring-red-400"
                   )}
                   {...register("features")}
                 />
                 {errors.features ? (
-                  <p className="text-xs text-red-500">{errors.features.message}</p>
+                  <p className="text-xs text-red-500">
+                    {errors.features.message}
+                  </p>
                 ) : (
                   <p className="text-xs text-neutral-500">
                     ※ {MIN_FEATURES}文字以上で入力してください
@@ -598,18 +685,24 @@ export default function WriterPage() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <Label className="text-sm text-neutral-700 dark:text-neutral-300">ターゲット</Label>
+                  <Label className="text-sm text-neutral-700 dark:text-neutral-300">
+                    ターゲット
+                  </Label>
                   <Input
                     placeholder="例）個人事業主／EC担当／SaaS PMM"
                     aria-invalid={!!errors.audience}
                     {...register("audience")}
                   />
                   {errors.audience && (
-                    <p className="text-xs text-red-500">{errors.audience.message}</p>
+                    <p className="text-xs text-red-500">
+                      {errors.audience.message}
+                    </p>
                   )}
                 </div>
                 <div>
-                  <Label className="text-sm text-neutral-700 dark:text-neutral-300">トーン</Label>
+                  <Label className="text-sm text-neutral-700 dark:text-neutral-300">
+                    トーン
+                  </Label>
                   <select
                     className="w-full border rounded-md h-9 px-2 bg-background"
                     {...register("tone")}
@@ -624,7 +717,9 @@ export default function WriterPage() {
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <Label className="text-sm text-neutral-700 dark:text-neutral-300">テンプレ</Label>
+                  <Label className="text-sm text-neutral-700 dark:text-neutral-300">
+                    テンプレ
+                  </Label>
                   <select
                     className="w-full border rounded-md h-9 px-2 bg-background"
                     {...register("template")}
@@ -635,8 +730,11 @@ export default function WriterPage() {
                     <option value="headline_only">ヘッドライン</option>
                   </select>
                 </div>
+
                 <div>
-                  <Label className="text-sm text-neutral-700 dark:text-neutral-300">長さ</Label>
+                  <Label className="text-sm text-neutral-700 dark:text-neutral-300">
+                    長さ
+                  </Label>
                   <select
                     className="w-full border rounded-md h-9 px-2 bg-background"
                     {...register("length")}
@@ -649,9 +747,14 @@ export default function WriterPage() {
 
                 <div className="flex items-center justify-between border rounded-md px-3">
                   <div>
-                    <Label className="text-sm text-neutral-700 dark:text-neutral-300">CTAを入れる</Label>
-                    <p className="text-xs text-neutral-500">購入/申込の導線を明示</p>
+                    <Label className="text-sm text-neutral-700 dark:text-neutral-300">
+                      CTAを入れる
+                    </Label>
+                    <p className="text-xs text-neutral-500">
+                      購入/申込の導線を明示
+                    </p>
                   </div>
+
                   <Controller
                     name="cta"
                     control={control}
@@ -667,7 +770,7 @@ export default function WriterPage() {
               </div>
 
               <div className="pt-2 flex items-center gap-2">
-                {/* 生成ボタン：MotionButton（影強調はクラスで付与） */}
+                {/* 生成ボタン */}
                 <MotionButton
                   type="submit"
                   variant="primary"
@@ -676,7 +779,11 @@ export default function WriterPage() {
                   data-action="generate"
                 >
                   <span className="inline-flex items-center gap-2">
-                    {isLoading ? <Loader2 className="size-4 animate-spin" /> : <Zap className="size-4" />}
+                    {isLoading ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Zap className="size-4" />
+                    )}
                     {isLoading ? "生成しています…" : "生成する"}
                   </span>
                 </MotionButton>
@@ -689,8 +796,11 @@ export default function WriterPage() {
                 >
                   リセット
                 </Button>
+
                 {submitDisabled && (
-                  <span className="text-xs text-neutral-500">{submitReason}</span>
+                  <span className="text-xs text-neutral-500">
+                    {submitReason}
+                  </span>
                 )}
               </div>
 
@@ -707,17 +817,21 @@ export default function WriterPage() {
           </Card>
         </motion.section>
 
-        {/* 出力（Card＋強調時のみ ring/影強化をクラスで付与） */}
+        {/* 右カラム: 出力プレビュー */}
         <motion.section
           ref={resultRef}
           initial={disableInitialAnim ? false : { opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35, delay: disableInitialAnim ? 0 : 0.05 }}
+          transition={{
+            duration: 0.35,
+            delay: disableInitialAnim ? 0 : 0.05,
+          }}
         >
           <Card
             className={clsx(
               "relative p-5 md:p-6 overflow-visible",
-              justCompleted && "shadow-soft-md ring-2 ring-indigo-300/60"
+              justCompleted &&
+                "shadow-soft-md ring-2 ring-indigo-300/60"
             )}
           >
             <div className="mb-3 flex items-center justify-between">
@@ -727,6 +841,7 @@ export default function WriterPage() {
                 </span>
                 <h2 className="text-sm font-semibold">出力</h2>
               </div>
+
               <div className="flex gap-2">
                 <Button
                   type="button"
@@ -739,6 +854,7 @@ export default function WriterPage() {
                   <Copy className="size-4" />
                   {copied ? "コピーしました" : "コピー"}
                 </Button>
+
                 <Button
                   type="button"
                   variant="secondary"
@@ -753,7 +869,10 @@ export default function WriterPage() {
               </div>
             </div>
 
-            {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
+            {error && (
+              <p className="text-xs text-red-600 mb-2">{error}</p>
+            )}
+
             {isStub && (
               <p className="text-xs text-neutral-500 mb-2">
                 STUBモード：外部APIを呼び出さず固定ロジックで応答しています。
@@ -776,17 +895,23 @@ export default function WriterPage() {
                 <motion.div
                   key={result.slice(0, 24)}
                   initial={{ opacity: 0, y: 6, filter: "blur(2px)" }}
-                  animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                  animate={{
+                    opacity: 1,
+                    y: 0,
+                    filter: "blur(0px)",
+                  }}
                   transition={{ duration: 0.35 }}
                 >
                   {typed}
                 </motion.div>
               ) : (
-                <p className="text-neutral-500">生成結果がここに表示されます。</p>
+                <p className="text-neutral-500">
+                  生成結果がここに表示されます。
+                </p>
               )}
             </div>
 
-            {/* 別案ボタン */}
+            {/* 別案生成ボタン */}
             <div className="mt-4">
               <Button
                 type="button"
@@ -802,22 +927,28 @@ export default function WriterPage() {
               </Button>
             </div>
 
-            {/* 完成演出（表示延長） */}
+            {/* 完成時の祝演出（延長済み） */}
             <AnimatePresence initial={false}>
               {justCompleted && !isLoading && !error && (
                 <div className="pointer-events-none absolute inset-0 z-50 overflow-visible">
                   {Array.from({ length: 12 }).map((_, i) => {
-                    const r = (i * 37) % 100,
-                      c = (i * 61) % 100;
-                    const top = `${10 + (r % 80)}%`,
-                      left = `${5 + (c % 90)}%`,
-                      delay = (i % 6) * 0.08;
+                    const r = (i * 37) % 100;
+                    const c = (i * 61) % 100;
+                    const top = `${10 + (r % 80)}%`;
+                    const left = `${5 + (c % 90)}%`;
+                    const delay = (i % 6) * 0.08;
+
                     return (
                       <motion.span
                         key={i}
                         className="absolute text-base select-none"
                         style={{ top, left }}
-                        initial={{ opacity: 0, y: 0, scale: 0.6, rotate: 0 }}
+                        initial={{
+                          opacity: 0,
+                          y: 0,
+                          scale: 0.6,
+                          rotate: 0,
+                        }}
                         animate={{
                           opacity: [0, 1, 0],
                           y: -18,
@@ -825,20 +956,37 @@ export default function WriterPage() {
                           rotate: 20,
                         }}
                         exit={{ opacity: 0 }}
-                        transition={{ duration: 1.2, delay, ease: "easeOut" }}
+                        transition={{
+                          duration: 1.2,
+                          delay,
+                          ease: "easeOut",
+                        }}
                         aria-hidden="true"
                       >
                         ✨
                       </motion.span>
                     );
                   })}
+
                   <motion.div
                     role="status"
                     aria-live="polite"
                     className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2"
-                    initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -10, scale: 0.98 }}
+                    initial={{
+                      opacity: 0,
+                      y: -10,
+                      scale: 0.95,
+                    }}
+                    animate={{
+                      opacity: 1,
+                      y: 0,
+                      scale: 1,
+                    }}
+                    exit={{
+                      opacity: 0,
+                      y: -10,
+                      scale: 0.98,
+                    }}
                     transition={{ duration: 0.4 }}
                   >
                     <div className="rounded-full bg-white/90 shadow-md border px-4 py-1.5 text-xs font-medium text-gray-800 backdrop-blur">
@@ -849,6 +997,7 @@ export default function WriterPage() {
               )}
             </AnimatePresence>
 
+            {/* 枠のリング・やわらかいハイライト */}
             <div
               aria-hidden
               className="pointer-events-none absolute inset-0 rounded-3xl ring-1 ring-inset ring-indigo-500/10 [mask-image:radial-gradient(60%_50%_at_50%_50%,black,transparent)]"
