@@ -1,19 +1,26 @@
 ﻿// app/writer/ClientPage.tsx
 // ClientPage = /writer の唯一のインタラクティブ実装(SSOT)
-// - "use client"（ブラウザ側）
-// - 入力フォーム / 生成ハンドラ / トースト演出 / 共有カード作成 などすべてここで完結
-// page.tsx 側はこのコンポーネントをラップして返すだけにすること
+// H-6c PC版Heroガラスカード中央寄せ＋ステップナビ分離
 //
-// 注意:
-// - ここからビジネスロジックを page.tsx 側にコピーしないこと
-// - runtime / dynamic の指定は page.tsx 側で行うこと
-// - UIのステップ表示 (①入力 / ②生成 / ③出力 + 完了バッジ) は必ずここから描画すること
+// 目的：
+// - スマホでは2行固定コピー「あなたの言葉を、 / AIで磨く。」を維持
+// - PCではHeroを中央寄せの半透明カード化し、見映えを強化
+// - ステップナビをHero外に独立配置して段差をつける
+// - スマホ段落崩れ防止のため Markdown→HTML 整形ロジック等は既存維持
+// - Precision Planの挙動（1クリック=1POST・/api/writerの返却shape）は維持
 //
-// このファイルは Precision Plan の「Writer UI」の単一情報源として扱う
+// このファイルは /writer のUI・生成ハンドラ・コピー共有機能・演出をすべて内包する。
+// page.tsx 側はこのコンポーネントをラップして返すだけにすること。
+// 使用環境：Next.js(App Router) / React Client Component / TypeScript / Framer Motion / shadcn-ui / PowerShell開発
 
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -46,8 +53,8 @@ import {
 import { toast } from "sonner";
 
 /* =========================
-   Durations（演出時間 少し長め）
-   ========================= */
+   Durations（演出時間）
+========================= */
 const DUR = {
   TYPEWRITER_MS: 35,
   SPIN_MIN_MS: 700,
@@ -56,8 +63,8 @@ const DUR = {
 };
 
 /* =========================
-   Tokens
-   ========================= */
+   Metrics / tokens
+========================= */
 const MIN_FEATURES = 8;
 
 const TOKENS = {
@@ -68,8 +75,8 @@ const TOKENS = {
 };
 
 /* =========================
-   Schema
-   ========================= */
+   Schema for form
+========================= */
 const FormSchema = z.object({
   product: z.string().min(2, "商品名は2文字以上で入力してください"),
   purpose: z
@@ -96,7 +103,7 @@ type FormValues = z.infer<typeof FormSchema>;
 
 /* =========================
    API helpers
-   ========================= */
+========================= */
 async function callWriterAPI(payload: {
   meta: Record<string, any>;
   prompt: string;
@@ -125,8 +132,8 @@ async function createShare(params: { title: string; body: string }) {
 }
 
 /* =========================
-   Typewriter effect
-   ========================= */
+   Typewriter effect (出力表示用)
+========================= */
 function useTypewriter(fullText: string, speed = DUR.TYPEWRITER_MS) {
   const [shown, setShown] = useState("");
   const prev = useRef<string>("");
@@ -161,8 +168,88 @@ function useTypewriter(fullText: string, speed = DUR.TYPEWRITER_MS) {
 }
 
 /* =========================
-   Badges row (Hero下の指標表示)
-   ========================= */
+   Markdown → HTML 簡易変換
+   - スマホ段落崩れ対策
+   - h2/h3, 箇条書き(- ), 段落を<p>に包む
+   - 最低限の整形なので高度なMarkdownは対象外でOK
+========================= */
+function basicMarkdownToHtml(src: string): string {
+  if (!src) return "";
+
+  const lines = src.replace(/\r\n/g, "\n").split("\n");
+
+  const htmlLines: string[] = [];
+  let listBuffer: string[] = [];
+
+  function flushList() {
+    if (listBuffer.length > 0) {
+      htmlLines.push(
+        "<ul>" +
+          listBuffer
+            .map((item) => `<li>${item}</li>`)
+            .join("") +
+          "</ul>"
+      );
+      listBuffer = [];
+    }
+  }
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+
+    // ### ... → <h3>
+    if (line.startsWith("### ")) {
+      flushList();
+      const text = line.replace(/^###\s+/, "");
+      htmlLines.push(`<h3>${escapeHtml(text)}</h3>`);
+      continue;
+    }
+    // ## ... → <h2>
+    if (line.startsWith("## ")) {
+      flushList();
+      const text = line.replace(/^##\s+/, "");
+      htmlLines.push(`<h2>${escapeHtml(text)}</h2>`);
+      continue;
+    }
+
+    // - ... → <ul><li>...</li></ul>
+    if (line.startsWith("- ")) {
+      const itemText = line.replace(/^-+\s*/, "");
+      listBuffer.push(escapeHtml(itemText));
+      continue;
+    }
+
+    // 空行 → <br/>
+    if (line === "") {
+      flushList();
+      htmlLines.push("<br/>");
+      continue;
+    }
+
+    // 通常段落
+    flushList();
+    htmlLines.push(`<p>${escapeHtml(line)}</p>`);
+  }
+
+  flushList();
+
+  // 連続 <br/> を整える（<br/><br/> → <br/>）
+  const merged = htmlLines.join("\n").replace(/(<br\/>\s*){2,}/g, "<br/>");
+
+  return merged;
+}
+
+// シンプルなHTMLエスケープ
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/* =========================
+   Hero small badges row
+========================= */
 function BadgeRow() {
   return (
     <div className="flex flex-wrap items-center gap-2 text-[11px] text-neutral-600">
@@ -184,25 +271,27 @@ function BadgeRow() {
 
 /* =========================
    Main Component
-   ========================= */
+========================= */
 export default function ClientPage() {
-  // 状態
+  // 出力状態
   const [result, setResult] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [shareId, setShareId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // 完成演出用フラグ
   const [justCompleted, setJustCompleted] = useState(false);
   const [showDoneBadge, setShowDoneBadge] = useState(false);
 
+  // タイマー参照
   const celebTimerRef = useRef<number | null>(null);
   const badgeTimerRef = useRef<number | null>(null);
 
   // 出力カードへのスクロール用
   const resultRef = useRef<HTMLDivElement | null>(null);
 
-  // React Hook Form
+  // React Hook Form 設定
   const {
     register,
     handleSubmit,
@@ -214,10 +303,10 @@ export default function ClientPage() {
     resolver: zodResolver(FormSchema),
     mode: "onChange",
     defaultValues: {
-      product: "ShopWriter",
-      purpose: "文章生成",
-      features: "爆速で最適な文章",
-      audience: "ユーザー",
+      product: "",
+      purpose: "",
+      features: "",
+      audience: "",
       tone: "friendly",
       template: "lp",
       length: "medium",
@@ -225,53 +314,31 @@ export default function ClientPage() {
     },
   });
 
-  // 派生状態
+  // 入力中の補助状態
   const product = watch("product");
   const featuresLen = [...(watch("features") ?? "")].length;
 
-  const prompt = useMemo(() => {
-    const v = watch();
-    const sections: string[] = [
-      `# プロダクト: ${v.product}`,
-      `# 用途: ${v.purpose}`,
-      `# 特徴: ${v.features}`,
-      `# ターゲット: ${v.audience}`,
-      `# トーン: ${v.tone}`,
-      `# テンプレ: ${v.template} / 長さ: ${v.length} / CTA: ${
-        v.cta ? "あり" : "なし"
-      }`,
-      "",
-      "## 出力要件",
-      "- 日本語",
-      "- 具体的・簡潔・販売導線を意識",
-    ];
-    if (v.template === "lp")
-      sections.push("- 見出し→特長→CTA の順でセクション化");
-    if (v.template === "email")
-      sections.push("- 件名→本文（導入/要点/CTA）");
-    if (v.template === "sns_short")
-      sections.push("- 140字以内を目安、ハッシュタグ2つまで");
-    if (v.template === "headline_only")
-      sections.push("- ヘッドライン案を3つ");
-    return sections.join("\n");
-  }, [watch]);
-
-  // アニメーションの簡略化フラグ
+  /* =========================
+     reduce motion / initial anim flags
+  ========================= */
   const prefersReduce = useReducedMotion();
   const [hasMounted, setHasMounted] = useState(false);
   useEffect(() => setHasMounted(true), []);
   const disableInitialAnim = prefersReduce || !hasMounted;
 
-  // 出力カードへスクロール（生成完了時）
+  /* =========================
+     出力カードへスクロール
+  ========================= */
   const scrollToResultSmart = useCallback(() => {
     const el = resultRef.current;
     if (!el) return;
     const run = () => {
-      const OFFSET = 120; // グローバルヘッダー分
+      const OFFSET = 120; // navbarぶん
       const rect = el.getBoundingClientRect();
       const vh = window.innerHeight;
-      const ok = rect.top >= 64 && rect.bottom <= vh - 96;
-      if (ok) return;
+      const visibleEnough =
+        rect.top >= 64 && rect.bottom <= vh - 96;
+      if (visibleEnough) return;
       window.scrollTo({
         top: Math.max(0, rect.top + window.scrollY - OFFSET),
         behavior: prefersReduce ? "auto" : "smooth",
@@ -280,7 +347,9 @@ export default function ClientPage() {
     requestAnimationFrame(() => requestAnimationFrame(run));
   }, [prefersReduce]);
 
-  // 送信（生成リクエスト）
+  /* =========================
+     フォーム送信(onSubmit)
+  ========================= */
   const onSubmit = useCallback(
     async (vals: FormValues) => {
       setError(null);
@@ -290,7 +359,7 @@ export default function ClientPage() {
       setJustCompleted(false);
       setShowDoneBadge(false);
 
-      // 既存タイマーのクリア
+      // 古いタイマーをクリア
       if (celebTimerRef.current) {
         clearTimeout(celebTimerRef.current);
         celebTimerRef.current = null;
@@ -300,45 +369,79 @@ export default function ClientPage() {
         badgeTimerRef.current = null;
       }
 
-      // 最低スピン時間を確保（UIの"生成中"演出を見せる）
-      const minSpin = new Promise((r) => setTimeout(r, DUR.SPIN_MIN_MS));
+      // 最新valsからpromptを構築
+      const sections: string[] = [
+        `# プロダクト: ${vals.product}`,
+        `# 用途: ${vals.purpose}`,
+        `# 特徴: ${vals.features}`,
+        `# ターゲット: ${vals.audience}`,
+        `# トーン: ${vals.tone}`,
+        `# テンプレ: ${vals.template} / 長さ: ${vals.length} / CTA: ${vals.cta ? "あり" : "なし"}`,
+        "",
+        "## 出力要件",
+        "- 日本語",
+        "- 具体的・簡潔・販売導線を意識",
+      ];
+
+      if (vals.template === "lp") {
+        sections.push("- 見出し→特長→CTA の順でセクション化");
+      }
+      if (vals.template === "email") {
+        sections.push("- 件名→本文（導入/要点/CTA）");
+      }
+      if (vals.template === "sns_short") {
+        sections.push("- 140字以内を目安、ハッシュタグ2つまで");
+      }
+      if (vals.template === "headline_only") {
+        sections.push("- ヘッドライン案を3つ");
+      }
+
+      const prompt = sections.join("\n");
+
+      // モデル呼び出しペイロード
+      const payload = {
+        meta: {
+          template: vals.template,
+          tone: vals.tone,
+          length: vals.length,
+          cta: vals.cta,
+        },
+        prompt,
+      };
+
+      // スピナー最低保証
+      const minSpin = new Promise((r) =>
+        setTimeout(r, DUR.SPIN_MIN_MS)
+      );
 
       try {
-        const payload = {
-          meta: {
-            template: vals.template,
-            tone: vals.tone,
-            length: vals.length,
-            cta: vals.cta,
-          },
-          prompt,
-        };
         const j = await callWriterAPI(payload);
 
+        // サーバ側は { ok, data, output } のどれかに本文を入れて返す
         const text =
           (j?.data?.text as string) ??
           (j?.output as string) ??
           (typeof j === "string" ? j : "");
-        if (!text) throw new Error(j?.message || "生成結果が空でした。");
 
-        // UI演出の最低時間を待つ
+        if (!text) {
+          throw new Error(
+            j?.message || "生成結果が空でした。"
+          );
+        }
+
         await minSpin;
 
-        // 結果セット＆祝演出ON
         setResult(text);
         setJustCompleted(true);
         setShowDoneBadge(true);
 
-        // 出力枠までスクロール
         scrollToResultSmart();
 
-        // 祝演出の寿命タイマー
         celebTimerRef.current = window.setTimeout(() => {
           setJustCompleted(false);
           celebTimerRef.current = null;
         }, DUR.CELEB_MS);
 
-        // 完了バッジの寿命タイマー
         badgeTimerRef.current = window.setTimeout(() => {
           setShowDoneBadge(false);
           badgeTimerRef.current = null;
@@ -347,40 +450,57 @@ export default function ClientPage() {
         await minSpin;
         const msg = e?.message ?? "生成に失敗しました。";
         setError(msg);
-        toast.error("生成できませんでした", { description: msg });
+        toast.error("生成できませんでした", {
+          description: msg,
+        });
       } finally {
         setIsLoading(false);
       }
     },
-    [prompt, scrollToResultSmart]
+    [scrollToResultSmart]
   );
 
-  // アンマウント時にタイマー破棄
+  /* =========================
+     アンマウント時のクリーンアップ
+  ========================= */
   useEffect(() => {
     return () => {
-      if (celebTimerRef.current) clearTimeout(celebTimerRef.current);
-      if (badgeTimerRef.current) clearTimeout(badgeTimerRef.current);
+      if (celebTimerRef.current)
+        clearTimeout(celebTimerRef.current);
+      if (badgeTimerRef.current)
+        clearTimeout(badgeTimerRef.current);
     };
   }, []);
 
-  // Ctrl/⌘ + Enter ショートカット
+  /* =========================
+     Ctrl/⌘ + Enter ハンドラ（グローバル）
+     - 二重送信防止 (isLoading / isSubmitting / !isValid)
+  ========================= */
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       // IME変換中は発火しない
       // @ts-ignore
       if ((e as any).isComposing) return;
+
       const isMac = navigator.platform.toLowerCase().includes("mac");
       const mod = isMac ? e.metaKey : e.ctrlKey;
-      if (mod && e.key === "Enter") {
-        e.preventDefault();
-        void handleSubmit(onSubmit)();
-      }
-    };
-    document.addEventListener("keydown", handler, { passive: false });
-    return () => document.removeEventListener("keydown", handler);
-  }, [handleSubmit, onSubmit]);
+      if (!(mod && e.key === "Enter")) return;
 
-  // コピー機能
+      if (isLoading || isSubmitting || !isValid) return;
+
+      e.preventDefault();
+      void handleSubmit(onSubmit)();
+    };
+
+    document.addEventListener("keydown", handler, { passive: false });
+    return () => {
+      document.removeEventListener("keydown", handler);
+    };
+  }, [handleSubmit, onSubmit, isLoading, isSubmitting, isValid]);
+
+  /* =========================
+     クリップボードコピー
+  ========================= */
   const doCopy = useCallback(async () => {
     if (!result) return;
     try {
@@ -390,16 +510,18 @@ export default function ClientPage() {
         description: "内容をクリップボードに保存しました。",
       });
     } catch {
-      setCopied(true);
-      toast.error("コピーできませんでした", {
-        description: "もう一度お試しください。",
-      });
+        setCopied(true);
+        toast.error("コピーできませんでした", {
+          description: "もう一度お試しください。",
+        });
     } finally {
       setTimeout(() => setCopied(false), 1500);
     }
   }, [result]);
 
-  // 共有カード作成
+  /* =========================
+     共有カード作成
+  ========================= */
   const doShare = useCallback(async () => {
     setError(null);
     setShareId(null);
@@ -409,13 +531,18 @@ export default function ClientPage() {
           "共有する本文がありません。先に生成してください。"
         );
       const res = await createShare({
-        title: product ? `${product} / Writer出力` : "Writer出力",
+        title: product
+          ? `${product} / Writer出力`
+          : "Writer出力",
         body: result,
       });
 
       if (res.status === 201) {
         const created = await res.json();
-        const id = created.id || created?.data?.id || null;
+        const id =
+          created.id ||
+          created?.data?.id ||
+          null;
         setShareId(id);
 
         toast.success("共有が完了しました", {
@@ -444,22 +571,31 @@ export default function ClientPage() {
         throw new Error(msg);
       }
     } catch (e: any) {
-      const msg = e?.message ?? "共有に失敗しました。";
+      const msg =
+        e?.message ?? "共有に失敗しました。";
       setError(msg);
-      toast.error("共有できませんでした", { description: msg });
+      toast.error("共有できませんでした", {
+        description: msg,
+      });
     }
   }, [product, result]);
 
-  // 背景オーブのパララックス
+  /* =========================
+     背景のオーブ / スクロールに応じたモーション
+  ========================= */
   const { scrollYProgress } = useScroll();
   const orbUp = useTransform(scrollYProgress, [0, 1], [0, -80]);
   const orbDown = useTransform(scrollYProgress, [0, 1], [0, 120]);
-  const fadeBg = useTransform(scrollYProgress, [0, 0.3], [1, 0.85]);
+  const fadeBg = useTransform(scrollYProgress, [0, 0.3], [1, 0.8]);
 
-  // 出力がStubかどうか
+  /* =========================
+     出力がSTUBかどうか
+  ========================= */
   const isStub = result.includes("【STUB出力】");
 
-  // ボタン活性制御
+  /* =========================
+     ボタン活性
+  ========================= */
   const submitDisabled = !isValid || isLoading || isSubmitting;
   const submitReason = !isValid
     ? "必須項目の入力条件を満たしていません（それぞれのエラーメッセージを確認）"
@@ -467,12 +603,18 @@ export default function ClientPage() {
     ? "実行中です"
     : "";
 
-  // タイプライタ表示
+  /* =========================
+     タイプライタ風エフェクト → Markdown整形
+  ========================= */
   const typed = useTypewriter(result, DUR.TYPEWRITER_MS);
+  const renderedHtml = basicMarkdownToHtml(typed);
 
+  /* =========================
+     JSX
+  ========================= */
   return (
     <div className={TOKENS.pageBg}>
-      {/* グローバルブランド変数（ブランドネイビー等） */}
+      {/* ブランド系CSS変数を全体に宣言 */}
       <style jsx global>{`
         :root {
           --brand-navy: #0B3BA7;
@@ -488,54 +630,72 @@ export default function ClientPage() {
         }
       `}</style>
 
-      {/* ===== 背景オーブ（視覚効果） ===== */}
+      {/* 背景のにじみオーブ（PC時は控えめのopacity） */}
       <motion.div
         aria-hidden
-        className="pointer-events-none absolute -z-10 -top-24 -left-20 h-60 w-60 rounded-full bg-indigo-400/25 blur-3xl"
-        style={{ y: orbUp, opacity: fadeBg as MotionValue<number> }}
+        className="pointer-events-none absolute -z-10 -top-24 -left-20 h-60 w-60 rounded-full bg-indigo-400/25 blur-3xl md:opacity-70"
+        style={{
+          y: orbUp,
+          opacity: fadeBg as MotionValue<number>,
+        }}
       />
       <motion.div
         aria-hidden
-        className="pointer-events-none absolute -z-10 -bottom-28 -right-24 h-80 w-80 rounded-full bg-violet-400/25 blur-3xl"
-        style={{ y: orbDown, opacity: fadeBg as MotionValue<number> }}
+        className="pointer-events-none absolute -z-10 -bottom-28 -right-24 h-80 w-80 rounded-full bg-violet-400/25 blur-3xl md:opacity-70"
+        style={{
+          y: orbDown,
+          opacity: fadeBg as MotionValue<number>,
+        }}
       />
 
-      {/* ===== Heroセクション ===== */}
-      <div className="mx-auto max-w-7xl px-8 md:px-12 pt-8 md:pt-10">
+      {/* ヒーローセクション（ガラスカード化＋中央寄せ） */}
+      <div className="mx-auto max-w-7xl px-8 md:px-12 pt-8 md:pt-16 pb-6 md:pb-8">
         <motion.div
           initial={disableInitialAnim ? false : { opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.45, ease: "easeOut" }}
+          transition={{
+            duration: 0.45,
+            ease: "easeOut",
+          }}
         >
-          <div className="flex items-start justify-between gap-6">
-            <div>
-              <h1 className="text-[28px] md:text-[32px] font-semibold tracking-tight text-neutral-900">
-                <span className="inline-flex items-center gap-2">
-                  <span className={TOKENS.brandDot} />
-                  あなたの言葉を、
-                  <span className="bg-gradient-to-r from-indigo-600 to-violet-500 bg-clip-text text-transparent">
-                    伝わる言葉
-                  </span>
-                  に。
-                </span>
-              </h1>
-              <p className="mt-2 text-sm text-neutral-600">
-                最短3ステップで構成・話し方・トーンを指定。プレミアムな生成体験で、成果に直結する文章を。
-              </p>
-              <div className="mt-3">
-                <BadgeRow />
-              </div>
+          {/* 半透明カードラッパ */}
+          <div className="relative mx-auto w-full max-w-xl rounded-2xl border border-white/40 bg-white/60 px-5 py-6 shadow-[0_30px_120px_rgba(16,24,64,0.12)] ring-1 ring-black/5 backdrop-blur-md md:px-8 md:py-8">
+            {/* コピー&説明 */}
+            <h1 className="text-[28px] leading-[1.15] font-bold tracking-tight text-neutral-900 md:text-[40px] md:leading-[1.25] text-center">
+              <span className="block">
+                あなたの言葉を、
+              </span>
+              <span className="block bg-gradient-to-r from-indigo-600 to-violet-500 bg-clip-text text-transparent">
+                AIで磨く。
+              </span>
+            </h1>
+
+            <p className="mt-3 text-sm leading-relaxed text-neutral-700 md:text-base md:leading-relaxed md:max-w-prose text-center">
+              伝えたいことは、もうできている。あとは整えるだけ。
+              目的・強み・話し方を入力すると、そのまま使える紹介文やLP用コピーを仕上げます。
+            </p>
+
+            <div className="mt-5 flex justify-center">
+              <BadgeRow />
             </div>
-            <div className="hidden md:block text-xs text-neutral-500 pt-1">
+
+            {/* βテスト中メッセージ：カード下部で控えめに */}
+            <div className="mt-4 text-center text-[11px] text-neutral-500">
               βテスト中：フィードバック歓迎
             </div>
+
+            {/* カード外周の柔らかいリング(視覚的な持ち上がり感) */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-inset ring-indigo-500/10 [mask-image:radial-gradient(60%_50%_at_50%_50%,black,transparent)]"
+            />
           </div>
         </motion.div>
       </div>
 
-      {/* ===== ステップナビ (②生成は常駐 / 実行中は文言変更) ===== */}
-      <div className="mx-auto max-w-7xl px-8 md:px-12 mt-3">
-        <div className="flex items-center gap-2 text-[12px] text-neutral-600">
+      {/* ステップナビ（Hero外に独立配置） */}
+      <div className="mx-auto max-w-7xl px-8 md:px-12 mt-2 md:mt-4">
+        <div className="flex flex-wrap items-center justify-center gap-2 text-[12px] text-neutral-600 max-w-xl mx-auto text-center">
           <span className="inline-flex items-center gap-1 rounded-full border px-2 py-1 bg-white/70">
             <span className="inline-flex size-4 items-center justify-center rounded-full bg-indigo-600/15 text-indigo-700 text-[10px] font-semibold">
               1
@@ -567,9 +727,18 @@ export default function ClientPage() {
               <motion.span
                 key="done"
                 className="inline-flex items-center gap-1 rounded-full border px-2 py-1 bg-emerald-50 text-emerald-700"
-                initial={{ opacity: 0, y: -4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
+                initial={{
+                  opacity: 0,
+                  y: -4,
+                }}
+                animate={{
+                  opacity: 1,
+                  y: 0,
+                }}
+                exit={{
+                  opacity: 0,
+                  y: -4,
+                }}
                 transition={{ duration: 0.2 }}
               >
                 <CheckCircle2 className="size-3" />
@@ -580,45 +749,45 @@ export default function ClientPage() {
         </div>
       </div>
 
-      {/* ===== 入力フォーム / 出力プレビュー領域 ===== */}
+      {/* 2カラム（左：フォーム / 右：出力） */}
       <div className="mx-auto max-w-7xl px-8 md:px-12 py-6 grid grid-cols-1 lg:grid-cols-[1.1fr,0.9fr] gap-8">
-        {/* 左カラム: 入力 */}
+        {/* 左カラム: 入力フォーム */}
         <motion.section
           initial={disableInitialAnim ? false : { opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35 }}
         >
           <Card className="p-5 md:p-6">
+            {/* 見出し行 */}
             <div className="flex items-center justify-between mb-3">
               <div className="inline-flex items-center gap-2">
                 <span className="inline-flex size-6 items-center justify-center rounded-full bg-indigo-600/15 text-indigo-700 text-xs font-semibold">
                   1
                 </span>
-                <h2 className="text-sm font-semibold">入力（最短指定）</h2>
+                <h2 className="text-sm font-semibold">
+                  入力（最短指定）
+                </h2>
               </div>
               <div className="text-xs text-neutral-500 hidden sm:block">
                 Ctrl/⌘ + Enter で生成
               </div>
             </div>
 
+            {/* フォーム本体 */}
             <form
               className="space-y-4"
-              onSubmit={handleSubmit(onSubmit)}
-              onKeyDown={(e) => {
-                const isMac = navigator.platform.toLowerCase().includes("mac");
-                const mod = isMac ? e.metaKey : e.ctrlKey;
-                if (mod && e.key === "Enter") {
-                  e.preventDefault();
-                  void handleSubmit(onSubmit)();
-                }
+              onSubmit={(e) => {
+                e.preventDefault();
+                void handleSubmit(onSubmit)();
               }}
             >
+              {/* 商品名 */}
               <div>
                 <Label className="text-sm text-neutral-700 dark:text-neutral-300">
                   商品名
                 </Label>
                 <Input
-                  placeholder="例）ShopWriter（AIライティング支援）"
+                  placeholder="例）アイン薬局（全国の調剤薬局チェーン）"
                   aria-invalid={!!errors.product}
                   className={clsx(
                     errors.product &&
@@ -633,12 +802,13 @@ export default function ClientPage() {
                 )}
               </div>
 
+              {/* 用途・目的 */}
               <div>
                 <Label className="text-sm text-neutral-700 dark:text-neutral-300">
                   用途・目的
                 </Label>
                 <Input
-                  placeholder="例）LP導入文を作る／告知文を作る など"
+                  placeholder="例）ホームページ用の紹介文を作りたい"
                   aria-invalid={!!errors.purpose}
                   className={clsx(
                     errors.purpose &&
@@ -653,6 +823,7 @@ export default function ClientPage() {
                 )}
               </div>
 
+              {/* 特徴・強み */}
               <div>
                 <div className="flex items-center justify-between">
                   <Label className="text-sm text-neutral-700 dark:text-neutral-300">
@@ -664,7 +835,7 @@ export default function ClientPage() {
                 </div>
                 <Textarea
                   rows={4}
-                  placeholder="例）3分で構成〜出力〜共有まで完了。共有カード、差分比較に対応。"
+                  placeholder="例）全国展開の調剤薬局。薬剤師が常駐し、処方箋に合わせた丁寧な服薬サポート。待ち時間の短縮、OTC医薬品の相談対応 など。"
                   aria-invalid={!!errors.features}
                   className={clsx(
                     errors.features &&
@@ -683,13 +854,14 @@ export default function ClientPage() {
                 )}
               </div>
 
+              {/* ターゲット / トーン */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label className="text-sm text-neutral-700 dark:text-neutral-300">
                     ターゲット
                   </Label>
                   <Input
-                    placeholder="例）個人事業主／EC担当／SaaS PMM"
+                    placeholder="例）地域の患者さん／ご家族／高齢の方"
                     aria-invalid={!!errors.audience}
                     {...register("audience")}
                   />
@@ -715,6 +887,7 @@ export default function ClientPage() {
                 </div>
               </div>
 
+              {/* テンプレ / 長さ / CTA */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <Label className="text-sm text-neutral-700 dark:text-neutral-300">
@@ -769,7 +942,8 @@ export default function ClientPage() {
                 </div>
               </div>
 
-              <div className="pt-2 flex items-center gap-2">
+              {/* アクションボタン行 */}
+              <div className="pt-2 flex items-center gap-2 flex-wrap">
                 {/* 生成ボタン */}
                 <MotionButton
                   type="submit"
@@ -788,22 +962,35 @@ export default function ClientPage() {
                   </span>
                 </MotionButton>
 
+                {/* リセット */}
                 <Button
                   type="button"
                   variant="secondary"
-                  onClick={() => reset()}
+                  onClick={() =>
+                    reset({
+                      product: "",
+                      purpose: "",
+                      features: "",
+                      audience: "",
+                      tone: "friendly",
+                      template: "lp",
+                      length: "medium",
+                      cta: true,
+                    })
+                  }
                   disabled={isLoading}
                 >
                   リセット
                 </Button>
 
                 {submitDisabled && (
-                  <span className="text-xs text-neutral-500">
+                  <span className="text-xs text-neutral-500 max-w-[220px]">
                     {submitReason}
                   </span>
                 )}
               </div>
 
+              {/* サンプルリンク */}
               <div className="pt-2">
                 <a
                   href="/share/guide"
@@ -830,19 +1017,21 @@ export default function ClientPage() {
           <Card
             className={clsx(
               "relative p-5 md:p-6 overflow-visible",
-              justCompleted &&
-                "shadow-soft-md ring-2 ring-indigo-300/60"
+              justCompleted && "shadow-soft-md ring-2 ring-indigo-300/60"
             )}
           >
-            <div className="mb-3 flex items-center justify-between">
+            {/* 出力カードヘッダ */}
+            <div className="mb-3 flex items-center justify-between flex-wrap gap-3">
               <div className="inline-flex items-center gap-2">
                 <span className="inline-flex size-6 items-center justify-center rounded-full bg-indigo-600/15 text-indigo-700 text-xs font-semibold">
                   3
                 </span>
-                <h2 className="text-sm font-semibold">出力</h2>
+                <h2 className="text-sm font-semibold">
+                  出力
+                </h2>
               </div>
 
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <Button
                   type="button"
                   variant="ghost"
@@ -869,18 +1058,24 @@ export default function ClientPage() {
               </div>
             </div>
 
+            {/* エラーメッセージ表示 */}
             {error && (
-              <p className="text-xs text-red-600 mb-2">{error}</p>
+              <p className="text-xs text-red-600 mb-2">
+                {error}
+              </p>
             )}
 
+            {/* Stubモード表示(テスト向け) */}
             {isStub && (
               <p className="text-xs text-neutral-500 mb-2">
                 STUBモード：外部APIを呼び出さず固定ロジックで応答しています。
               </p>
             )}
 
-            <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap leading-relaxed">
+            {/* 本文 */}
+            <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed">
               {isLoading ? (
+                // ローディングスケルトン
                 <div
                   className="animate-pulse space-y-2"
                   aria-live="polite"
@@ -892,9 +1087,14 @@ export default function ClientPage() {
                   <div className="h-4 w-5/6 bg-neutral-200 rounded" />
                 </div>
               ) : result ? (
+                // 生成済み本文（Markdown→HTML整形済みを挿入）
                 <motion.div
                   key={result.slice(0, 24)}
-                  initial={{ opacity: 0, y: 6, filter: "blur(2px)" }}
+                  initial={{
+                    opacity: 0,
+                    y: 6,
+                    filter: "blur(2px)",
+                  }}
                   animate={{
                     opacity: 1,
                     y: 0,
@@ -902,9 +1102,16 @@ export default function ClientPage() {
                   }}
                   transition={{ duration: 0.35 }}
                 >
-                  {typed}
+                  <div
+                    className="whitespace-normal break-words"
+                    // eslint-disable-next-line react/no-danger
+                    dangerouslySetInnerHTML={{
+                      __html: renderedHtml,
+                    }}
+                  />
                 </motion.div>
               ) : (
+                // まだ出力なし
                 <p className="text-neutral-500">
                   生成結果がここに表示されます。
                 </p>
@@ -927,7 +1134,7 @@ export default function ClientPage() {
               </Button>
             </div>
 
-            {/* 完成時の祝演出（延長済み） */}
+            {/* 祝エフェクト（完了時のみ） */}
             <AnimatePresence initial={false}>
               {justCompleted && !isLoading && !error && (
                 <div className="pointer-events-none absolute inset-0 z-50 overflow-visible">
@@ -942,7 +1149,10 @@ export default function ClientPage() {
                       <motion.span
                         key={i}
                         className="absolute text-base select-none"
-                        style={{ top, left }}
+                        style={{
+                          top,
+                          left,
+                        }}
                         initial={{
                           opacity: 0,
                           y: 0,
@@ -955,7 +1165,9 @@ export default function ClientPage() {
                           scale: 1.1,
                           rotate: 20,
                         }}
-                        exit={{ opacity: 0 }}
+                        exit={{
+                          opacity: 0,
+                        }}
                         transition={{
                           duration: 1.2,
                           delay,
@@ -987,7 +1199,9 @@ export default function ClientPage() {
                       y: -10,
                       scale: 0.98,
                     }}
-                    transition={{ duration: 0.4 }}
+                    transition={{
+                      duration: 0.4,
+                    }}
                   >
                     <div className="rounded-full bg-white/90 shadow-md border px-4 py-1.5 text-xs font-medium text-gray-800 backdrop-blur">
                       素敵な仕上がりです ✨
@@ -997,7 +1211,7 @@ export default function ClientPage() {
               )}
             </AnimatePresence>
 
-            {/* 枠のリング・やわらかいハイライト */}
+            {/* カード外周の柔らかいリング */}
             <div
               aria-hidden
               className="pointer-events-none absolute inset-0 rounded-3xl ring-1 ring-inset ring-indigo-500/10 [mask-image:radial-gradient(60%_50%_at_50%_50%,black,transparent)]"

@@ -1,114 +1,106 @@
 "use client";
 
-/**
- * notify（互換レイヤ）
- * - 既存の import/use を壊さずに、内部実装を appToast に統一
- * - 秒数ポリシー:
- *   - success / info … 2600ms
- *   - warning / error … 4000ms
- * - 位置/色/closeButton は app/providers.tsx の <Toaster> に準拠（右上・richColors・closeButton）
- */
+// lib/notify.ts
+// -----------------------------------------------------------------------------
+// Unified notify helper (sonner/appToast 互換)
+// - 関数: notify("message", "info" | "success" | "warn" | "error", opts?)
+// - メソッド: notify.success/info/warn/error
+// - promise: notify.promise(promise, { loading, success, error })
+// - copy: notify.copy(text, { success?, error?, duration?, id? })
+//   ※ 既存の import/use を壊さない前提で、callable も追加。
+// -----------------------------------------------------------------------------
 
 import { appToast } from "@/lib/toast";
 
+export type NotifyKind = "success" | "info" | "warn" | "error";
+
 export type NotifyOptions = {
-  /** 補足説明行（省略可） */
   description?: string;
-  /** 自動クローズまでの ms（未指定時はポリシーに準拠） */
   duration?: number;
-  /** 任意のID（重複抑止等に使用） */
   id?: string | number;
 };
 
-export const notify = {
-  /** 成功（2600ms） */
-  success(message: string, opts: NotifyOptions = {}) {
-    return appToast.success(message, opts);
-  },
+// appToast の実装差（warning / warn / 無し）を吸収
+function emit(kind: NotifyKind, message: string, opts?: NotifyOptions) {
+  const t: any = appToast as any;
+  switch (kind) {
+    case "success":
+      return t.success?.(message, opts) ?? t(message, opts);
+    case "info":
+      return t.info?.(message, opts) ?? t(message, opts);
+    case "warn":
+      // sonner 世代により warning or warn が分かれる
+      return t.warning?.(message, opts) ?? t.warn?.(message, opts) ?? t(message, opts);
+    case "error":
+      return t.error?.(message, opts) ?? t(message, opts);
+    default:
+      return t(message, opts);
+  }
+}
 
-  /** 情報（2600ms） */
-  info(message: string, opts: NotifyOptions = {}) {
-    return appToast.info(message, opts);
-  },
+// 本体: 関数 + メソッドを併存
+export const notify = Object.assign(
+  (message: string, kind: NotifyKind = "info", opts?: NotifyOptions) => emit(kind, message, opts),
+  {
+    success: (message: string, opts?: NotifyOptions) => emit("success", message, opts),
+    info: (message: string, opts?: NotifyOptions) => emit("info", message, opts),
+    warn: (message: string, opts?: NotifyOptions) => emit("warn", message, opts),
+    error: (message: string, opts?: NotifyOptions) => emit("error", message, opts),
 
-  /** 警告（4000ms） */
-  warn(message: string, opts: NotifyOptions = {}) {
-    return appToast.warning(message, opts);
-  },
-
-  /** エラー（4000ms） */
-  error(message: string, opts: NotifyOptions = {}) {
-    return appToast.error(message, opts);
-  },
-
-  /**
-   * 非同期の統一表現
-   * 既存との互換: 呼び出し側は `await notify.promise(p, ... )` と書ける
-   * 実装: appToast.promise を走らせつつ、元の Promise<T> をそのまま返す
-   */
-  promise<T>(
-    p: Promise<T>,
-    messages: {
-      loading: string;
-      success: string | ((v: T) => string);
-      error: string | ((e: any) => string);
+    // 非同期トースト（表示は appToast 側に委譲しつつ Promise<T> をそのまま返す）
+    async promise<T>(
+      p: Promise<T>,
+      messages: {
+        loading: string;
+        success: string | ((v: T) => string);
+        error: string | ((e: any) => string);
+      },
+      _opts?: NotifyOptions
+    ): Promise<T> {
+      const t: any = appToast as any;
+      // appToast.promise がない場合もあるのでフォールバック
+      if (t.promise) {
+        t.promise(
+          p.then((v: T) => (typeof messages.success === "function" ? messages.success(v) : messages.success)),
+          {
+            loading: messages.loading,
+            success: typeof messages.success === "string" ? messages.success : "成功しました",
+            error: typeof messages.error === "string" ? messages.error : "失敗しました",
+          }
+        );
+      } else {
+        emit("info", messages.loading);
+        p.then(
+          (v) => emit("success", typeof messages.success === "function" ? messages.success(v) : messages.success),
+          (e) => emit("error", typeof messages.error === "function" ? messages.error(e) : messages.error)
+        );
+      }
+      return p;
     },
-    _opts?: NotifyOptions
-  ): Promise<T> {
-    // appToast.promise はメッセージを出す副作用だけ担う
-    appToast.promise(
-      p.then((v) => (typeof messages.success === "function" ? messages.success(v) : messages.success)),
-      {
-        loading: messages.loading,
-        success: typeof messages.success === "string" ? messages.success : "成功しました",
-        error: typeof messages.error === "string" ? messages.error : "失敗しました",
+
+    // クリップボードコピー（成功=2600ms / 失敗=4000ms 想定を尊重）
+    async copy(text: string, opts?: { success?: string; error?: string } & NotifyOptions) {
+      try {
+        await navigator.clipboard.writeText(text);
+        emit("success", opts?.success ?? "コピーしました", { duration: opts?.duration, id: opts?.id });
+        return true;
+      } catch (e) {
+        emit("error", opts?.error ?? "コピーに失敗しました", { duration: opts?.duration, id: opts?.id });
+        return false;
       }
-    );
+    },
+  }
+);
 
-    // 互換のため元の Promise<T> を返す（呼び出し側で await 可）
-    return p.then(
-      (v) => v,
-      (e) => {
-        // 失敗文言の関数版が渡されている場合は個別に出したいケースもあるため、
-        // ここでは追加トーストは出さず、appToast.promise に任せる
-        throw e;
-      }
-    );
-  },
-
-  /**
-   * クリップボードコピー
-   * - 成功: 「コピーしました」（2600ms）
-   * - 失敗: 「コピーに失敗しました」（4000ms）
-   */
-  async copy(text: string, opts?: { success?: string; error?: string } & NotifyOptions) {
-    try {
-      await navigator.clipboard.writeText(text);
-      appToast.success(opts?.success ?? "コピーしました", {
-        duration: opts?.duration,
-        id: opts?.id,
-      });
-      return true;
-    } catch (e) {
-      appToast.error(opts?.error ?? "コピーに失敗しました", {
-        duration: opts?.duration,
-        id: opts?.id,
-      });
-      return false;
-    }
-  },
-} as const;
-
+export type NotifyFn = typeof notify;
 export default notify;
 
-/* --- smoke test（任意） ---
- * ブラウザ Console: window.__notifySmoke?.()
- */
+// --- smoke test（任意） ---
 declare global {
   interface Window {
     __notifySmoke?: () => void;
   }
 }
 if (typeof window !== "undefined") {
-  window.__notifySmoke = () => notify.info("notify 起動テスト");
+  window.__notifySmoke = () => notify("notify 起動テスト", "info");
 }
