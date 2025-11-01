@@ -1,3 +1,5 @@
+// FULLFILE REPLACEMENT | target=app/api/writer/route.ts | from=<unavailable> | genAt=2025-11-01 03:00:00 JST
+
 // app/api/writer/route.ts
 
 // ランタイムは nodejs のまま維持すること。
@@ -7,8 +9,11 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
-
-/** FAQ セクション見出し（tests-augmented 前提 / カウント検知用） */
+// 🆕 toneプリセットを統合
+import * as Tone from "@/lib/tone-presets";
+// compat shim (named/default/namespace all OK)
+const tonePresets: Record<string, any> =
+  (Tone as any).tonePresets ?? (Tone as any).default ?? (Tone as any);/** FAQ セクション見出し（tests-augmented 前提 / カウント検知用） */
 const faqBlock = "## FAQ\n";
 
 /** 汎用 FAQ シード（冪等・3問確保のための最小種） */
@@ -337,20 +342,77 @@ function pickLexicon(category: string): ECLexicon {
 }
 
 /* =========================
-   System Prompt（Precision Plan想定の最終仕様）
-   - toneは落ち着いた知性（warm_intelligent）
-   - 過剰な煽りや誇大表現を抑制
-   - CTA / FAQ の入れ方も明文化（モデルに約束させる）
-   - “さあ〜しましょう”など押し売りタイトルを控えるよう追記
-   - 🆕 題材すり替え禁止（ユーザーの指定名を別名に置換しない）
+   🆕 Tone Preset 統合ユーティリティ
+   - lib/tone-presets.ts の内容を参照し、入力 tone/style から解決
+   - 無指定時は "warm_intelligent" を既定
 ========================= */
 
-function buildSystemPrompt(overrides?: string): string {
+type TonePreset = {
+  /** システムへ先置きする人格・文体の核（文章1〜数行想定） */
+  system?: string;
+  /** 追加のガイドライン（短文の bullet を推奨） */
+  guidelines?: string[];
+  /** 別名・シノニム（lower-case で比較） */
+  aliases?: string[];
+};
+
+function safeLower(s: string | null | undefined) {
+  return (s ?? "").toString().trim().toLowerCase();
+}
+
+function resolveTonePresetKey(inputTone?: string | null, inputStyle?: string | null): string {
+  const wanted = safeLower(inputTone) || safeLower(inputStyle) || "";
+  const keys = Object.keys(tonePresets ?? {});
+  if (!keys.length) return "warm_intelligent";
+
+  // 完全一致
+  if (wanted && keys.includes(wanted)) return wanted;
+
+  // alias 探索
+  for (const k of keys) {
+    const p = (tonePresets as Record<string, TonePreset>)[k] as TonePreset;
+    const aliases = (p?.aliases ?? []).map(safeLower);
+    if (aliases.includes(wanted)) return k;
+  }
+
+  // 部分一致（例: "friendly casual" → "friendly"）
+  if (wanted) {
+    for (const k of keys) {
+      if (wanted.includes(k)) return k;
+    }
+  }
+
+  // 既定
+  return "warm_intelligent";
+}
+
+function renderToneModule(toneKey: string): string {
+  const p = (tonePresets as Record<string, TonePreset>)[toneKey] as TonePreset | undefined;
+  if (!p) return `【トーン】${toneKey}：落ち着いた知性と誠実さを保ち、読み手を尊重する。`;
+  const head = `【トーン】${toneKey}`;
+  const sys = p.system ? `${p.system}` : "";
+  const gl =
+    (p.guidelines ?? []).length
+      ? "\n" + (p.guidelines as string[]).map((g) => `- ${g}`).join("\n")
+      : "";
+  return `${head}\n${sys}${gl}`.trim();
+}
+
+/* =========================
+   System Prompt（Precision Plan想定の最終仕様 + Tone統合）
+========================= */
+
+function buildSystemPrompt(opts: { overrides?: string; toneKey: string }): string {
+  const { overrides, toneKey } = opts;
   // ユーザーが system プロンプトを渡してきた場合はそちらを優先
   if (overrides && overrides.trim().length > 0) return overrides + "";
 
+  const toneModule = renderToneModule(toneKey);
+
   const modules = [
-    // モジュール1：人格・トーン
+    // モジュール0：トーン（プリセット最優先）
+    toneModule,
+    // モジュール1：人格・全体方針
     "あなたはEC特化の日本語コピーライターAIです。敬体（です・ます）で、落ち着いた知性を保ち、読み手を尊重します。感情的な煽りや誇大広告は避け、事実ベースで具体的に伝えます。読み手に急いで行動を迫る、押し売り調の見出し（例:「さあ、今すぐ〜」など）は避け、穏やかに案内してください。",
     // モジュール2：構成
     "媒体と目的に応じて、ヘッドライン→概要→特長やベネフィット→根拠/比較→FAQ→CTAの流れで整理してください。見出しは最大でもH2までにします。箇条書きは3〜7項目を目安にします。",
@@ -477,11 +539,11 @@ function makeUserMessage(n: NormalizedInput): string {
 
 /* =========================
    Meta 推定
-   - tone は常に "warm_intelligent"
+   - tone はプリセット解決結果を反映
    - locale は "ja-JP"
 ========================= */
 
-function extractMeta(text: string): {
+function extractMeta(text: string, toneKey: string): {
   style: string;
   tone: string;
   locale: string;
@@ -497,8 +559,8 @@ function extractMeta(text: string): {
   if (bulletCount >= 2) style = "bullet";
   else if (h2Count >= 2 || charCount > 500) style = "detail";
 
-  // Precision Plan仕様としてブランドトーンを固定
-  return { style, tone: "warm_intelligent", locale: "ja-JP" };
+  // 🆕 トーンはプリセット解決結果を採用（既定: warm_intelligent）
+  return { style, tone: toneKey || "warm_intelligent", locale: "ja-JP" };
 }
 
 /* =========================
@@ -605,11 +667,6 @@ function normalizeQ(s: string): string {
 
 /* =========================
    Post Process（H-7-⑨安定統合 + 押し売り見出しフィルタ）
-   役割：
-   - 感嘆符禁止・H3→H2丸め
-   - 「さあ〜してください」系の押し売り見出しH2は削除
-   - 旧FAQ/旧CTAを掃除してから、再構築したFAQとCTAを末尾に1回だけ付け直す
-   - FAQは必ず1ブロックだけ
 ========================= */
 
 function postProcess(raw: string, n: NormalizedInput): string {
@@ -625,14 +682,12 @@ function postProcess(raw: string, n: NormalizedInput): string {
   out = out.replace(/^#{3,}\s?/gm, "## ");
 
   // 3) 強すぎる販促見出し(H2)を抑制
-  //    「## さあ」「## 今すぐ」「## まず〜してください」などをH2としては残さず削除
   out = out.replace(
     /^##\s*(さあ|今すぐ|まずは|ぜひ|お試し|購入|申し込み).+$/gim,
     ""
   );
 
   // 4) 旧FAQ/CTAブロックを落とす
-  //    旧: "**FAQ** ...", "## よくある質問", "一次CTA:", "代替CTA:" のようなやつを一掃
   out = out.replace(/\n\*\*CTA\*\*[\s\S]*?(?=\n##\s|$)/gi, "\n");
   out = out.replace(/\n\*\*FAQ\*\*[\s\S]*?(?=\n##\s|$)/gi, "\n");
   out = out.replace(/\n##\s*(よくある質問|FAQ)[\s\S]*?(?=\n##\s|$)/gi, "\n");
@@ -669,19 +724,16 @@ function postProcess(raw: string, n: NormalizedInput): string {
   // 6) Q/Aペアとカテゴリ別シードFAQをマージしつつ重複正規化
   const dedupMap = new Map<string, QA>();
 
-  // 生成されたQ/Aを優先登録
   for (const p of pairs) {
     const key = normalizeQ(p.q);
     if (!dedupMap.has(key)) dedupMap.set(key, p);
   }
 
-  // カテゴリ別シードを補完
   for (const s of categoryFaqSeeds(n.category)) {
     const key = normalizeQ(s.q);
     if (!dedupMap.has(key)) dedupMap.set(key, s);
   }
 
-  // 優先順位: 返品/交換/保証 → 対応/互換/相性 → 配送/納期/到着 → その他
   const priority = [
     /(返品|返金|交換|保証)/,
     /(対応|互換|相性)/,
@@ -697,7 +749,6 @@ function postProcess(raw: string, n: NormalizedInput): string {
     );
   });
 
-  // ちょうど3問に揃える（超過なら切る・不足ならfaqSeedsから埋める）
   if (list.length > 3) list = list.slice(0, 3);
   while (list.length < 3) {
     for (const s of faqSeeds) {
@@ -714,7 +765,6 @@ function postProcess(raw: string, n: NormalizedInput): string {
     if (list.length >= 3) break;
   }
 
-  // 7) FAQブロックをH2として再構築
   const faqMd =
     `${faqBlock}` +
     list
@@ -729,8 +779,6 @@ function postProcess(raw: string, n: NormalizedInput): string {
       })
       .join("\n\n");
 
-  // 8) 数値情報の最低2個保証
-  //    （なければカテゴリlexicon.numericTemplatesを1〜2行注入）
   const numericHits =
     out.match(
       /(?:\d+(?:\.\d+)?\s?(?:g|kg|mm|cm|m|mAh|ms|時間|分|枚|袋|ml|mL|L|W|Hz|年|か月|ヶ月|日|回|%|％))/g
@@ -743,7 +791,6 @@ function postProcess(raw: string, n: NormalizedInput): string {
     out += `\n\n${addLine}`;
   }
 
-  // 9) 共起語・安心フレーズ（footnote的な扱い）
   const COOC_MAX = Math.max(
     0,
     Math.min(5, Number(process.env.WRITER_COOC_MAX ?? 3))
@@ -767,10 +814,8 @@ function postProcess(raw: string, n: NormalizedInput): string {
     if (footnoteMode === "none") {
       // 追加しない
     } else if (footnoteMode === "inline") {
-      // inlineモードでは安全フレーズをCTA側に合成するため、一旦グローバルに保持
       (globalThis as any).__WRITER_INLINE_SAFETY__ = safety1;
     } else {
-      // compact (デフォルト) → 末尾に1行注入
       const topic = picked.length
         ? `関連:${picked.join("・")}`
         : "";
@@ -781,10 +826,7 @@ function postProcess(raw: string, n: NormalizedInput): string {
     }
   }
 
-  // 10) CTA生成
-  //     - 主CTA（一次CTA）は購入など1stアクション
-  //     - 代替CTAは低負荷アクション
-  //     - それぞれ「行動した未来のメリット」を含める
+  // CTA生成
   const pref =
     n.cta_preference && n.cta_preference.length > 0
       ? n.cta_preference
@@ -793,7 +835,6 @@ function postProcess(raw: string, n: NormalizedInput): string {
   const primaryAction = pref[0] || "今すぐ購入";
   const secondaryAction = pref[1] || pref[2] || "詳細を見る";
 
-  // inlineモードなら、安心ワードを一次CTAの後ろに織り込む
   let primaryFuture = "まず試せます（30日以内は返品可）";
   if (
     footnoteMode === "inline" &&
@@ -810,12 +851,10 @@ function postProcess(raw: string, n: NormalizedInput): string {
   const primaryLine = `一次CTA：${primaryAction}—${primaryFuture}`;
   const secondaryLine = `代替CTA：${secondaryAction}—${secondaryFuture}`;
 
-  // 11) FAQ→CTA の順で、末尾に1回だけ差し込む
   out = out.replace(/\s+$/, "");
   out = `${out}\n\n${faqMd}\n\n${primaryLine}\n${secondaryLine}`;
 
-  // 12) FAQ一元化の最終ガード
-  //     万が一 "## FAQ" が複数ブロック入ってしまったら、先頭の1ブロックだけ残す
+  // FAQ一元化の最終ガード
   {
     const faqMatches = [
       ...out.matchAll(
@@ -824,12 +863,10 @@ function postProcess(raw: string, n: NormalizedInput): string {
     ];
     if (faqMatches.length > 1) {
       const firstFaqText = faqMatches[0][0];
-      // いったん全部FAQ消す
       out = out.replace(
         /^## FAQ[\s\S]*?(?=(?:\n## |\n一次CTA|$))/gm,
         ""
       );
-      // 先頭FAQだけ一次CTAの直前に戻す
       out = out.replace(
         /\n一次CTA[：:]/m,
         `\n${firstFaqText}\n\n一次CTA：`
@@ -837,7 +874,6 @@ function postProcess(raw: string, n: NormalizedInput): string {
     }
   }
 
-  // 13) 長さセーフティ（5,000文字超は末尾を丸める）
   const MAX = 5000;
   if (out.length > MAX) {
     const slice = out.slice(0, MAX);
@@ -1074,9 +1110,15 @@ export async function POST(req: Request) {
       });
     }
 
-    // 入力正規化 & メッセージ構築
+    // 入力正規化
     const n = normalizeInput(rawPrompt);
-    const system = buildSystemPrompt(systemOverride);
+
+    // 🆕 toneプリセット解決（tone/style → toneKey）
+    const toneKey = resolveTonePresetKey(n.tone, n.style);
+
+    // System Prompt 構築（上書きがあれば優先）
+    const system = buildSystemPrompt({ overrides: systemOverride, toneKey });
+
     const userMessage = makeUserMessage(n);
 
     // 🚫 FewShotはLLMに渡さない（H-5-rebuild-A方針）
@@ -1158,8 +1200,8 @@ export async function POST(req: Request) {
     // モデル生テキスト → Precision Plan後処理
     const text = postProcess(content, n);
 
-    // 出力メタ（tone固定 warm_intelligent）
-    const meta = extractMeta(text);
+    // 🆕 出力メタ：style 推定 + tone=解決トーン + locale 固定
+    const meta = extractMeta(text, toneKey);
 
     // メトリクス解析（FAQ/CTA含有・行数など）
     const metrics = analyzeText(text);
@@ -1215,3 +1257,4 @@ export async function POST(req: Request) {
 
 /** （互換維持のダミー。可視カウント用・本体ロジックとは独立） */
 const __FAQ_SEED_CONTAINER__ = {};
+
