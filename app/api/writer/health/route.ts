@@ -1,5 +1,4 @@
 // app/api/writer/health/route.ts
-// Runtime: Node.js（環境変数チェックのため）
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
@@ -10,7 +9,7 @@ type HealthOk = {
     env: {
       OPENAI_API_KEY: "set" | "missing";
       WRITER_FEWSHOT: "1|true" | "0|false|unset";
-      DEBUG_TEMPLATE_API: string; // "stub"ならスタブ応答
+      DEBUG_TEMPLATE_API: string;
       NODE_ENV: string;
     };
     writer: {
@@ -22,7 +21,6 @@ type HealthOk = {
     };
     meta: {
       ts: string;
-      region?: string;
     };
   };
 };
@@ -61,13 +59,10 @@ export async function GET() {
         },
         meta: {
           ts: new Date().toISOString(),
-          // Vercelのリージョン（Edgeでは無いので undefined になることも）
-          region: (process as any)?.env?.VERCEL_REGION,
         },
       },
     };
 
-    // ✅ 安全シリアライズ（本番で data が空化するケースを防止）
     return NextResponse.json(JSON.parse(JSON.stringify(payload)), { status: 200 });
   } catch (e: any) {
     const err: HealthErr = {
