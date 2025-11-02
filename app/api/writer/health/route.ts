@@ -67,7 +67,8 @@ export async function GET() {
       },
     };
 
-    return NextResponse.json(payload, { status: 200 });
+    // ✅ 安全シリアライズ（本番で data が空化するケースを防止）
+    return NextResponse.json(JSON.parse(JSON.stringify(payload)), { status: 200 });
   } catch (e: any) {
     const err: HealthErr = {
       ok: false,
