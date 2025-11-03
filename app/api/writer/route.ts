@@ -11,9 +11,10 @@ import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 // 🆕 toneプリセットを統合
 import * as Tone from "@/lib/tone-presets";
+import { writerLog } from "@/lib/metrics/writerLogger";
 // compat shim (named/default/namespace all OK)
 const tonePresets: Record<string, any> =
-  (Tone as any).tonePresets ?? (Tone as any).default ?? (Tone as any);/** FAQ セクション見出し（tests-augmented 前提 / カウント検知用） */
+  (Tone as any).default ?? (Tone as any);/** FAQ セクション見出し（tests-augmented 前提 / カウント検知用） */
 const faqBlock = "## FAQ\n";
 
 /** 汎用 FAQ シード（冪等・3問確保のための最小種） */
@@ -1029,18 +1030,26 @@ async function safeText(r: Response) {
 
 export async function POST(req: Request) {
   const t0 = Date.now();
+/** リクエスト単位のトレースID（可視トラッキング用） */
+const rid = (globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2));
+
+/** 経過時間(ms)を返す小ヘルパー */
+const elapsed = () => Date.now() - t0;
+
+  let model: string | undefined;
 
   try {
     const body = (await req.json()) as WriterRequest | null;
 
     const provider = (body?.provider ?? "openai").toLowerCase();
     const rawPrompt = (body?.prompt ?? "").toString();
-    const model = (body?.model ?? "gpt-4o-mini").toString();
+    model = (body?.model ?? "gpt-4o-mini").toString();
     const temperature =
       typeof body?.temperature === "number"
         ? body!.temperature
         : 0.7;
     const systemOverride = (body?.system ?? "").toString();
+    await writerLog({ phase: "request", model, requestId: rid });
 
     // バリデーション
     if (!rawPrompt || rawPrompt.trim().length === 0) {
@@ -1060,9 +1069,14 @@ export async function POST(req: Request) {
       forceConsoleEvent("error", payload);
       await emitWriterEvent("error", payload);
 
-      return NextResponse.json<WriterResponseErr>(err, {
-        status: 400,
+      // ③-1: バリデーションNG（empty_prompt）—★この塊で置換
+      await writerLog({
+        phase: "failure",
+        model,
+        durationMs: elapsed(),
+        requestId: rid,
       });
+      return NextResponse.json<WriterResponseErr>(err, { status: 400 });
     }
 
     if (provider !== "openai") {
@@ -1082,9 +1096,14 @@ export async function POST(req: Request) {
       forceConsoleEvent("error", payload);
       await emitWriterEvent("error", payload);
 
-      return NextResponse.json<WriterResponseErr>(err, {
-        status: 400,
+      // ③-2: バリデーションNG（unsupported_provider）—★この塊で置換
+      await writerLog({
+        phase: "failure",
+        model,
+        durationMs: elapsed(),
+        requestId: rid,
       });
+      return NextResponse.json<WriterResponseErr>(err, { status: 400 });
     }
 
     const apiKey = process.env.OPENAI_API_KEY;
@@ -1105,6 +1124,7 @@ export async function POST(req: Request) {
       forceConsoleEvent("error", payload);
       await emitWriterEvent("error", payload);
 
+      await writerLog({ phase: "failure", model, durationMs: elapsed(), requestId: rid });
       return NextResponse.json<WriterResponseErr>(err, {
         status: 500,
       });
@@ -1237,6 +1257,8 @@ export async function POST(req: Request) {
       output: text,
     };
 
+
+    await writerLog({ phase: "success", model, durationMs: elapsed(), requestId: rid });
     return NextResponse.json(payload, { status: 200 });
   } catch (e: any) {
     const payload = {
@@ -1247,6 +1269,8 @@ export async function POST(req: Request) {
     logEvent("error", payload);
     forceConsoleEvent("error", payload);
     await emitWriterEvent("error", payload);
+
+    await writerLog({ phase: "failure", model, durationMs: elapsed(), requestId: rid });
 
     return NextResponse.json<WriterResponseErr>(
       { ok: false, error: e?.message ?? "unexpected error" },
