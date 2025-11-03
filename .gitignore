@@ -1,65 +1,50 @@
-_backup*/
-_reports/
-_snapshot*
-_tmp*
-!.env.example
-!.env.test
-.backup-step*/
-.backup/
-.DS_Store
-.env*
-.log/
-.logs/
+# === Node/Next.js 基本 ===
+node_modules/
 .next/
 .next/cache/
-.pnp.*
-.pnpm-debug.log*
-.vercel
-.vercel/
-.vscode/
-*_backup*
-*_before*
-*.backup
-*.backup.*
-*.bak
-*.bak.*
-*.db-journal
-*.log
-*.tmp
-*.tsbuildinfo
-# --- Backups / Temp / Working files ---
-# --- Coverage / Test caches ---
-# --- Editor / OS ---
-# --- Env files (keep examples/tests) ---
-# --- Logs / Reports ---
-# --- Next.js / Build outputs ---
-# --- Node / Package managers ---
-# --- Prisma / SQLite (if any local files are generated) ---
-# --- Vercel local metadata ---
-# === local backups / temp ===
-# local backups / temp
-# reports & backups
-# Retired Tailwind config
-# TypeScript build info
-app/globals.css.bak
-backup/
-backups/
-coverage/
-deploy-diagnose-report.txt
-dev_user.sql
-dist/
-logs/
-node_modules/
-npm-debug.log*
-out.css
 out/
-prisma/*.db
-prisma/*.sqlite
-scripts/seed-dev-user.mjs
-tailwind.config.js.retired
-temp/
-Thumbs.db
-tmp/
-vercel-env.*.json
+dist/
+build/
+coverage/
+npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
+
+# === Env / Vercel ===
+.env*
+!.env.example
+.vercel/
+
+# === OS 由来 ===
+.DS_Store
+Thumbs.db
+
+# === Prisma / DB（必要に応じ調整） ===
+*.db
+*.sqlite
+*.sqlite-journal
+prisma/*.db
+prisma/*.sqlite
+
+# === 生成物・一時 ===
+_tmp*/
+_temp*/
+tmp*/
+_temp.*
+
+# === 本プロジェクト固有：バックアップ/SSOT/出力 ===
+*_bak/
+*.bak_*
+_out/
+app/api/**/route.ts.bak_*
+app/api/writer/route.SSOT.*.ts
+app/api/writer/route.SSOT.*.ts.bak_*
+app/api/writer/health/route.ts.bak_*
+
+# === IDE ===
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/tasks.json
+.vercel
