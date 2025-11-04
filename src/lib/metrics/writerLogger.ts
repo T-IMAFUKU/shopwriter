@@ -4,8 +4,8 @@
  * - Edge/Node両対応: fetch を直接使用（SDK不使用）
  * - 本番は ENV で有効化:
  *   WRITER_LOG_ENABLED=true
- *   WRITER_LOG_MODE=direct        # console/direct
- *   LOGTAIL_ENDPOINT=https://in.logs.betterstack.com
+ *   WRITER_LOG_MODE=direct        # "console" | "direct"
+ *   LOGTAIL_ENDPOINT=https://in.logs.betterstack.com   # 既定。旧 in.logtail.com も自動フォールバック
  *   LOGTAIL_SOURCE_TOKEN=xxxxx
  */
 
@@ -14,23 +14,22 @@ export type WriterLevel = "INFO" | "WARN" | "ERROR";
 
 export interface WriterLogInput {
   phase: WriterPhase;
-  level?: WriterLevel; // 省略時は INFO
-  route?: string;      // 例: "/api/writer"
-  message?: string;    // 一覧の Message 欄に出す。未指定なら buildMessage() で自動生成
+  level?: WriterLevel;
+  route?: string;
+  message?: string;
   requestId?: string;
-  provider?: string;   // "openai" 等
+  provider?: string;
   model?: string;
   durationMs?: number;
   meta?: Record<string, unknown>;
 }
 
-/** ENV 取得（undefinedは扱いやすいよう空文字にしない） */
+/** ENV （undefinedは空にせず、下で明示処理） */
 const ENV = {
   ENABLED: process.env.WRITER_LOG_ENABLED,
   MODE: process.env.WRITER_LOG_MODE, // "console" | "direct"
-  // ✅ Better Stack の正式 Ingest URL を既定値に
   ENDPOINT: process.env.LOGTAIL_ENDPOINT ?? "https://in.logs.betterstack.com",
-  TOKEN: process.env.LOGTAIL_SOURCE_TOKEN,
+  TOKEN_RAW: process.env.LOGTAIL_SOURCE_TOKEN,
   NODE_ENV: process.env.NODE_ENV ?? "development",
 };
 
@@ -41,7 +40,7 @@ function mode(): "console" | "direct" {
   return ENV.MODE === "direct" ? "direct" : "console";
 }
 
-/** Better Stack の一覧に出すための要約メッセージ（未指定時の自動生成） */
+/** 一覧の Message に出す要約 */
 function buildMessage(input: WriterLogInput): string {
   const r = input.route ?? "/api/writer";
   const m = input.model ? ` model=${input.model}` : "";
@@ -52,18 +51,27 @@ function buildMessage(input: WriterLogInput): string {
     const d = typeof input.durationMs === "number" ? ` ${input.durationMs}ms` : "";
     return `success ${r}${m}${p}${id}${d}`;
   }
-  // failure
-  const reason =
-    typeof input.meta?.reason === "string"
-      ? ` reason=${String(input.meta!.reason)}`
-      : "";
+  const reason = typeof input.meta?.reason === "string" ? ` reason=${String(input.meta!.reason)}` : "";
   const d = typeof input.durationMs === "number" ? ` ${input.durationMs}ms` : "";
   return `failure ${r}${m}${p}${id}${reason}${d}`;
 }
 
-/** レスポンス本文を安全にテキスト化（失敗しても空文字で返す） */
 async function safeText(res: Response) {
   try { return await res.text(); } catch { return ""; }
+}
+
+/** マスク化（先頭4 + 末尾4） */
+function maskToken(t: string | undefined): string {
+  if (!t || t.length < 8) return "<hidden>";
+  return `${t.slice(0, 4)}...${t.slice(-4)}`;
+}
+
+/** 旧/新エンドポイント相互フォールバック */
+function endpointsForTry(primary: string): string[] {
+  const alt = primary.includes("in.logs.betterstack.com")
+    ? "https://in.logtail.com"
+    : "https://in.logs.betterstack.com";
+  return [primary, alt];
 }
 
 /** ログ本体（例外は飲み込み・アプリ処理は止めない） */
@@ -75,7 +83,6 @@ export async function writerLog(input: WriterLogInput): Promise<void> {
       phase: input.phase,
       level: input.level ?? defaultLevel(input.phase),
       route: input.route ?? "/api/writer",
-      // ✅ message 未指定でも一覧に出るよう自動要約
       message: (input.message ?? buildMessage(input)).slice(0, 512),
       requestId: input.requestId,
       provider: input.provider,
@@ -86,38 +93,52 @@ export async function writerLog(input: WriterLogInput): Promise<void> {
       service: "writer",
     };
 
-    // 無効 → console 表示のみ（開発時と同じ見え方）
     if (!isEnabled()) {
       /* eslint-disable no-console */
       console.log("[writerLog:disabled]", payload);
       return;
     }
 
-    // direct: Better Stack に直送
-    if (mode() === "direct") {
-      if (!ENV.TOKEN) {
-        console.warn("[writerLog] LOGTAIL_SOURCE_TOKEN is missing. Fallback to console.");
-        console.log("[writerLog:console]", payload);
-        return;
-      }
-      const res = await fetch(ENV.ENDPOINT, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${ENV.TOKEN}`,
-        },
-        // Better Stack はプレーンJSON1行でOK
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        // 送信失敗は握りつぶしつつ、診断用に status/本文を warn 出力
-        console.warn("[writerLog] failed to send to Better Stack:", res.status, await safeText(res));
-      }
+    if (mode() !== "direct") {
+      console.log("[writerLog:console]", payload);
       return;
     }
 
-    // console モード
-    console.log("[writerLog:console]", payload);
+    // 🔒 トークンの不可視文字を削除（401の定番原因）
+    const token = (ENV.TOKEN_RAW ?? "").trim();
+    if (!token) {
+      console.warn("[writerLog] LOGTAIL_SOURCE_TOKEN is missing. Fallback to console.");
+      console.log("[writerLog:console]", payload);
+      return;
+    }
+
+    // まず指定のENDPOINT、401なら旧/新どちらにも自動フォールバック
+    const tries = endpointsForTry(ENV.ENDPOINT);
+    for (let i = 0; i < tries.length; i++) {
+      const url = tries[i];
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) return;
+
+      const body = await safeText(res);
+      // 401 だけはフォールバック（次のURLへ）／最後の試行なら warn 出力
+      if (res.status === 401 && i + 1 < tries.length) continue;
+
+      console.warn(
+        "[writerLog] failed to send to Better Stack:",
+        res.status,
+        body || "<no-body>",
+        `(endpoint=${url} token=${maskToken(token)})`
+      );
+      return;
+    }
   } catch (err) {
     console.warn("[writerLog] error:", err);
   }
