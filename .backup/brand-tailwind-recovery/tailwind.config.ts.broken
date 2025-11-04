@@ -1,0 +1,2 @@
+Set-Content -Path .\tailwind.config.ts -Value (Get-Clipboard) -Encoding UTF8
+

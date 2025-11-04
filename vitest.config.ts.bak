@@ -1,0 +1,34 @@
+import { defineConfig } from "vitest/config";
+import tsconfigPaths from "vite-tsconfig-paths";
+import path from "path";
+
+/**
+ * ✅ 重要ポイント
+ * - `@` を単純に `./src` へ固定しない
+ * - 代わりに prefix ごとに分岐:
+ *   - "@/app/*"        -> ./app/*
+ *   - "@/lib/*"        -> ./src/lib/*
+ *   - "@/contracts"    -> ./contracts/index.ts
+ *   - "@/contracts/*"  -> ./contracts/*
+ *   - "@/*" (fallback) -> ./src/*
+ */
+export default defineConfig({
+  plugins: [tsconfigPaths()],
+  resolve: {
+    alias: [
+      { find: /^@\/app\//,        replacement: path.resolve(__dirname, "./app/") },
+      { find: /^@\/lib\//,        replacement: path.resolve(__dirname, "./src/lib/") },
+      { find: /^@\/contracts$/,   replacement: path.resolve(__dirname, "./contracts/index.ts") },
+      { find: /^@\/contracts\//,  replacement: path.resolve(__dirname, "./contracts/") },
+      { find: /^@\//,             replacement: path.resolve(__dirname, "./src/") },
+    ],
+  },
+  test: {
+    environment: "node",
+    include: ["tests/**/*.test.ts"],
+    passWithNoTests: false,
+    reporters: ["default"],
+    // 共通モック：OpenAI/next-authのネットワーク遮断は tests/setup.writers.ts 側で実施
+    setupFiles: ["tests/setup.writers.ts"],
+  },
+});

@@ -1,0 +1,31 @@
+
+[1m[46m RUN [49m[22m [36mv3.2.4 [39m[90mC:/Users/81905/shopwriter-new[39m
+
+stderr | tests/api/writer.precision.plan.test.ts > Precision Plan /api/writer (real OpenAI) > 蜷御ｸ繝励Ο繝ｳ繝励ヨ x3 蝗槭・螳滓ｸｬ縺ｧ縲∵ｧ矩繝ｻ騾溷ｺｦ繝ｻ蜀咲樟諤ｧ繧堤｢ｺ隱阪☆繧・writer response (debug): {
+  "ok": false,
+  "error": "OPENAI_API_KEY is not set"
+}
+
+ [31m笶ｯ[39m tests/api/writer.precision.plan.test.ts [2m([22m[2m1 test[22m[2m | [22m[31m1 failed[39m[2m)[22m[32m 132[2mms[22m[39m
+[31m   [31mﾃ・[31m Precision Plan /api/writer (real OpenAI)[2m > [22m蜷御ｸ繝励Ο繝ｳ繝励ヨ x3 蝗槭・螳滓ｸｬ縺ｧ縲∵ｧ矩繝ｻ騾溷ｺｦ繝ｻ蜀咲樟諤ｧ繧堤｢ｺ隱阪☆繧・[39m[32m 25[2mms[22m[39m
+[31m     竊・writer response shape invalid[39m
+
+竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ Failed Tests 1 竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ
+
+ FAIL  tests/api/writer.precision.plan.test.ts > Precision Plan /api/writer (real OpenAI) > 蜷御ｸ繝励Ο繝ｳ繝励ヨ x3 蝗槭・螳滓ｸｬ縺ｧ縲∵ｧ矩繝ｻ騾溷ｺｦ繝ｻ蜀咲樟諤ｧ繧堤｢ｺ隱阪☆繧・Error: writer response shape invalid
+ 笶ｯ tests/api/writer.precision.plan.test.ts:97:17
+     95|           // eslint-disable-next-line no-console
+     96|           console.error("writer response (debug):", JSON.stringify(jso窶ｦ
+     97|           throw new Error("writer response shape invalid");
+       |                 ^
+     98|         }
+     99| 
+
+竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ竡ｯ[1/1]竡ｯ
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m   Start at [22m 01:14:38
+[2m   Duration [22m 1.56s[2m (transform 107ms, setup 44ms, collect 47ms, tests 132ms, environment 0ms, prepare 163ms)[22m
+

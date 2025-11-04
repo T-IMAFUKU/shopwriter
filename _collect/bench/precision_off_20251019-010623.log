@@ -1,0 +1,43 @@
+
+> shopwriter-app@0.1.0 test C:\Users\81905\shopwriter-new
+> cross-env NODE_OPTIONS=--require=./tests/preload-env.cjs vitest run --passWithNoTests "-t" "writer.precision.plan"
+
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+
+[1m[46m RUN [49m[22m [36mv3.2.4 [39m[90mC:/Users/81905/shopwriter-new[39m
+
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+ [2m[90m竊・[39m[22m tests/api/writer.snapshot.test.ts [2m([22m[2m1 test[22m[2m | [22m[33m1 skipped[39m[2m)[22m
+ [2m[90m竊・[39m[22m tests/api/writer.samples.email.test.ts [2m([22m[2m1 test[22m[2m | [22m[33m1 skipped[39m[2m)[22m
+ [2m[90m竊・[39m[22m tests/api/writer.samples.headline_only.test.ts [2m([22m[2m1 test[22m[2m | [22m[33m1 skipped[39m[2m)[22m
+ [2m[90m竊・[39m[22m tests/api/writer.samples.sns_short.test.ts [2m([22m[2m1 test[22m[2m | [22m[33m1 skipped[39m[2m)[22m
+ [2m[90m竊・[39m[22m tests/api/writer.samples.test.ts [2m([22m[2m1 test[22m[2m | [22m[33m1 skipped[39m[2m)[22m
+ [2m[90m竊・[39m[22m tests/api/writer.precision.plan.test.ts [2m([22m[2m1 test[22m[2m | [22m[33m1 skipped[39m[2m)[22m
+ [2m[90m竊・[39m[22m tests/api/writer.samples.lp.test.ts [2m([22m[2m1 test[22m[2m | [22m[33m1 skipped[39m[2m)[22m
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+ [2m[90m竊・[39m[22m tests/debug.env.test.ts [2m([22m[2m1 test[22m[2m | [22m[33m1 skipped[39m[2m)[22m
+ [2m[90m竊・[39m[22m tests/api/writer.qa.scenario.test.ts [2m([22m[2m4 tests[22m[2m | [22m[33m4 skipped[39m[2m)[22m
+ [2m[90m竊・[39m[22m tests/contracts/share.contract.test.ts [2m([22m[2m12 tests[22m[2m | [22m[33m12 skipped[39m[2m)[22m
+ [2m[90m竊・[39m[22m tests/api/shares.route.test.ts [2m([22m[2m6 tests[22m[2m | [22m[33m6 skipped[39m[2m)[22m
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+
+[2m Test Files [22m [33m11 skipped[39m[90m (11)[39m
+[2m      Tests [22m [33m30 skipped[39m[90m (30)[39m
+[2m   Start at [22m 01:07:41
+[2m   Duration [22m 2.97s[2m (transform 882ms, setup 602ms, collect 1.37s, tests 0ms, environment 5ms, prepare 7.88s)[22m
+
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
