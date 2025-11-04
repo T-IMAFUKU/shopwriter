@@ -1,5 +1,0 @@
-
-Algorithm       Hash                                                                   Path
----------       ----                                                                   ----
-SHA256          8B8384BE5027BF1F87C1685F8E2999105A23AD04B209DA56A97DF9795E9393C1       C:\Users\81905\shopwriter-new\app\writer\ClientPage.tsx
-

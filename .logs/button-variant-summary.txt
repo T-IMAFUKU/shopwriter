@@ -1,4 +1,0 @@
-     outline : 29件
-   secondary : 15件
-       ghost : 10件
- destructive : 2件
