@@ -1,0 +1,500 @@
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+
+[1m[46m RUN [49m[22m [36mv3.2.4 [39m[90mC:/Users/81905/shopwriter-new[39m
+
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[90mstdout[2m | tests/api/writer.precision.plan.test.ts[2m > [22m[2mPrecision Plan /api/writer (real OpenAI)[2m > [22m[2m蜷御ｸ繝励Ο繝ｳ繝励ヨ x3 蝗槭・螳滓ｸｬ縺ｧ縲∵ｧ矩繝ｻ騾溷ｺｦ繝ｻ蜀咲樟諤ｧ繧堤｢ｺ隱阪☆繧・[22m[39m[writerLog:disabled] {
+  ts: [32m'2025-11-03T11:14:53.615Z'[39m,
+  phase: [32m'request'[39m,
+  level: [32m'INFO'[39m,
+  route: [32m'/api/writer'[39m,
+  message: [32m''[39m,
+  requestId: [32m'e2667476-7424-4190-9ab4-3bfc3e4fffb1'[39m,
+  provider: [90mundefined[39m,
+  model: [32m'gpt-4o-mini'[39m,
+  durationMs: [90mundefined[39m,
+  meta: {},
+  env: [32m'test'[39m,
+  service: [32m'writer'[39m
+}
+
+[90mstdout[2m | tests/api/writer.snapshot.test.ts[2m > [22m[2m/api/writer snapshot-less shape check[2m > [22m[2m蝗ｺ螳壼・蜉・>=8譁・ｭ・ 竊・ok=true 縺九▽ 譁・ｭ怜・譛ｬ譁・′霑斐ｋ
+[22m[39m[writerLog:disabled] {
+  ts: [32m'2025-01-01T00:00:00.000Z'[39m,
+  phase: [32m'request'[39m,
+  level: [32m'INFO'[39m,
+  route: [32m'/api/writer'[39m,
+  message: [32m''[39m,
+  requestId: [32m'58be6494-978b-4c00-b560-c8b374dbfaed'[39m,
+  provider: [90mundefined[39m,
+  model: [32m'gpt-4o-mini'[39m,
+  durationMs: [90mundefined[39m,
+  meta: {},
+  env: [32m'test'[39m,
+  service: [32m'writer'[39m
+}
+
+[90mstdout[2m | tests/api/writer.samples.test.ts[2m > [22m[2mwriter samples (product_card.basic.json)[2m > [22m[2m蜷・し繝ｳ繝励Ν縺・data.text・・r output・峨ｒ霑斐＠縲√Γ繧ｿ荳閾ｴ & banned隱樔ｸ榊惠繧呈ｺ縺溘☆縺薙→
+[22m[39m[writerLog:disabled] {
+  ts: [32m'2025-11-03T11:14:53.615Z'[39m,
+  phase: [32m'request'[39m,
+  level: [32m'INFO'[39m,
+  route: [32m'/api/writer'[39m,
+  message: [32m''[39m,
+  requestId: [32m'cb105189-afb0-452a-9f0f-ac448c021169'[39m,
+  provider: [90mundefined[39m,
+  model: [32m'gpt-4o-mini'[39m,
+  durationMs: [90mundefined[39m,
+  meta: {},
+  env: [32m'test'[39m,
+  service: [32m'writer'[39m
+}
+
+[90mstdout[2m | tests/api/writer.samples.sns_short.test.ts[2m > [22m[2mwriter samples (sns_short.basic.json)[2m > [22m[2mSNS繧ｷ繝ｧ繝ｼ繝亥推繧ｵ繝ｳ繝励Ν縺・data.text・・r output・峨ｒ霑斐＠縲∵怙菴朱剞縺ｮ菴楢｣√ｒ貅縺溘☆・育ｷｩ蜥鯉ｼ・[22m[39m[writerLog:disabled] {
+  ts: [32m'2025-11-03T11:14:53.615Z'[39m,
+  phase: [32m'request'[39m,
+  level: [32m'INFO'[39m,
+  route: [32m'/api/writer'[39m,
+  message: [32m''[39m,
+  requestId: [32m'c46c0bcc-c132-4c08-8cd8-de75632bc1a2'[39m,
+  provider: [90mundefined[39m,
+  model: [32m'gpt-4o-mini'[39m,
+  durationMs: [90mundefined[39m,
+  meta: {},
+  env: [32m'test'[39m,
+  service: [32m'writer'[39m
+}
+
+[90mstdout[2m | tests/api/writer.samples.lp.test.ts[2m > [22m[2mwriter samples (lp.basic.json)[2m > [22m[2mLP繧ｹ繧ｿ繧､繝ｫ縺ｮ蜷・し繝ｳ繝励Ν縺・data.text・・r output・峨ｒ霑斐＠縲√そ繧ｯ繧ｷ繝ｧ繝ｳ菴楢｣√・譛菴朱剞繧呈ｺ縺溘☆・育ｷｩ蜥鯉ｼ・[22m[39m[writerLog:disabled] {
+  ts: [32m'2025-11-03T11:14:53.615Z'[39m,
+  phase: [32m'request'[39m,
+  level: [32m'INFO'[39m,
+  route: [32m'/api/writer'[39m,
+  message: [32m''[39m,
+  requestId: [32m'79826e63-bff8-4199-b987-135a2001de50'[39m,
+  provider: [90mundefined[39m,
+  model: [32m'gpt-4o-mini'[39m,
+  durationMs: [90mundefined[39m,
+  meta: {},
+  env: [32m'test'[39m,
+  service: [32m'writer'[39m
+}
+
+[90mstdout[2m | tests/api/writer.samples.headline_only.test.ts[2m > [22m[2mwriter samples (headline_only.basic.json)[2m > [22m[2m繝倥ャ繝峨Λ繧､繝ｳ蜷・し繝ｳ繝励Ν縺・data.text・・r output・峨ｒ霑斐☆
+[22m[39m[writerLog:disabled] {
+  ts: [32m'2025-11-03T11:14:53.622Z'[39m,
+  phase: [32m'request'[39m,
+  level: [32m'INFO'[39m,
+  route: [32m'/api/writer'[39m,
+  message: [32m''[39m,
+  requestId: [32m'a4e4e7b0-3052-4bfe-b62b-b85b71b7b739'[39m,
+  provider: [90mundefined[39m,
+  model: [32m'gpt-4o-mini'[39m,
+  durationMs: [90mundefined[39m,
+  meta: {},
+  env: [32m'test'[39m,
+  service: [32m'writer'[39m
+}
+
+[90mstdout[2m | tests/api/writer.samples.email.test.ts[2m > [22m[2mwriter samples (email.basic.json)[2m > [22m[2m繝｡繝ｼ繝ｫ蜷・し繝ｳ繝励Ν縺・data.text・・r output・峨ｒ霑斐＠縲√Γ繧ｿ荳閾ｴ・・ユ繝ｳ繝励Ξ隕∽ｻｶ繧呈ｺ縺溘☆
+[22m[39m[writerLog:disabled] {
+  ts: [32m'2025-11-03T11:14:53.642Z'[39m,
+  phase: [32m'request'[39m,
+  level: [32m'INFO'[39m,
+  route: [32m'/api/writer'[39m,
+  message: [32m''[39m,
+  requestId: [32m'dd72e6fb-1c97-4938-9701-5055d1595e57'[39m,
+  provider: [90mundefined[39m,
+  model: [32m'gpt-4o-mini'[39m,
+  durationMs: [90mundefined[39m,
+  meta: {},
+  env: [32m'test'[39m,
+  service: [32m'writer'[39m
+}
+
+[90mstdout[2m | tests/api/writer.samples.sns_short.test.ts[2m > [22m[2mwriter samples (sns_short.basic.json)[2m > [22m[2mSNS繧ｷ繝ｧ繝ｼ繝亥推繧ｵ繝ｳ繝励Ν縺・data.text・・r output・峨ｒ霑斐＠縲∵怙菴朱剞縺ｮ菴楢｣√ｒ貅縺溘☆・育ｷｩ蜥鯉ｼ・[22m[39mWRITER_EVENT {"ts":"2025-11-03T11:15:01.555Z","route":"/api/writer","kind":"ok","ok":true,"provider":"openai","model":"gpt-4o-mini","temperature":0.7,"input":{"category":"豎守畑","goal":"雉ｼ蜈･隱伜ｰ・,"platform":null},"meta":{"style":"bullet","tone":"warm_intelligent","locale":"ja-JP"},"metrics":{"charCount":695,"lineCount":37,"bulletCount":4,"h2Count":4,"faqCount":1,"hasFinalCTA":true},"durations":{"apiMs":7906,"totalMs":7944},"hash":{"text_sha256_16":"316f1bf24ab57670"}}
+WRITER_EVENT {"ts":"2025-11-03T11:15:01.555Z","route":"/api/writer","kind":"ok","ok":true,"provider":"openai","model":"gpt-4o-mini","temperature":0.7,"input":{"category":"豎守畑","goal":"雉ｼ蜈･隱伜ｰ・,"platform":null},"meta":{"style":"bullet","tone":"warm_intelligent","locale":"ja-JP"},"metrics":{"charCount":695,"lineCount":37,"bulletCount":4,"h2Count":4,"faqCount":1,"hasFinalCTA":true},"durations":{"apiMs":7906,"totalMs":7944},"hash":{"text_sha256_16":"316f1bf24ab57670"}}
+
+[90mstdout[2m | tests/api/writer.samples.sns_short.test.ts[2m > [22m[2mwriter samples (sns_short.basic.json)[2m > [22m[2mSNS繧ｷ繝ｧ繝ｼ繝亥推繧ｵ繝ｳ繝励Ν縺・data.text・・r output・峨ｒ霑斐＠縲∵怙菴朱剞縺ｮ菴楢｣√ｒ貅縺溘☆・育ｷｩ蜥鯉ｼ・[22m[39m[writerLog:disabled] {
+  ts: [32m'2025-11-03T11:15:01.556Z'[39m,
+  phase: [32m'success'[39m,
+  level: [32m'INFO'[39m,
+  route: [32m'/api/writer'[39m,
+  message: [32m''[39m,
+  requestId: [32m'c46c0bcc-c132-4c08-8cd8-de75632bc1a2'[39m,
+  provider: [90mundefined[39m,
+  model: [32m'gpt-4o-mini'[39m,
+  durationMs: [33m7946[39m,
+  meta: {},
+  env: [32m'test'[39m,
+  service: [32m'writer'[39m
+}
+
+ [32m笨・[39m tests/api/writer.samples.sns_short.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 8317[2mms[22m[39m
+   [33m[2m笨・[22m[39m writer samples (sns_short.basic.json)[2m > [22mSNS繧ｷ繝ｧ繝ｼ繝亥推繧ｵ繝ｳ繝励Ν縺・data.text・・r output・峨ｒ霑斐＠縲∵怙菴朱剞縺ｮ菴楢｣√ｒ貅縺溘☆・育ｷｩ蜥鯉ｼ・[33m 7962[2mms[22m[39m
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[90mstdout[2m | tests/api/writer.qa.scenario.test.ts[2m > [22m[2mQA-WR-CORE・・api/writer strict shape[2m > [22m[2mQA-WR-001・懷渕譛ｬ謌仙粥・壽怙蟆上ユ繝ｳ繝励Ξ蜈･蜉帙〒 strict shape・・k,data(meta),output縺ｮ縺ｿ・・[22m[39m[writerLog:disabled] {
+  ts: [32m'2025-11-03T11:15:02.152Z'[39m,
+  phase: [32m'request'[39m,
+  level: [32m'INFO'[39m,
+  route: [32m'/api/writer'[39m,
+  message: [32m''[39m,
+  requestId: [32m'9a026994-2631-461b-ab77-f801a9be4a05'[39m,
+  provider: [90mundefined[39m,
+  model: [32m'gpt-4o-mini'[39m,
+  durationMs: [90mundefined[39m,
+  meta: {},
+  env: [32m'test'[39m,
+  service: [32m'writer'[39m
+}
+
+[90mstdout[2m | tests/api/writer.qa.scenario.test.ts[2m > [22m[2mQA-WR-CORE・・api/writer strict shape[2m > [22m[2mQA-WR-001・懷渕譛ｬ謌仙粥・壽怙蟆上ユ繝ｳ繝励Ξ蜈･蜉帙〒 strict shape・・k,data(meta),output縺ｮ縺ｿ・・[22m[39mWRITER_EVENT {"ts":"2025-11-03T11:15:02.154Z","route":"/api/writer","kind":"error","ok":false,"reason":"bad_request","provider":"openai","model":"gpt-4o-mini","meta":null}
+WRITER_EVENT {"ts":"2025-11-03T11:15:02.155Z","route":"/api/writer","kind":"error","ok":false,"reason":"bad_request","provider":"openai","model":"gpt-4o-mini","meta":null}
+
+[90mstdout[2m | tests/api/writer.qa.scenario.test.ts[2m > [22m[2mQA-WR-CORE・・api/writer strict shape[2m > [22m[2mQA-WR-001・懷渕譛ｬ謌仙粥・壽怙蟆上ユ繝ｳ繝励Ξ蜈･蜉帙〒 strict shape・・k,data(meta),output縺ｮ縺ｿ・・[22m[39m[writerLog:disabled] {
+  ts: [32m'2025-11-03T11:15:02.155Z'[39m,
+  phase: [32m'failure'[39m,
+  level: [32m'ERROR'[39m,
+  route: [32m'/api/writer'[39m,
+  message: [32m''[39m,
+  requestId: [32m'9a026994-2631-461b-ab77-f801a9be4a05'[39m,
+  provider: [90mundefined[39m,
+  model: [32m'gpt-4o-mini'[39m,
+  durationMs: [33m5[39m,
+  meta: {},
+  env: [32m'test'[39m,
+  service: [32m'writer'[39m
+}
+
+[90mstdout[2m | tests/api/writer.qa.scenario.test.ts[2m > [22m[2mQA-WR-CORE・・api/writer strict shape[2m > [22m[2mQA-WR-002・懷▼蜈ｨ諤ｧ・壽綾繧雁､繝医ャ繝励Ξ繝吶Ν縺ｫ菴呵ｨ医↑繧ｭ繝ｼ縺檎┌縺・％縺ｨ
+[22m[39m[writerLog:disabled] {
+  ts: [32m'2025-11-03T11:15:02.161Z'[39m,
+  phase: [32m'request'[39m,
+  level: [32m'INFO'[39m,
+  route: [32m'/api/writer'[39m,
+  message: [32m''[39m,
+  requestId: [32m'c7332e14-7d46-4e09-95ce-6cd360af39ae'[39m,
+  provider: [90mundefined[39m,
+  model: [32m'gpt-4o-mini'[39m,
+  durationMs: [90mundefined[39m,
+  meta: {},
+  env: [32m'test'[39m,
+  service: [32m'writer'[39m
+}
+
+[90mstdout[2m | tests/api/writer.qa.scenario.test.ts[2m > [22m[2mQA-WR-CORE・・api/writer strict shape[2m > [22m[2mQA-WR-002・懷▼蜈ｨ諤ｧ・壽綾繧雁､繝医ャ繝励Ξ繝吶Ν縺ｫ菴呵ｨ医↑繧ｭ繝ｼ縺檎┌縺・％縺ｨ
+[22m[39mWRITER_EVENT {"ts":"2025-11-03T11:15:02.162Z","route":"/api/writer","kind":"error","ok":false,"reason":"bad_request","provider":"openai","model":"gpt-4o-mini","meta":null}
+WRITER_EVENT {"ts":"2025-11-03T11:15:02.162Z","route":"/api/writer","kind":"error","ok":false,"reason":"bad_request","provider":"openai","model":"gpt-4o-mini","meta":null}
+
+[90mstdout[2m | tests/api/writer.qa.scenario.test.ts[2m > [22m[2mQA-WR-CORE・・api/writer strict shape[2m > [22m[2mQA-WR-002・懷▼蜈ｨ諤ｧ・壽綾繧雁､繝医ャ繝励Ξ繝吶Ν縺ｫ菴呵ｨ医↑繧ｭ繝ｼ縺檎┌縺・％縺ｨ
+[22m[39m[writerLog:disabled] {
+  ts: [32m'2025-11-03T11:15:02.163Z'[39m,
+  phase: [32m'failure'[39m,
+  level: [32m'ERROR'[39m,
+  route: [32m'/api/writer'[39m,
+  message: [32m''[39m,
+  requestId: [32m'c7332e14-7d46-4e09-95ce-6cd360af39ae'[39m,
+  provider: [90mundefined[39m,
+  model: [32m'gpt-4o-mini'[39m,
+  durationMs: [33m2[39m,
+  meta: {},
+  env: [32m'test'[39m,
+  service: [32m'writer'[39m
+}
+
+[90mstdout[2m | tests/api/writer.qa.scenario.test.ts[2m > [22m[2mQA-WR-CORE・・api/writer strict shape[2m > [22m[2mQA-WR-004・懷・欧諤ｧ・壽・繧峨°縺ｪ荳榊ｙ蜈･蜉帙〒 route 縺・00繧ｯ繝ｩ繝・す繝･縺励↑縺・％縺ｨ
+[22m[39m[writerLog:disabled] {
+  ts: [32m'2025-11-03T11:15:02.167Z'[39m,
+  phase: [32m'request'[39m,
+  level: [32m'INFO'[39m,
+  route: [32m'/api/writer'[39m,
+  message: [32m''[39m,
+  requestId: [32m'20eb8ccf-b1a0-4233-86fc-73a07e73aab1'[39m,
+  provider: [90mundefined[39m,
+  model: [32m'gpt-4o-mini'[39m,
+  durationMs: [90mundefined[39m,
+  meta: {},
+  env: [32m'test'[39m,
+  service: [32m'writer'[39m
+}
+
+[90mstdout[2m | tests/api/writer.qa.scenario.test.ts[2m > [22m[2mQA-WR-CORE・・api/writer strict shape[2m > [22m[2mQA-WR-004・懷・欧諤ｧ・壽・繧峨°縺ｪ荳榊ｙ蜈･蜉帙〒 route 縺・00繧ｯ繝ｩ繝・す繝･縺励↑縺・％縺ｨ
+[22m[39mWRITER_EVENT {"ts":"2025-11-03T11:15:02.169Z","route":"/api/writer","kind":"error","ok":false,"reason":"bad_request","provider":"openai","model":"gpt-4o-mini","meta":null}
+WRITER_EVENT {"ts":"2025-11-03T11:15:02.169Z","route":"/api/writer","kind":"error","ok":false,"reason":"bad_request","provider":"openai","model":"gpt-4o-mini","meta":null}
+
+[90mstdout[2m | tests/api/writer.qa.scenario.test.ts[2m > [22m[2mQA-WR-CORE・・api/writer strict shape[2m > [22m[2mQA-WR-004・懷・欧諤ｧ・壽・繧峨°縺ｪ荳榊ｙ蜈･蜉帙〒 route 縺・00繧ｯ繝ｩ繝・す繝･縺励↑縺・％縺ｨ
+[22m[39m[writerLog:disabled] {
+  ts: [32m'2025-11-03T11:15:02.170Z'[39m,
+  phase: [32m'failure'[39m,
+  level: [32m'ERROR'[39m,
+  route: [32m'/api/writer'[39m,
+  message: [32m''[39m,
+  requestId: [32m'20eb8ccf-b1a0-4233-86fc-73a07e73aab1'[39m,
+  provider: [90mundefined[39m,
+  model: [32m'gpt-4o-mini'[39m,
+  durationMs: [33m3[39m,
+  meta: {},
+  env: [32m'test'[39m,
+  service: [32m'writer'[39m
+}
+
+ [32m笨・[39m tests/api/writer.qa.scenario.test.ts [2m([22m[2m4 tests[22m[2m | [22m[33m1 skipped[39m[2m)[22m[32m 105[2mms[22m[39m
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+ [32m笨・[39m tests/api/shares.route.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 16[2mms[22m[39m
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+ [32m笨・[39m tests/api/health.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 12[2mms[22m[39m
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+ [32m笨・[39m tests/contracts/share.contract.test.ts [2m([22m[2m12 tests[22m[2m)[22m[32m 10[2mms[22m[39m
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[90mstdout[2m | tests/api/writer.samples.lp.test.ts[2m > [22m[2mwriter samples (lp.basic.json)[2m > [22m[2mLP繧ｹ繧ｿ繧､繝ｫ縺ｮ蜷・し繝ｳ繝励Ν縺・data.text・・r output・峨ｒ霑斐＠縲√そ繧ｯ繧ｷ繝ｧ繝ｳ菴楢｣√・譛菴朱剞繧呈ｺ縺溘☆・育ｷｩ蜥鯉ｼ・[22m[39mWRITER_EVENT {"ts":"2025-11-03T11:15:04.012Z","route":"/api/writer","kind":"ok","ok":true,"provider":"openai","model":"gpt-4o-mini","temperature":0.7,"input":{"category":"豎守畑","goal":"雉ｼ蜈･隱伜ｰ・,"platform":null},"meta":{"style":"bullet","tone":"warm_intelligent","locale":"ja-JP"},"metrics":{"charCount":664,"lineCount":30,"bulletCount":7,"h2Count":3,"faqCount":1,"hasFinalCTA":true},"durations":{"apiMs":10361,"totalMs":10403},"hash":{"text_sha256_16":"5525e2d271c31325"}}
+WRITER_EVENT {"ts":"2025-11-03T11:15:04.013Z","route":"/api/writer","kind":"ok","ok":true,"provider":"openai","model":"gpt-4o-mini","temperature":0.7,"input":{"category":"豎守畑","goal":"雉ｼ蜈･隱伜ｰ・,"platform":null},"meta":{"style":"bullet","tone":"warm_intelligent","locale":"ja-JP"},"metrics":{"charCount":664,"lineCount":30,"bulletCount":7,"h2Count":3,"faqCount":1,"hasFinalCTA":true},"durations":{"apiMs":10361,"totalMs":10403},"hash":{"text_sha256_16":"5525e2d271c31325"}}
+
+[90mstdout[2m | tests/api/writer.samples.lp.test.ts[2m > [22m[2mwriter samples (lp.basic.json)[2m > [22m[2mLP繧ｹ繧ｿ繧､繝ｫ縺ｮ蜷・し繝ｳ繝励Ν縺・data.text・・r output・峨ｒ霑斐＠縲√そ繧ｯ繧ｷ繝ｧ繝ｳ菴楢｣√・譛菴朱剞繧呈ｺ縺溘☆・育ｷｩ蜥鯉ｼ・[22m[39m[writerLog:disabled] {
+  ts: [32m'2025-11-03T11:15:04.014Z'[39m,
+  phase: [32m'success'[39m,
+  level: [32m'INFO'[39m,
+  route: [32m'/api/writer'[39m,
+  message: [32m''[39m,
+  requestId: [32m'79826e63-bff8-4199-b987-135a2001de50'[39m,
+  provider: [90mundefined[39m,
+  model: [32m'gpt-4o-mini'[39m,
+  durationMs: [33m10405[39m,
+  meta: {},
+  env: [32m'test'[39m,
+  service: [32m'writer'[39m
+}
+
+ [32m笨・[39m tests/api/writer.samples.lp.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 10742[2mms[22m[39m
+   [33m[2m笨・[22m[39m writer samples (lp.basic.json)[2m > [22mLP繧ｹ繧ｿ繧､繝ｫ縺ｮ蜷・し繝ｳ繝励Ν縺・data.text・・r output・峨ｒ霑斐＠縲√そ繧ｯ繧ｷ繝ｧ繝ｳ菴楢｣√・譛菴朱剞繧呈ｺ縺溘☆・育ｷｩ蜥鯉ｼ・[33m 10420[2mms[22m[39m
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[90mstdout[2m | tests/debug.env.test.ts[2m > [22m[2mENV DUMP[2m > [22m[2mprints OPENAI key head & length
+[22m[39mOPENAI_API_KEY_HEAD: sk-proj-zqQ- ... LEN= [33m164[39m
+
+ [32m笨・[39m tests/debug.env.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 5[2mms[22m[39m
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[90mstdout[2m | tests/api/writer.precision.plan.test.ts[2m > [22m[2mPrecision Plan /api/writer (real OpenAI)[2m > [22m[2m蜷御ｸ繝励Ο繝ｳ繝励ヨ x3 蝗槭・螳滓ｸｬ縺ｧ縲∵ｧ矩繝ｻ騾溷ｺｦ繝ｻ蜀咲樟諤ｧ繧堤｢ｺ隱阪☆繧・[22m[39mWRITER_EVENT {"ts":"2025-11-03T11:15:04.666Z","route":"/api/writer","kind":"ok","ok":true,"provider":"openai","model":"gpt-4o-mini","temperature":0.7,"input":{"category":"豎守畑","goal":"雉ｼ蜈･隱伜ｰ・,"platform":null},"meta":{"style":"bullet","tone":"warm_intelligent","locale":"ja-JP"},"metrics":{"charCount":871,"lineCount":37,"bulletCount":7,"h2Count":5,"faqCount":1,"hasFinalCTA":true},"durations":{"apiMs":11028,"totalMs":11056},"hash":{"text_sha256_16":"ff6e6cc42c5ec279"}}
+WRITER_EVENT {"ts":"2025-11-03T11:15:04.666Z","route":"/api/writer","kind":"ok","ok":true,"provider":"openai","model":"gpt-4o-mini","temperature":0.7,"input":{"category":"豎守畑","goal":"雉ｼ蜈･隱伜ｰ・,"platform":null},"meta":{"style":"bullet","tone":"warm_intelligent","locale":"ja-JP"},"metrics":{"charCount":871,"lineCount":37,"bulletCount":7,"h2Count":5,"faqCount":1,"hasFinalCTA":true},"durations":{"apiMs":11028,"totalMs":11056},"hash":{"text_sha256_16":"ff6e6cc42c5ec279"}}
+
+[90mstdout[2m | tests/api/writer.precision.plan.test.ts[2m > [22m[2mPrecision Plan /api/writer (real OpenAI)[2m > [22m[2m蜷御ｸ繝励Ο繝ｳ繝励ヨ x3 蝗槭・螳滓ｸｬ縺ｧ縲∵ｧ矩繝ｻ騾溷ｺｦ繝ｻ蜀咲樟諤ｧ繧堤｢ｺ隱阪☆繧・[22m[39m[writerLog:disabled] {
+  ts: [32m'2025-11-03T11:15:04.667Z'[39m,
+  phase: [32m'success'[39m,
+  level: [32m'INFO'[39m,
+  route: [32m'/api/writer'[39m,
+  message: [32m''[39m,
+  requestId: [32m'e2667476-7424-4190-9ab4-3bfc3e4fffb1'[39m,
+  provider: [90mundefined[39m,
+  model: [32m'gpt-4o-mini'[39m,
+  durationMs: [33m11057[39m,
+  meta: {},
+  env: [32m'test'[39m,
+  service: [32m'writer'[39m
+}
+
+[90mstdout[2m | tests/api/writer.precision.plan.test.ts[2m > [22m[2mPrecision Plan /api/writer (real OpenAI)[2m > [22m[2m蜷御ｸ繝励Ο繝ｳ繝励ヨ x3 蝗槭・螳滓ｸｬ縺ｧ縲∵ｧ矩繝ｻ騾溷ｺｦ繝ｻ蜀咲樟諤ｧ繧堤｢ｺ隱阪☆繧・[22m[39m[writerLog:disabled] {
+  ts: [32m'2025-11-03T11:15:04.672Z'[39m,
+  phase: [32m'request'[39m,
+  level: [32m'INFO'[39m,
+  route: [32m'/api/writer'[39m,
+  message: [32m''[39m,
+  requestId: [32m'faef89bc-9f8d-4513-834c-d39d09f90dbe'[39m,
+  provider: [90mundefined[39m,
+  model: [32m'gpt-4o-mini'[39m,
+  durationMs: [90mundefined[39m,
+  meta: {},
+  env: [32m'test'[39m,
+  service: [32m'writer'[39m
+}
+
+[90mstdout[2m | tests/api/writer.snapshot.test.ts[2m > [22m[2m/api/writer snapshot-less shape check[2m > [22m[2m蝗ｺ螳壼・蜉・>=8譁・ｭ・ 竊・ok=true 縺九▽ 譁・ｭ怜・譛ｬ譁・′霑斐ｋ
+[22m[39mWRITER_EVENT {"ts":"2025-01-01T00:00:00.000Z","route":"/api/writer","kind":"ok","ok":true,"provider":"openai","model":"gpt-4o-mini","temperature":0.7,"input":{"category":"豎守畑","goal":"雉ｼ蜈･隱伜ｰ・,"platform":null},"meta":{"style":"bullet","tone":"warm_intelligent","locale":"ja-JP"},"metrics":{"charCount":878,"lineCount":41,"bulletCount":6,"h2Count":6,"faqCount":1,"hasFinalCTA":true},"durations":{"apiMs":0,"totalMs":0},"hash":{"text_sha256_16":"9a2e321e0ab2d1a4"}}
+WRITER_EVENT {"ts":"2025-01-01T00:00:00.000Z","route":"/api/writer","kind":"ok","ok":true,"provider":"openai","model":"gpt-4o-mini","temperature":0.7,"input":{"category":"豎守畑","goal":"雉ｼ蜈･隱伜ｰ・,"platform":null},"meta":{"style":"bullet","tone":"warm_intelligent","locale":"ja-JP"},"metrics":{"charCount":878,"lineCount":41,"bulletCount":6,"h2Count":6,"faqCount":1,"hasFinalCTA":true},"durations":{"apiMs":0,"totalMs":0},"hash":{"text_sha256_16":"9a2e321e0ab2d1a4"}}
+
+[90mstdout[2m | tests/api/writer.snapshot.test.ts[2m > [22m[2m/api/writer snapshot-less shape check[2m > [22m[2m蝗ｺ螳壼・蜉・>=8譁・ｭ・ 竊・ok=true 縺九▽ 譁・ｭ怜・譛ｬ譁・′霑斐ｋ
+[22m[39m[writerLog:disabled] {
+  ts: [32m'2025-01-01T00:00:00.000Z'[39m,
+  phase: [32m'success'[39m,
+  level: [32m'INFO'[39m,
+  route: [32m'/api/writer'[39m,
+  message: [32m''[39m,
+  requestId: [32m'58be6494-978b-4c00-b560-c8b374dbfaed'[39m,
+  provider: [90mundefined[39m,
+  model: [32m'gpt-4o-mini'[39m,
+  durationMs: [33m0[39m,
+  meta: {},
+  env: [32m'test'[39m,
+  service: [32m'writer'[39m
+}
+
+ [32m笨・[39m tests/api/writer.snapshot.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 11784[2mms[22m[39m
+   [33m[2m笨・[22m[39m /api/writer snapshot-less shape check[2m > [22m蝗ｺ螳壼・蜉・>=8譁・ｭ・ 竊・ok=true 縺九▽ 譁・ｭ怜・譛ｬ譁・′霑斐ｋ [33m 11462[2mms[22m[39m
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[90mstdout[2m | tests/api/writer.samples.email.test.ts[2m > [22m[2mwriter samples (email.basic.json)[2m > [22m[2m繝｡繝ｼ繝ｫ蜷・し繝ｳ繝励Ν縺・data.text・・r output・峨ｒ霑斐＠縲√Γ繧ｿ荳閾ｴ・・ユ繝ｳ繝励Ξ隕∽ｻｶ繧呈ｺ縺溘☆
+[22m[39mWRITER_EVENT {"ts":"2025-11-03T11:15:06.038Z","route":"/api/writer","kind":"ok","ok":true,"provider":"openai","model":"gpt-4o-mini","temperature":0.7,"input":{"category":"豎守畑","goal":"雉ｼ蜈･隱伜ｰ・,"platform":null},"meta":{"style":"bullet","tone":"warm_intelligent","locale":"ja-JP"},"metrics":{"charCount":834,"lineCount":38,"bulletCount":7,"h2Count":4,"faqCount":1,"hasFinalCTA":true},"durations":{"apiMs":12379,"totalMs":12401},"hash":{"text_sha256_16":"069aadc8c08eaede"}}
+WRITER_EVENT {"ts":"2025-11-03T11:15:06.038Z","route":"/api/writer","kind":"ok","ok":true,"provider":"openai","model":"gpt-4o-mini","temperature":0.7,"input":{"category":"豎守畑","goal":"雉ｼ蜈･隱伜ｰ・,"platform":null},"meta":{"style":"bullet","tone":"warm_intelligent","locale":"ja-JP"},"metrics":{"charCount":834,"lineCount":38,"bulletCount":7,"h2Count":4,"faqCount":1,"hasFinalCTA":true},"durations":{"apiMs":12379,"totalMs":12401},"hash":{"text_sha256_16":"069aadc8c08eaede"}}
+
+[90mstdout[2m | tests/api/writer.samples.email.test.ts[2m > [22m[2mwriter samples (email.basic.json)[2m > [22m[2m繝｡繝ｼ繝ｫ蜷・し繝ｳ繝励Ν縺・data.text・・r output・峨ｒ霑斐＠縲√Γ繧ｿ荳閾ｴ・・ユ繝ｳ繝励Ξ隕∽ｻｶ繧呈ｺ縺溘☆
+[22m[39m[writerLog:disabled] {
+  ts: [32m'2025-11-03T11:15:06.039Z'[39m,
+  phase: [32m'success'[39m,
+  level: [32m'INFO'[39m,
+  route: [32m'/api/writer'[39m,
+  message: [32m''[39m,
+  requestId: [32m'dd72e6fb-1c97-4938-9701-5055d1595e57'[39m,
+  provider: [90mundefined[39m,
+  model: [32m'gpt-4o-mini'[39m,
+  durationMs: [33m12402[39m,
+  meta: {},
+  env: [32m'test'[39m,
+  service: [32m'writer'[39m
+}
+
+ [32m笨・[39m tests/api/writer.samples.email.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 12798[2mms[22m[39m
+   [33m[2m笨・[22m[39m writer samples (email.basic.json)[2m > [22m繝｡繝ｼ繝ｫ蜷・し繝ｳ繝励Ν縺・data.text・・r output・峨ｒ霑斐＠縲√Γ繧ｿ荳閾ｴ・・ユ繝ｳ繝励Ξ隕∽ｻｶ繧呈ｺ縺溘☆ [33m 12427[2mms[22m[39m
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[90mstdout[2m | tests/api/writer.samples.headline_only.test.ts[2m > [22m[2mwriter samples (headline_only.basic.json)[2m > [22m[2m繝倥ャ繝峨Λ繧､繝ｳ蜷・し繝ｳ繝励Ν縺・data.text・・r output・峨ｒ霑斐☆
+[22m[39mWRITER_EVENT {"ts":"2025-11-03T11:15:06.446Z","route":"/api/writer","kind":"ok","ok":true,"provider":"openai","model":"gpt-4o-mini","temperature":0.7,"input":{"category":"豎守畑","goal":"雉ｼ蜈･隱伜ｰ・,"platform":null},"meta":{"style":"bullet","tone":"warm_intelligent","locale":"ja-JP"},"metrics":{"charCount":849,"lineCount":35,"bulletCount":7,"h2Count":4,"faqCount":1,"hasFinalCTA":true},"durations":{"apiMs":12791,"totalMs":12830},"hash":{"text_sha256_16":"412ff7a07f48d7ca"}}
+WRITER_EVENT {"ts":"2025-11-03T11:15:06.447Z","route":"/api/writer","kind":"ok","ok":true,"provider":"openai","model":"gpt-4o-mini","temperature":0.7,"input":{"category":"豎守畑","goal":"雉ｼ蜈･隱伜ｰ・,"platform":null},"meta":{"style":"bullet","tone":"warm_intelligent","locale":"ja-JP"},"metrics":{"charCount":849,"lineCount":35,"bulletCount":7,"h2Count":4,"faqCount":1,"hasFinalCTA":true},"durations":{"apiMs":12791,"totalMs":12830},"hash":{"text_sha256_16":"412ff7a07f48d7ca"}}
+
+[90mstdout[2m | tests/api/writer.samples.headline_only.test.ts[2m > [22m[2mwriter samples (headline_only.basic.json)[2m > [22m[2m繝倥ャ繝峨Λ繧､繝ｳ蜷・し繝ｳ繝励Ν縺・data.text・・r output・峨ｒ霑斐☆
+[22m[39m[writerLog:disabled] {
+  ts: [32m'2025-11-03T11:15:06.448Z'[39m,
+  phase: [32m'success'[39m,
+  level: [32m'INFO'[39m,
+  route: [32m'/api/writer'[39m,
+  message: [32m''[39m,
+  requestId: [32m'a4e4e7b0-3052-4bfe-b62b-b85b71b7b739'[39m,
+  provider: [90mundefined[39m,
+  model: [32m'gpt-4o-mini'[39m,
+  durationMs: [33m12832[39m,
+  meta: {},
+  env: [32m'test'[39m,
+  service: [32m'writer'[39m
+}
+
+ [32m笨・[39m tests/api/writer.samples.headline_only.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 13209[2mms[22m[39m
+   [33m[2m笨・[22m[39m writer samples (headline_only.basic.json)[2m > [22m繝倥ャ繝峨Λ繧､繝ｳ蜷・し繝ｳ繝励Ν縺・data.text・・r output・峨ｒ霑斐☆ [33m 12852[2mms[22m[39m
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[90mstdout[2m | tests/api/writer.samples.test.ts[2m > [22m[2mwriter samples (product_card.basic.json)[2m > [22m[2m蜷・し繝ｳ繝励Ν縺・data.text・・r output・峨ｒ霑斐＠縲√Γ繧ｿ荳閾ｴ & banned隱樔ｸ榊惠繧呈ｺ縺溘☆縺薙→
+[22m[39mWRITER_EVENT {"ts":"2025-11-03T11:15:08.423Z","route":"/api/writer","kind":"ok","ok":true,"provider":"openai","model":"gpt-4o-mini","temperature":0.7,"input":{"category":"豎守畑","goal":"雉ｼ蜈･隱伜ｰ・,"platform":null},"meta":{"style":"bullet","tone":"warm_intelligent","locale":"ja-JP"},"metrics":{"charCount":689,"lineCount":32,"bulletCount":6,"h2Count":4,"faqCount":1,"hasFinalCTA":true},"durations":{"apiMs":14786,"totalMs":14813},"hash":{"text_sha256_16":"4bf742848c4f93bf"}}
+WRITER_EVENT {"ts":"2025-11-03T11:15:08.423Z","route":"/api/writer","kind":"ok","ok":true,"provider":"openai","model":"gpt-4o-mini","temperature":0.7,"input":{"category":"豎守畑","goal":"雉ｼ蜈･隱伜ｰ・,"platform":null},"meta":{"style":"bullet","tone":"warm_intelligent","locale":"ja-JP"},"metrics":{"charCount":689,"lineCount":32,"bulletCount":6,"h2Count":4,"faqCount":1,"hasFinalCTA":true},"durations":{"apiMs":14786,"totalMs":14813},"hash":{"text_sha256_16":"4bf742848c4f93bf"}}
+
+[90mstdout[2m | tests/api/writer.samples.test.ts[2m > [22m[2mwriter samples (product_card.basic.json)[2m > [22m[2m蜷・し繝ｳ繝励Ν縺・data.text・・r output・峨ｒ霑斐＠縲√Γ繧ｿ荳閾ｴ & banned隱樔ｸ榊惠繧呈ｺ縺溘☆縺薙→
+[22m[39m[writerLog:disabled] {
+  ts: [32m'2025-11-03T11:15:08.423Z'[39m,
+  phase: [32m'success'[39m,
+  level: [32m'INFO'[39m,
+  route: [32m'/api/writer'[39m,
+  message: [32m''[39m,
+  requestId: [32m'cb105189-afb0-452a-9f0f-ac448c021169'[39m,
+  provider: [90mundefined[39m,
+  model: [32m'gpt-4o-mini'[39m,
+  durationMs: [33m14814[39m,
+  meta: {},
+  env: [32m'test'[39m,
+  service: [32m'writer'[39m
+}
+
+ [32m笨・[39m tests/api/writer.samples.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 15186[2mms[22m[39m
+   [33m[2m笨・[22m[39m writer samples (product_card.basic.json)[2m > [22m蜷・し繝ｳ繝励Ν縺・data.text・・r output・峨ｒ霑斐＠縲√Γ繧ｿ荳閾ｴ & banned隱樔ｸ榊惠繧呈ｺ縺溘☆縺薙→ [33m 14830[2mms[22m[39m
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164
+[90mstdout[2m | tests/api/writer.precision.plan.test.ts[2m > [22m[2mPrecision Plan /api/writer (real OpenAI)[2m > [22m[2m蜷御ｸ繝励Ο繝ｳ繝励ヨ x3 蝗槭・螳滓ｸｬ縺ｧ縲∵ｧ矩繝ｻ騾溷ｺｦ繝ｻ蜀咲樟諤ｧ繧堤｢ｺ隱阪☆繧・[22m[39mWRITER_EVENT {"ts":"2025-11-03T11:15:17.953Z","route":"/api/writer","kind":"ok","ok":true,"provider":"openai","model":"gpt-4o-mini","temperature":0.7,"input":{"category":"豎守畑","goal":"雉ｼ蜈･隱伜ｰ・,"platform":null},"meta":{"style":"bullet","tone":"warm_intelligent","locale":"ja-JP"},"metrics":{"charCount":730,"lineCount":30,"bulletCount":6,"h2Count":3,"faqCount":1,"hasFinalCTA":true},"durations":{"apiMs":13275,"totalMs":13281},"hash":{"text_sha256_16":"29b94c57c37d8cb3"}}
+WRITER_EVENT {"ts":"2025-11-03T11:15:17.953Z","route":"/api/writer","kind":"ok","ok":true,"provider":"openai","model":"gpt-4o-mini","temperature":0.7,"input":{"category":"豎守畑","goal":"雉ｼ蜈･隱伜ｰ・,"platform":null},"meta":{"style":"bullet","tone":"warm_intelligent","locale":"ja-JP"},"metrics":{"charCount":730,"lineCount":30,"bulletCount":6,"h2Count":3,"faqCount":1,"hasFinalCTA":true},"durations":{"apiMs":13275,"totalMs":13281},"hash":{"text_sha256_16":"29b94c57c37d8cb3"}}
+
+[90mstdout[2m | tests/api/writer.precision.plan.test.ts[2m > [22m[2mPrecision Plan /api/writer (real OpenAI)[2m > [22m[2m蜷御ｸ繝励Ο繝ｳ繝励ヨ x3 蝗槭・螳滓ｸｬ縺ｧ縲∵ｧ矩繝ｻ騾溷ｺｦ繝ｻ蜀咲樟諤ｧ繧堤｢ｺ隱阪☆繧・[22m[39m[writerLog:disabled] {
+  ts: [32m'2025-11-03T11:15:17.954Z'[39m,
+  phase: [32m'success'[39m,
+  level: [32m'INFO'[39m,
+  route: [32m'/api/writer'[39m,
+  message: [32m''[39m,
+  requestId: [32m'faef89bc-9f8d-4513-834c-d39d09f90dbe'[39m,
+  provider: [90mundefined[39m,
+  model: [32m'gpt-4o-mini'[39m,
+  durationMs: [33m13282[39m,
+  meta: {},
+  env: [32m'test'[39m,
+  service: [32m'writer'[39m
+}
+
+[90mstdout[2m | tests/api/writer.precision.plan.test.ts[2m > [22m[2mPrecision Plan /api/writer (real OpenAI)[2m > [22m[2m蜷御ｸ繝励Ο繝ｳ繝励ヨ x3 蝗槭・螳滓ｸｬ縺ｧ縲∵ｧ矩繝ｻ騾溷ｺｦ繝ｻ蜀咲樟諤ｧ繧堤｢ｺ隱阪☆繧・[22m[39m[writerLog:disabled] {
+  ts: [32m'2025-11-03T11:15:17.957Z'[39m,
+  phase: [32m'request'[39m,
+  level: [32m'INFO'[39m,
+  route: [32m'/api/writer'[39m,
+  message: [32m''[39m,
+  requestId: [32m'be9cbd4e-5336-4c40-83f0-3424bf4e1666'[39m,
+  provider: [90mundefined[39m,
+  model: [32m'gpt-4o-mini'[39m,
+  durationMs: [90mundefined[39m,
+  meta: {},
+  env: [32m'test'[39m,
+  service: [32m'writer'[39m
+}
+
+[90mstdout[2m | tests/api/writer.precision.plan.test.ts[2m > [22m[2mPrecision Plan /api/writer (real OpenAI)[2m > [22m[2m蜷御ｸ繝励Ο繝ｳ繝励ヨ x3 蝗槭・螳滓ｸｬ縺ｧ縲∵ｧ矩繝ｻ騾溷ｺｦ繝ｻ蜀咲樟諤ｧ繧堤｢ｺ隱阪☆繧・[22m[39mWRITER_EVENT {"ts":"2025-11-03T11:15:30.770Z","route":"/api/writer","kind":"ok","ok":true,"provider":"openai","model":"gpt-4o-mini","temperature":0.7,"input":{"category":"豎守畑","goal":"雉ｼ蜈･隱伜ｰ・,"platform":null},"meta":{"style":"bullet","tone":"warm_intelligent","locale":"ja-JP"},"metrics":{"charCount":759,"lineCount":35,"bulletCount":4,"h2Count":5,"faqCount":1,"hasFinalCTA":true},"durations":{"apiMs":12795,"totalMs":12813},"hash":{"text_sha256_16":"7920b7d6cfd334a6"}}
+WRITER_EVENT {"ts":"2025-11-03T11:15:30.770Z","route":"/api/writer","kind":"ok","ok":true,"provider":"openai","model":"gpt-4o-mini","temperature":0.7,"input":{"category":"豎守畑","goal":"雉ｼ蜈･隱伜ｰ・,"platform":null},"meta":{"style":"bullet","tone":"warm_intelligent","locale":"ja-JP"},"metrics":{"charCount":759,"lineCount":35,"bulletCount":4,"h2Count":5,"faqCount":1,"hasFinalCTA":true},"durations":{"apiMs":12795,"totalMs":12813},"hash":{"text_sha256_16":"7920b7d6cfd334a6"}}
+
+[90mstdout[2m | tests/api/writer.precision.plan.test.ts[2m > [22m[2mPrecision Plan /api/writer (real OpenAI)[2m > [22m[2m蜷御ｸ繝励Ο繝ｳ繝励ヨ x3 蝗槭・螳滓ｸｬ縺ｧ縲∵ｧ矩繝ｻ騾溷ｺｦ繝ｻ蜀咲樟諤ｧ繧堤｢ｺ隱阪☆繧・[22m[39m[writerLog:disabled] {
+  ts: [32m'2025-11-03T11:15:30.770Z'[39m,
+  phase: [32m'success'[39m,
+  level: [32m'INFO'[39m,
+  route: [32m'/api/writer'[39m,
+  message: [32m''[39m,
+  requestId: [32m'be9cbd4e-5336-4c40-83f0-3424bf4e1666'[39m,
+  provider: [90mundefined[39m,
+  model: [32m'gpt-4o-mini'[39m,
+  durationMs: [33m12813[39m,
+  meta: {},
+  env: [32m'test'[39m,
+  service: [32m'writer'[39m
+}
+
+[90mstdout[2m | tests/api/writer.precision.plan.test.ts[2m > [22m[2mPrecision Plan /api/writer (real OpenAI)[2m > [22m[2m蜷御ｸ繝励Ο繝ｳ繝励ヨ x3 蝗槭・螳滓ｸｬ縺ｧ縲∵ｧ矩繝ｻ騾溷ｺｦ繝ｻ蜀咲樟諤ｧ繧堤｢ｺ隱阪☆繧・[22m[39m{
+  "precision_plan_summary": {
+    "N": 3,
+    "unique_outputs": 3,
+    "avg_token_overlap": 0.273,
+    "time_ms": {
+      "min": 11068,
+      "avg": 12389,
+      "max": 13285
+    },
+    "samples": [
+      "## Precision Plan縺ｧ逅・Φ縺ｮ繝励Λ繝ｳ繧貞ｮ溽樟\n\nPrecision Plan縺ｯ縲√≠縺ｪ縺溘・繝ｩ繧､繝輔せ繧ｿ繧､繝ｫ縺ｫ蜷医ｏ縺帙◆譟碑ｻ溘↑繝励Λ繝ｳ繧呈署萓帙＠縺ｾ縺吶よ怦鬘肴侭驥代・繧上★縺・,000蜀・°繧峨∝茜逕ｨ蜿ｯ閭ｽ縺ｪ讖溯・縺ｯ螟壼ｲ舌↓繧上◆繧翫∪縺吶・n\n## Precision Plan縺ｮ迚ｹ髟ｷ\n\n- **螟壽ｧ倥↑繝励Λ繝ｳ驕ｸ謚・*: 繧ｹ繧ｿ繝ｳ繝繝ｼ繝峨・繝ｩ繝ｳ縺九ｉ繝励Ξ繝溘い繝繝励Λ繝ｳ縺ｾ縺ｧ縲・n- **閾ｪ逕ｱ縺ｪ繧ｫ繧ｹ繧ｿ繝槭う繧ｺ**: 蠢・ｦ√↑繧ｵ繝ｼ繝薙せ縺縺代ｒ驕ｸ縺ｹ繧区沐霆滓ｧ縲・n- **邁｡蜊倥↑邂｡逅・*: 繧ｹ繝槭・繝医ヵ繧ｩ繝ｳ繧｢繝励Μ縺ｧ謇玖ｻｽ縺ｫ繝励Λ繝ｳ繧堤ｮ｡逅・・n- **24譎る俣繧ｵ繝昴・繝・*: 蟆ゆｻｻ縺ｮ繧ｫ繧ｹ繧ｿ繝槭・繧ｵ繝昴・繝医′縺・▽縺ｧ繧ょｯｾ蠢懊・n\n## 縺ｪ縺弃recision Plan縺ｪ縺ｮ縺欺n\nPrecision Plan縺ｯ縲∝茜逕ｨ閠・・螟壽ｧ倥↑繝九・繧ｺ縺ｫ蠢懊∴繧九◆繧√↓險ｭ險医＆繧後※縺・∪縺吶よ侭驥代・譏守｢ｺ縺ｧ縲∬ｿｽ蜉雋ｻ逕ｨ縺檎匱逕溘☆繧九％縺ｨ縺ｯ縺ゅｊ縺ｾ縺帙ｓ縲る∈謚櫁い縺瑚ｱ雁ｯ後〒縲√Λ繧､繝輔せ繧ｿ繧､繝ｫ縺ｫ蜷医ｏ縺帙◆繝励Λ繝ｳ繧帝∈縺ｹ繧九◆繧√∫┌鬧・↑縺丞茜逕ｨ縺ｧ縺阪∪縺吶・n\n\n## 菴馴ｨ薙＠縺ｦ縺ｿ縺ｾ縺帙ｓ縺欺n\nPrecision Plan繧偵♀隧ｦ縺励＞縺溘□縺上％縺ｨ縺ｧ縲√Λ繧､繝輔せ繧ｿ繧､繝ｫ縺ｫ縺ｴ縺｣縺溘ｊ縺ｪ繝励Λ繝ｳ繧定ｦ九▽縺代ｉ繧後∪縺吶ゅ∪縺壹・蜈ｬ蠑上し繧､繝医°繧峨＃遒ｺ隱阪￥縺縺輔＞縲・n\n- **荳谺｡CTA**: Precision Plan繧剃ｻ翫☆縺舌♀逕ｳ縺苓ｾｼ縺ｿ縺・◆縺縺上→縲∵怙蛻昴・1繝ｶ譛医′辟｡譁吶↓縺ｪ繧翫∪縺吶・ \n- **莉｣譖ｿCTA**: 縺ｾ縺壹・繧ｫ繝ｼ繝医↓霑ｽ蜉縺励※縲∬ｩｳ邏ｰ繧堤｢ｺ隱阪＠縺ｦ縺ｿ縺ｦ縺ｯ縺・°縺後〒縺励ｇ縺・°縲・n\n*髢｢騾｣:繝ｬ繝薙Η繝ｼ繝ｻ豈碑ｼ・・逶ｸ諤ｧ・丞ｮ牙ｿ・蜿鈴伜ｾ・0譌･莉･蜀・・譛ｪ菴ｿ逕ｨ蜩√・霑泌刀繧呈価繧翫∪縺吶・\n\n## FAQ\nQ. 霑泌刀繝ｻ莠､謠帙・縺ｧ縺阪∪縺吶°・歃nA. 譛ｪ菴ｿ逕ｨ繝ｻ蛻ｰ逹蠕・譌･莉･蜀・・謇ｿ繧翫∪縺吶りｩｳ邏ｰ縺ｯ霑泌刀繝昴Μ繧ｷ繝ｼ繧偵＃遒ｺ隱阪￥縺縺輔＞縲・n\nQ. 驟埼√∪縺ｧ縺ｮ逶ｮ螳峨・・歃nA. 騾壼ｸｸ縺ｯ縺疲ｳｨ譁・°繧・縲・蝟ｶ讌ｭ譌･縺ｧ蜃ｺ闕ｷ縺励∪縺呻ｼ亥惠蠎ｫ縺ｫ繧医ｊ蜑榊ｾ鯉ｼ峨・n\nQ. 謾ｯ謇輔＞譁ｹ豕輔・・歃nA. 繧ｯ繝ｬ繧ｸ繝・ヨ繧ｫ繝ｼ繝峨√さ繝ｳ繝薙ル謇輔＞縲・橿陦梧険霎ｼ縺ｪ縺ｩ縺ｫ蟇ｾ蠢懊＠縺ｦ縺・∪縺吶・n\n荳谺｡CTA・壻ｻ翫☆縺占ｳｼ蜈･窶斐∪縺夊ｩｦ縺帙∪縺呻ｼ・0譌･莉･蜀・・霑泌刀蜿ｯ・噂n莉｣譖ｿCTA・壹き繝ｼ繝医↓霑ｽ蜉窶泌ｮ滄圀縺ｮ菴ｿ逕ｨ諢溘ｒ遒ｺ隱阪〒縺阪∪縺呻ｼ医Ξ繝薙Η繝ｼ縺ｧ豈碑ｼ・ｼ・,
+      "## Precision Plan - 縺ゅ↑縺溘・譛ｪ譚･繧呈緒縺十n\nPrecision Plan縺ｯ縲∝九・・繝九・繧ｺ縺ｫ蠢懊§縺滓怙驕ｩ縺ｪ繝励Λ繝ｳ繧呈署萓帙＠縺ｾ縺吶ゅン繧ｸ繝ｧ繝ｳ繧呈・遒ｺ縺ｫ縺励∫岼讓咎＃謌舌・繧ｵ繝昴・繝医ｒ陦後＞縺ｾ縺吶ゆｻ･荳九・迚ｹ蠕ｴ繧偵＃隕ｧ縺上□縺輔＞縲・n\n- **譟碑ｻ溘↑繝励Λ繝ｳ繝九Φ繧ｰ**: 譛磯｡阪・繝ｩ繝ｳ繧帝∈謚槫庄閭ｽ縲∵怙遏ｭ1繝ｶ譛医°繧峨・螂醍ｴЫn- **蟆る摩螳ｶ縺ｮ繧ｵ繝昴・繝・*: 邨碁ｨ楢ｱ雁ｯ後↑繧ｳ繝ｳ繧ｵ繝ｫ繧ｿ繝ｳ繝医′縺ゅ↑縺溘ｒ謾ｯ謠ｴ\n- **騾ｲ謐礼ｮ｡逅・ヤ繝ｼ繝ｫ**: 逶ｮ讓咎＃謌舌↓蜷代￠縺滄ｲ謐励ｒ蜿ｯ隕門喧縲∝ｿ・ｦ√↓蠢懊§縺ｦ隱ｿ謨ｴ\n- **繧ｫ繧ｹ繧ｿ繝槭う繧ｺ蜿ｯ閭ｽ**: 縺ゅ↑縺溘・繝ｩ繧､繝輔せ繧ｿ繧､繝ｫ繧・岼讓吶↓蜷医ｏ縺帙◆繝励Λ繝ｳ\n- **螳牙ｿ・・繧ｵ繝昴・繝井ｽ灘宛**: 24譎る俣蟇ｾ蠢懊・繧ｵ繝昴・繝医〒荳榊ｮ峨ｒ隗｣豸・n\n## Precision Plan縺ｮ驕ｸ縺ｰ繧後ｋ逅・罰\n\nPrecision Plan縺ｯ縲∝九・・繝九・繧ｺ縺ｫ蠢懊§縺ｦ繧ｫ繧ｹ繧ｿ繝槭う繧ｺ蜿ｯ閭ｽ縺ｪ縺溘ａ縲√≠縺ｪ縺溘・逶ｮ讓咎＃謌舌ｒ蜉ｹ譫懃噪縺ｫ繧ｵ繝昴・繝医＠縺ｾ縺吶ゆｾ九∴縺ｰ縲∵怦鬘阪・繝ｩ繝ｳ縺ｯ1繝ｶ譛医°繧牙茜逕ｨ蜿ｯ閭ｽ縺ｧ縲∝ｮ溽ｸｾ雎雁ｯ後↑蟆る摩螳ｶ縺碁ｲ謐励ｒ邂｡逅・＠縲・←螳懊い繝峨ヰ繧､繧ｹ繧定｡後＞縺ｾ縺吶ゅ％縺ｮ繧医≧縺ｫ縲√≠縺ｪ縺溘・繝壹・繧ｹ縺ｧ騾ｲ繧√ｉ繧後ｋ轤ｹ縺碁ｭ・鴨縺ｧ縺吶・n\n\n\n*髢｢騾｣:繝ｬ繝薙Η繝ｼ繝ｻ豈碑ｼ・・逶ｸ諤ｧ・丞ｮ牙ｿ・蜿鈴伜ｾ・0譌･莉･蜀・・譛ｪ菴ｿ逕ｨ蜩√・霑泌刀繧呈価繧翫∪縺吶・\n\n## FAQ\nQ. 霑泌刀繝ｻ莠､謠帙・縺ｧ縺阪∪縺吶°・歃nA. 譛ｪ菴ｿ逕ｨ繝ｻ蛻ｰ逹蠕・譌･莉･蜀・・謇ｿ繧翫∪縺吶りｩｳ邏ｰ縺ｯ霑泌刀繝昴Μ繧ｷ繝ｼ繧偵＃遒ｺ隱阪￥縺縺輔＞縲・n\nQ. 驟埼√∪縺ｧ縺ｮ逶ｮ螳峨・・歃nA. 騾壼ｸｸ縺ｯ縺疲ｳｨ譁・°繧・縲・蝟ｶ讌ｭ譌･縺ｧ蜃ｺ闕ｷ縺励∪縺呻ｼ亥惠蠎ｫ縺ｫ繧医ｊ蜑榊ｾ鯉ｼ峨・n\nQ. 謾ｯ謇輔＞譁ｹ豕輔・・歃nA. 繧ｯ繝ｬ繧ｸ繝・ヨ繧ｫ繝ｼ繝峨√さ繝ｳ繝薙ル謇輔＞縲・橿陦梧険霎ｼ縺ｪ縺ｩ縺ｫ蟇ｾ蠢懊＠縺ｦ縺・∪縺吶・n\n荳谺｡CTA・壻ｻ翫☆縺占ｳｼ蜈･窶斐∪縺夊ｩｦ縺帙∪縺呻ｼ・0譌･莉･蜀・・霑泌刀蜿ｯ・噂n莉｣譖ｿCTA・壹き繝ｼ繝医↓霑ｽ蜉窶泌ｮ滄圀縺ｮ菴ｿ逕ｨ諢溘ｒ遒ｺ隱阪〒縺阪∪縺呻ｼ医Ξ繝薙Η繝ｼ縺ｧ豈碑ｼ・ｼ・,
+      "## Precision Plan縺ｧ逅・Φ縺ｮ譛ｪ譚･繧貞ｮ溽樟\n\nPrecision Plan縺ｯ縲√≠縺ｪ縺溘・繝ｩ繧､繝輔せ繧ｿ繧､繝ｫ縺ｫ蜷医ｏ縺帙◆譛驕ｩ縺ｪ繝励Λ繝ｳ繧呈署萓帙＠縺ｾ縺吶ょ・螳溘＠縺溽函豢ｻ繧帝√ｋ縺溘ａ縺ｫ蠢・ｦ√↑繧ｵ繝昴・繝医ｒ縲√●縺ｲ縺疲､懆ｨ弱￥縺縺輔＞縲・n\n## 迚ｹ髟ｷ縺ｨ繝吶ロ繝輔ぅ繝・ヨ\n\n- **繧ｫ繧ｹ繧ｿ繝槭う繧ｺ蜿ｯ閭ｽ**: 縺ゅ↑縺溘・繝九・繧ｺ縺ｫ蠢懊§縺溘・繝ｩ繝ｳ繧呈ｧ狗ｯ峨〒縺阪∪縺吶・n- **譎る俣縺ｮ譛牙柑豢ｻ逕ｨ**: 1譌･繧上★縺・0蛻・・蜿悶ｊ邨・∩縺ｧ縲∝柑譫懊ｒ螳滓─縺ｧ縺阪∪縺吶・n- **繧ｵ繝昴・繝井ｽ灘宛**: 蟆ゆｻｻ縺ｮ繧｢繝峨ヰ繧､繧ｶ繝ｼ縺悟ｮ壽悄逧・↓繝輔か繝ｭ繝ｼ繧｢繝・・縺励∪縺吶・n\n## 譬ｹ諡\n\nPrecision Plan縺ｯ縲∵焚螟壹￥縺ｮ縺雁ｮ｢讒倥°繧蛾ｫ倩ｩ穂ｾ｡繧貞ｾ励※縺・ｋ螳溽ｸｾ縺後≠繧翫∪縺吶ょ・菴鍋噪縺ｫ縺ｯ縲・0%莉･荳翫・縺雁ｮ｢讒倥′縲梧ｺ雜ｳ縲阪→蝗樒ｭ斐＠縺ｦ縺・∪縺吶ゅ∪縺溘∝ｰ主・蠕・繝ｶ譛医〒逶ｮ讓咎＃謌千紫縺悟ｹｳ蝮・0%蜷台ｸ翫☆繧九％縺ｨ縺悟ｱ蜻翫＆繧後※縺・∪縺吶・n\n\n## 陦悟虚繧剃ｿ・☆縺疲｡亥・\n\nPrecision Plan繧偵＃雉ｼ蜈･縺・◆縺縺上％縺ｨ縺ｧ縲∫炊諠ｳ縺ｮ繝ｩ繧､繝輔せ繧ｿ繧､繝ｫ繧貞ｮ溽樟縺吶ｋ隨ｬ荳豁ｩ繧定ｸ上∩蜃ｺ縺帙∪縺吶ゅ≠縺ｪ縺溘・逕滓ｴｻ繧偵ｈ繧願ｱ翫°縺ｫ縺吶ｋ縺溘ａ縺ｫ縲√●縺ｲ縺願ｩｦ縺励￥縺縺輔＞縲・n\n荳譁ｹ縺ｧ縲√∪縺壹・繧ｫ繝ｼ繝医↓霑ｽ蜉縺励※縲∬ｩｳ邏ｰ繧偵ｆ縺｣縺上ｊ縺疲､懆ｨ弱＞縺溘□縺上％縺ｨ繧ゅ〒縺阪∪縺吶・n\n*髢｢騾｣:繝ｬ繝薙Η繝ｼ繝ｻ豈碑ｼ・・逶ｸ諤ｧ・丞ｮ牙ｿ・蜿鈴伜ｾ・0譌･莉･蜀・・譛ｪ菴ｿ逕ｨ蜩√・霑泌刀繧呈価繧翫∪縺吶・\n\n## FAQ\nQ. 霑泌刀繝ｻ莠､謠帙・縺ｧ縺阪∪縺吶°・歃nA. 譛ｪ菴ｿ逕ｨ繝ｻ蛻ｰ逹蠕・譌･莉･蜀・・謇ｿ繧翫∪縺吶りｩｳ邏ｰ縺ｯ霑泌刀繝昴Μ繧ｷ繝ｼ繧偵＃遒ｺ隱阪￥縺縺輔＞縲・n\nQ. 驟埼√∪縺ｧ縺ｮ逶ｮ螳峨・・歃nA. 騾壼ｸｸ縺ｯ縺疲ｳｨ譁・°繧・縲・蝟ｶ讌ｭ譌･縺ｧ蜃ｺ闕ｷ縺励∪縺呻ｼ亥惠蠎ｫ縺ｫ繧医ｊ蜑榊ｾ鯉ｼ峨・n\nQ. 謾ｯ謇輔＞譁ｹ豕輔・・歃nA. 繧ｯ繝ｬ繧ｸ繝・ヨ繧ｫ繝ｼ繝峨√さ繝ｳ繝薙ル謇輔＞縲・橿陦梧険霎ｼ縺ｪ縺ｩ縺ｫ蟇ｾ蠢懊＠縺ｦ縺・∪縺吶・n\n荳谺｡CTA・壻ｻ翫☆縺占ｳｼ蜈･窶斐∪縺夊ｩｦ縺帙∪縺呻ｼ・0譌･莉･蜀・・霑泌刀蜿ｯ・噂n莉｣譖ｿCTA・壹き繝ｼ繝医↓霑ｽ蜉窶泌ｮ滄圀縺ｮ菴ｿ逕ｨ諢溘ｒ遒ｺ隱阪〒縺阪∪縺呻ｼ医Ξ繝薙Η繝ｼ縺ｧ豈碑ｼ・ｼ・
+    ],
+    "metas": [
+      {
+        "style": "bullet",
+        "tone": "warm_intelligent",
+        "locale": "ja-JP"
+      },
+      {
+        "style": "bullet",
+        "tone": "warm_intelligent",
+        "locale": "ja-JP"
+      },
+      {
+        "style": "bullet",
+        "tone": "warm_intelligent",
+        "locale": "ja-JP"
+      }
+    ]
+  }
+}
+
+ [32m笨・[39m tests/api/writer.precision.plan.test.ts [2m([22m[2m1 test[22m[2m)[22m[33m 37528[2mms[22m[39m
+   [33m[2m笨・[22m[39m Precision Plan /api/writer (real OpenAI)[2m > [22m蜷御ｸ繝励Ο繝ｳ繝励ヨ x3 蝗槭・螳滓ｸｬ縺ｧ縲∵ｧ矩繝ｻ騾溷ｺｦ繝ｻ蜀咲樟諤ｧ繧堤｢ｺ隱阪☆繧・[33m 37175[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m12 passed[39m[22m[90m (12)[39m
+[2m      Tests [22m [1m[32m30 passed[39m[22m[2m | [22m[33m1 skipped[39m[90m (31)[39m
+[2m   Start at [22m 20:14:50
+[2m   Duration [22m 39.22s[2m (transform 1.03s, setup 693ms, collect 1.61s, tests 109.71s, environment 7ms, prepare 5.57s)[22m
+
+[preload-env] src=.env.test.local OPENAI_HEAD=sk-proj-zqQ-... LEN=164

@@ -1,0 +1,29 @@
+import { defineConfig } from "vitest/config";
+import path from "path";
+
+/**
+ * ✅ 明示 alias のみを使用（tsconfigPaths は使わない）
+ * - "@/app/*"        -> ./app/*
+ * - "@/lib/*"        -> ./src/lib/*
+ * - "@/contracts"    -> ./src/contracts/index.ts
+ * - "@/contracts/*"  -> ./src/contracts/*
+ * - "@/*" (fallback) -> ./src/*
+ */
+export default defineConfig({
+  resolve: {
+    alias: [
+      { find: /^@\/app\//,        replacement: path.resolve(__dirname, "./app/") },
+      { find: /^@\/lib\//,        replacement: path.resolve(__dirname, "./src/lib/") },
+      { find: /^@\/contracts$/,   replacement: path.resolve(__dirname, "./src/contracts/index.ts") },
+      { find: /^@\/contracts\//,  replacement: path.resolve(__dirname, "./src/contracts/") },
+      { find: /^@\//,             replacement: path.resolve(__dirname, "./src/") },
+    ],
+  },
+  test: {
+    environment: "node",
+    include: ["tests/**/*.test.ts"],
+    passWithNoTests: false,
+    reporters: ["default"],
+    setupFiles: ["tests/setup.writers.ts"],
+  },
+});

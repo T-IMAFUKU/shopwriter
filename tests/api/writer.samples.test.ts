@@ -68,6 +68,6 @@ describe("writer samples (product_card.basic.json)", () => {
       const banned = [/禁止ワード/i];
       expect(banned.some((re) => re.test(text!))).toBe(false);
     },
-    15_000
+    45_000
   );
 });

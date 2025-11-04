@@ -1,0 +1,67 @@
+
+> shopwriter-app@0.1.0 build C:\Users\81905\shopwriter-new
+> next build
+
+  笆ｲ Next.js 14.2.33
+  - Environments: .env.local
+
+   Creating an optimized production build ...
+ 笨・Compiled successfully
+   Linting and checking validity of types ...
+   Collecting page data ...
+ 笞 Using edge runtime on a page currently disables static generation for that page
+   Generating static pages (0/23) ...
+   Generating static pages (5/23) 
+   Generating static pages (11/23) 
+   Generating static pages (17/23) 
+ 笨・Generating static pages (23/23)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                              Size     First Load JS
+笏・笳・/                                    7.5 kB          208 kB
+笏・笳・/_not-found                          876 B          88.4 kB
+笏・ﾆ・/api/auth/[...nextauth]              0 B                0 B
+笏・ﾆ・/api/db/ping                         0 B                0 B
+笏・ﾆ・/api/debug/echo                      0 B                0 B
+笏・ﾆ・/api/debug/prisma                    0 B                0 B
+笏・ﾆ・/api/dev-auth                        0 B                0 B
+笏・ﾆ・/api/drafts                          0 B                0 B
+笏・ﾆ・/api/eventlog                        0 B                0 B
+笏・ﾆ・/api/metrics/ingest                  0 B                0 B
+笏・笳・/api/ping                            0 B                0 B
+笏・ﾆ・/api/shares                          0 B                0 B
+笏・ﾆ・/api/shares/[id]                     0 B                0 B
+笏・ﾆ・/api/shares/seed                     0 B                0 B
+笏・ﾆ・/api/templates                       0 B                0 B
+笏・ﾆ・/api/templates/[id]                  0 B                0 B
+笏・ﾆ・/api/writer                          0 B                0 B
+笏・笳・/api/writer/health                   0 B                0 B
+笏・ﾆ・/api/writer/stream                   0 B                0 B
+笏・ﾆ・/dashboard                           2.32 kB         260 kB
+笏・ﾆ・/dashboard/share/[id]                1.23 kB        98.1 kB
+笏・ﾆ・/dashboard/templates                 7.5 kB          314 kB
+笏・笳・/debug/dialog                        1.65 kB         162 kB
+笏・笳・/debug/drafts-post                   3.12 kB         160 kB
+笏・笳・/debug/session                       621 B          88.2 kB
+笏・笳・/debug/sharecard                     176 B          96.4 kB
+笏・笳・/debug/textarea                      1.37 kB        88.9 kB
+笏・笳・/debug/toast                         1.99 kB        98.9 kB
+笏・笳・/debug/toaster                       1.04 kB        97.9 kB
+笏・笳・/dev/ui-tokens-demo                  3.82 kB         283 kB
+笏・笳・/icon.svg                            0 B                0 B
+笏・ﾆ・/metrics                             1.31 kB         189 kB
+笏・ﾆ・/opengraph-image                     0 B                0 B
+笏・ﾆ・/share/[id]                          3.18 kB         169 kB
+笏・ﾆ・/writer                              41.4 kB         237 kB
++ First Load JS shared by all            87.5 kB
+  笏・chunks/487-b38277945e29b9b2.js       31.9 kB
+  笏・chunks/4c127910-4f56db6232274255.js  53.6 kB
+  笏・other shared chunks (total)          1.99 kB
+
+
+ﾆ・Middleware                             26.9 kB
+
+笳・ (Static)   prerendered as static content
+ﾆ・ (Dynamic)  server-rendered on demand
+
