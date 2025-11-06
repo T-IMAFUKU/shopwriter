@@ -1,13 +1,11 @@
-/**
- * writerLogger.ts
- * - Better Stack(Logtail) 直送 or console の二段構え
- * - Edge/Node両対応: fetch を直接使用（SDK不使用）
- * - 本番は ENV で有効化:
- *   WRITER_LOG_ENABLED=true
- *   WRITER_LOG_MODE=direct        # "console" | "direct"
- *   LOGTAIL_ENDPOINT=https://in.logs.betterstack.com   # 既定。旧 in.logtail.com も自動フォールバック
- *   LOGTAIL_SOURCE_TOKEN=xxxxx
- */
+// src/lib/metrics/writerLogger.ts  ← 全文置換（恒久対策：retry適用）
+//
+// - Node.js ランタイムのみで Better Stack に送信（ブラウザ/Edgeでは送らない）
+// - 202/204 を成功扱い、401 は即終了、429/5xx/ネットワーク失敗は retry（指数バックオフ＋ジッタ）
+// - アプリは止めない（best-effort）
+// - 既存 API: writerLog() / writerLogger.log() は互換のまま
+
+import { retry, isTransientHttpError } from "@/lib/retry";
 
 export type WriterPhase = "request" | "success" | "failure";
 export type WriterLevel = "INFO" | "WARN" | "ERROR";
@@ -24,25 +22,33 @@ export interface WriterLogInput {
   meta?: Record<string, unknown>;
 }
 
-/** ENV （undefinedは空にせず、下で明示処理） */
+// 実行環境の簡易判定
+const IS_NODE =
+  typeof process !== "undefined" &&
+  // @ts-ignore
+  (process.release?.name === "node" || process.versions?.node);
+
 const ENV = {
-  ENABLED: process.env.WRITER_LOG_ENABLED,
-  MODE: process.env.WRITER_LOG_MODE, // "console" | "direct"
-  ENDPOINT: process.env.LOGTAIL_ENDPOINT ?? "https://in.logs.betterstack.com",
-  TOKEN_RAW: process.env.LOGTAIL_SOURCE_TOKEN,
-  NODE_ENV: process.env.NODE_ENV ?? "development",
+  ENABLED: (process.env?.WRITER_LOG_ENABLED ?? "").toLowerCase() === "true",
+  MODE: (process.env?.WRITER_LOG_MODE ?? "direct") as "console" | "direct",
+  ENDPOINT: (process.env?.LOGTAIL_ENDPOINT ?? "").trim(), // 固有URL 必須
+  TOKEN: (process.env?.LOGTAIL_SOURCE_TOKEN ?? "").trim(),
+  NODE_ENV: process.env?.NODE_ENV ?? "development",
 };
 
-function isEnabled(): boolean {
-  return (ENV.ENABLED ?? "").toLowerCase() === "true";
-}
-function mode(): "console" | "direct" {
-  return ENV.MODE === "direct" ? "direct" : "console";
-}
+const DEFAULT_ROUTE = "/api/writer";
+const SERVICE = "writer";
+const PER_ATTEMPT_TIMEOUT_MS = 2500;   // 1回の送信タイムアウト
+const DEADLINE_MS = 10_000;            // リトライ合計の締切（送信処理全体）
 
-/** 一覧の Message に出す要約 */
+function maskToken(t: string): string {
+  if (!t || t.length < 8) return "<hidden>";
+  return `${t.slice(0, 4)}...${t.slice(-4)}`;
+}
+async function safeText(res: Response) { try { return await res.text(); } catch { return ""; } }
+
 function buildMessage(input: WriterLogInput): string {
-  const r = input.route ?? "/api/writer";
+  const r = input.route ?? DEFAULT_ROUTE;
   const m = input.model ? ` model=${input.model}` : "";
   const p = input.provider ? ` provider=${input.provider}` : "";
   const id = input.requestId ? ` rid=${input.requestId}` : "";
@@ -56,25 +62,85 @@ function buildMessage(input: WriterLogInput): string {
   return `failure ${r}${m}${p}${id}${reason}${d}`;
 }
 
-async function safeText(res: Response) {
-  try { return await res.text(); } catch { return ""; }
+async function postOnce(endpoint: string, token: string, body: unknown, signal: AbortSignal) {
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+    signal,
+  });
+
+  // 成功
+  if (res.status === 202 || res.status === 204) return res;
+
+  // 401 は即終了（資格情報エラーは隠さない）
+  if (res.status === 401) {
+    const text = await safeText(res);
+    const err = Object.assign(new Error(`unauthorized (401): ${text || "<no-body>"}`), { status: 401 });
+    throw err;
+  }
+
+  // それ以外は HTTP エラーとして投げ、上位でリトライ判定
+  const text = await safeText(res);
+  const err = Object.assign(new Error(`http ${res.status}: ${text || "<no-body>"}`), { status: res.status });
+  throw err;
 }
 
-/** マスク化（先頭4 + 末尾4） */
-function maskToken(t: string | undefined): string {
-  if (!t || t.length < 8) return "<hidden>";
-  return `${t.slice(0, 4)}...${t.slice(-4)}`;
+async function sendToBetterStack(payload: unknown) {
+  // 非 Node（ブラウザ/Edge）は送らない
+  if (!IS_NODE) { console.log("[writerLog:no-node-runtime]", payload); return; }
+
+  if (!ENV.ENABLED) { console.log("[writerLog:disabled]", payload); return; }
+  if (ENV.MODE !== "direct") { console.log("[writerLog:console]", payload); return; }
+
+  if (!ENV.ENDPOINT || !ENV.TOKEN) {
+    console.warn("[writerLog] missing endpoint/token. endpoint=%s token=%s",
+      ENV.ENDPOINT || "<empty>", maskToken(ENV.TOKEN));
+    console.log("[writerLog:console]", payload);
+    return;
+  }
+
+  // 合計締切（DEADLINE_MS）を守りつつ、各試行は個別タイムアウト
+  const controller = new AbortController();
+  const deadlineTimer = setTimeout(() => controller.abort(), DEADLINE_MS);
+
+  try {
+    await retry(
+      async () => {
+        // 試行ごとに個別タイマー
+        const perAttempt = new AbortController();
+        const perTimer = setTimeout(() => perAttempt.abort(), PER_ATTEMPT_TIMEOUT_MS);
+
+        try {
+          return await postOnce(ENV.ENDPOINT, ENV.TOKEN, payload, perAttempt.signal);
+        } finally {
+          clearTimeout(perTimer);
+        }
+      },
+      {
+        attempts: 3,                    // 最大3回（初回＋リトライ2回）
+        minDelayMs: 250,               // 250ms → 500ms → 1000ms（上限2s、ジッタあり）
+        maxDelayMs: 2000,
+        jitterRatio: 0.3,
+        deadlineMs: DEADLINE_MS,
+        shouldRetry: (e) => isTransientHttpError(e),  // 429/5xx/ネットワークのみ再試行
+        onAttempt: ({ attempt, error }) => {
+          if (attempt > 1) console.warn("[writerLog:retry]", attempt, (error as any)?.message ?? error);
+        },
+        signal: controller.signal,
+      }
+    );
+  } catch (err: any) {
+    // 最終失敗でもアプリは止めない
+    console.warn(
+      "[writerLog] final-fail:", err?.message ?? err,
+      `(endpoint=${ENV.ENDPOINT} token=${maskToken(ENV.TOKEN)})`
+    );
+  } finally {
+    clearTimeout(deadlineTimer);
+  }
 }
 
-/** 旧/新エンドポイント相互フォールバック */
-function endpointsForTry(primary: string): string[] {
-  const alt = primary.includes("in.logs.betterstack.com")
-    ? "https://in.logtail.com"
-    : "https://in.logs.betterstack.com";
-  return [primary, alt];
-}
-
-/** ログ本体（例外は飲み込み・アプリ処理は止めない） */
 export async function writerLog(input: WriterLogInput): Promise<void> {
   try {
     const now = new Date().toISOString();
@@ -82,7 +148,7 @@ export async function writerLog(input: WriterLogInput): Promise<void> {
       ts: now,
       phase: input.phase,
       level: input.level ?? defaultLevel(input.phase),
-      route: input.route ?? "/api/writer",
+      route: input.route ?? DEFAULT_ROUTE,
       message: (input.message ?? buildMessage(input)).slice(0, 512),
       requestId: input.requestId,
       provider: input.provider,
@@ -90,57 +156,11 @@ export async function writerLog(input: WriterLogInput): Promise<void> {
       durationMs: input.durationMs,
       meta: input.meta ?? {},
       env: ENV.NODE_ENV,
-      service: "writer",
+      service: SERVICE,
     };
-
-    if (!isEnabled()) {
-      /* eslint-disable no-console */
-      console.log("[writerLog:disabled]", payload);
-      return;
-    }
-
-    if (mode() !== "direct") {
-      console.log("[writerLog:console]", payload);
-      return;
-    }
-
-    // 🔒 トークンの不可視文字を削除（401の定番原因）
-    const token = (ENV.TOKEN_RAW ?? "").trim();
-    if (!token) {
-      console.warn("[writerLog] LOGTAIL_SOURCE_TOKEN is missing. Fallback to console.");
-      console.log("[writerLog:console]", payload);
-      return;
-    }
-
-    // まず指定のENDPOINT、401なら旧/新どちらにも自動フォールバック
-    const tries = endpointsForTry(ENV.ENDPOINT);
-    for (let i = 0; i < tries.length; i++) {
-      const url = tries[i];
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (res.ok) return;
-
-      const body = await safeText(res);
-      // 401 だけはフォールバック（次のURLへ）／最後の試行なら warn 出力
-      if (res.status === 401 && i + 1 < tries.length) continue;
-
-      console.warn(
-        "[writerLog] failed to send to Better Stack:",
-        res.status,
-        body || "<no-body>",
-        `(endpoint=${url} token=${maskToken(token)})`
-      );
-      return;
-    }
+    await sendToBetterStack(payload);
   } catch (err) {
-    console.warn("[writerLog] error:", err);
+    console.warn("[writerLog] unexpected:", err);
   }
 }
 
@@ -149,3 +169,6 @@ function defaultLevel(p: WriterPhase): WriterLevel {
   if (p === "success") return "INFO";
   return "INFO";
 }
+
+// 互換エイリアス
+export const writerLogger = { log: writerLog };
