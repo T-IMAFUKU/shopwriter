@@ -4,6 +4,7 @@ import type { EventLog } from "@prisma/client";
 import { cn } from "@/lib/utils";
 
 /**
+<<<<<<< HEAD
  * EventLog の最小テーブル
  * - 最大10行（page.tsx 側で take:10）
  * - 空データ時は「データがありません」
@@ -13,6 +14,34 @@ import { cn } from "@/lib/utils";
  *   - th/td はネイティブ属性(title 等)を許可
  *   - 「参照」列はスキーマ差異に耐える安全アクセサ（refType/referer/referrer/refId/ref など探査）
  */
+=======
+ * Prisma 型に依存しない軽量テーブル。
+ * - 既存 UI は維持（列/スタイル/表示文言は同じ）
+ * - Prisma の `EventLog` が存在しない環境でも typecheck/build を通す
+ * - props は「必要フィールド＋拡張」を許容する疎結合型
+ */
+export type EventLogRow = {
+  id: string | number;
+  createdAt: Date | string;
+  level?: string | null;
+  category?: string | null;
+  event?: string | null;
+  url?: string | null;
+  userId?: string | number | null;
+  sessionId?: string | number | null;
+  payload?: unknown;
+
+  // 参照系：スキーマ差異に耐える（Prisma 由来の null を許容）
+  referrer?: string | null;          // ★ null/undefined 許容
+  referer?: string | null;           // ★ null/undefined 許容
+  ref?: string | number | null;      // ★ null 許容
+  refId?: string | number | null;    // ★ null 許容
+  refType?: string | null;           // ★ null 許容
+
+  // 任意の追加フィールド（将来拡張）
+  [k: string]: unknown;
+};
+>>>>>>> ce9b8053 (test(writer): LP個別timeout 12s→30s / preload適用導線整備（H-8 LEVEL2 Green）)
 
 type Props = {
   logs: EventLog[] | null | undefined;
@@ -162,6 +191,7 @@ function LevelBadge({ level }: { level?: string | null }) {
 // 参照情報：スキーマ差異に耐える（存在するキーを順に採用）
 function getReference(r: EventLog): string {
   const x = r as any;
+<<<<<<< HEAD
   return (
     x.referrer ??           // 一般
     x.referer ??            // 拼写ゆれ
@@ -170,6 +200,16 @@ function getReference(r: EventLog): string {
     x.refType ??            // 種別
     "-"
   );
+=======
+  const v =
+    x.referrer ??
+    x.referer ??
+    x.ref ??
+    x.refId ??
+    x.refType ??
+    null;
+  return v == null ? "-" : String(v);
+>>>>>>> ce9b8053 (test(writer): LP個別timeout 12s→30s / preload適用導線整備（H-8 LEVEL2 Green）)
 }
 
 function fmtDateTime(input: Date | string): string {

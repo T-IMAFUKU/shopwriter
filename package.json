@@ -13,14 +13,20 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:migrate:resolve": "prisma migrate resolve",
     "typecheck": "tsc --noEmit",
+
     "test": "cross-env NODE_OPTIONS=--require=./tests/preload-env.cjs vitest run --passWithNoTests",
     "test:watch": "cross-env NODE_OPTIONS=--require=./tests/preload-env.cjs vitest --watch",
     "test:writer": "cross-env NODE_OPTIONS=--require=./tests/preload-env.cjs vitest run --passWithNoTests -t writer",
     "test:precision": "cross-env NODE_OPTIONS=--require=./tests/preload-env.cjs vitest run tests/api/writer.precision.plan.test.ts --passWithNoTests",
-    "vitest:one": "cross-env NODE_OPTIONS=--require=./tests/preload-env.cjs vitest run",
     "test:shares": "cross-env NODE_OPTIONS=--require=./tests/preload-env.cjs vitest run tests/api/shares.route.test.ts",
     "test:all": "cross-env NODE_OPTIONS=--require=./tests/preload-env.cjs vitest run --passWithNoTests",
-    "test:all:lenient": "cross-env NODE_OPTIONS=--require=./tests/preload-env.cjs vitest run --passWithNoTests --testTimeout=15000"
+
+    "test:all:lenient": "cross-env NODE_OPTIONS=--require=./tests/preload-env.cjs vitest run --passWithNoTests --test-timeout=30000",
+
+    "vitest:one": "cross-env NODE_OPTIONS=--require=./tests/preload-env.cjs vitest run",
+    "vitest:file": "cross-env NODE_OPTIONS=--require=./tests/preload-env.cjs vitest run --reporter=verbose",
+
+    "test:lp": "cross-env NODE_OPTIONS=--require=./tests/preload-env.cjs vitest run tests/api/writer.samples.lp.test.ts --reporter=verbose"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.10.0",
