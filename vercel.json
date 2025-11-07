@@ -1,0 +1,36 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "framework": "nextjs",
+  "regions": ["hnd1", "icn1", "sin1"],
+
+  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "pnpm prisma:generate:prod && pnpm build",
+
+  "functions": {
+    "app/api/**/route.ts": {
+      "runtime": "nodejs20.x",
+      "maxDuration": 30,
+      "memory": 1024,
+      "excludeFiles": "{**/*.map}"
+    },
+    "app/api/**/route.js": {
+      "runtime": "nodejs20.x",
+      "maxDuration": 30,
+      "memory": 1024,
+      "excludeFiles": "{**/*.map}"
+    },
+    "pages/api/**/*.ts": {
+      "runtime": "nodejs20.x",
+      "maxDuration": 30,
+      "memory": 1024,
+      "excludeFiles": "{**/*.map}"
+    },
+    "pages/api/**/*.js": {
+      "runtime": "nodejs20.x",
+      "maxDuration": 30,
+      "memory": 1024,
+      "excludeFiles": "{**/*.map}"
+    }
+  }
+}
