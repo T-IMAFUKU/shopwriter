@@ -2,7 +2,8 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
   "framework": "nextjs",
-  "regions": ["hnd1", "icn1", "sin1"],
+
+  "regions": ["hnd1"],
 
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm prisma:generate:prod && pnpm build",
