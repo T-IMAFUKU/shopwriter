@@ -1,13 +1,6 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
-
-  "buildCommand": "pnpm prisma:generate:prod && pnpm build",
-
   "functions": {
-    "app/**/route.ts": { "runtime": "nodejs20.x" },
-    "app/**/route.js": { "runtime": "nodejs20.x" },
-    "pages/api/**/*.ts": { "runtime": "nodejs20.x" },
-    "pages/api/**/*.js": { "runtime": "nodejs20.x" }
+    "runtime": "nodejs20.x"
   }
 }
