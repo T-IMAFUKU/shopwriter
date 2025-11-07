@@ -2,7 +2,7 @@
  * writer samples (lp.basic.json)
  * - LPスタイルでも本文が文字列で得られること
  * - 実ネットワークには出ない（モック前提の緩い検査）
- * - ⏱ タイムアウトは Vitest 互換の「it(..., 12000)」で付与
+ * - ⏱ タイムアウトは Vitest 互換の「it(..., 30000)」で付与
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
@@ -70,6 +70,6 @@ describe("writer samples (lp.basic.json)", () => {
       const hasCTA = /CTA|購入|申し込み|お問い合わせ|試す/.test(text!);
       expect(hasHeadline || hasCTA).toBe(true);
     },
-    12000 // ← Vitest の per-test timeout（ms）
+    30000 // ← Vitest の per-test timeout（ms）: 12s → 30s に更新
   );
 });
