@@ -1,10 +1,15 @@
 {
   "version": 2,
+  "builds": [
+    { "src": "package.json", "use": "@vercel/next" }
+  ],
   "functions": {
-    "api/**/*.ts": { "runtime": "nodejs20.x" },
-    "api/**/*.js": { "runtime": "nodejs20.x" },
-    "app/**/route.ts": { "runtime": "nodejs20.x" },
-    "app/**/route.js": { "runtime": "nodejs20.x" }
+    "api/**/*.{js,ts}": {
+      "runtime": "nodejs20.x"
+    },
+    "app/**/route.{js,ts}": {
+      "runtime": "nodejs20.x"
+    }
   },
   "buildCommand": "pnpm prisma:generate && pnpm build"
 }
