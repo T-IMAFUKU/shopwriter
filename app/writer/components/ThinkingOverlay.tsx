@@ -5,13 +5,12 @@ import { createPortal } from "react-dom";
 
 /**
  * ThinkingOverlay — 出力欄の先頭に「擬似思考ログ」を表示（ChatGPT風）
- * LEVEL3-final（テンポ/Easing/初回遅延）
- *  - 1.0〜1.2s帯の自然な切替（既定= 1100ms）
- *  - フェードに ease-in-out を追加して自然化
- *  - 初回切替は 1周期待つ（初期表示→1.1s後に最初の切替）
- *  - Busy中は常時表示 / 完了後は自然フェード→DOM除去
- *  - hide条件: Busy=false && inactivity>INACTIVITY_MS（MIN_SHOW_MS保証）
- *  - タイマー多重防止 / 監視useEffectはマウント1回のみ
+ * LEVEL3 安定版（本番最適化）：
+ *  - Busy(=生成中) が true の間は必ず可視化（本文0文字でも隠さない）
+ *  - hide条件は「Busyがfalse かつ テキスト伸びがINACTIVITY_MS超停止」のAND
+ *  - グレース期間(MIN_SHOW_MS)を常に保証（回転切替で消えない）
+ *  - 回転タイマー/監視は単発起動（多重起動ガード）
+ *  - ★ 新規：本文の伸びを検知したら自動起動（ボタンBusy検知に失敗しても確実に表示）
  */
 
 type Phase = "start" | "intro" | "outline" | "body" | "cta" | "closing" | "idle";
@@ -31,15 +30,17 @@ const OUTPUT_SELECTORS = [
   ".prose pre",
   "article pre",
   "#output",
+  // 追加の保険（本番差異吸収）
+  "[data-section='output']",
 ] as const;
 
 const SUBMIT_BTN_SELECTOR =
-  "form button[type='submit'], form [data-action='generate']";
+  // 既存の送信ボタン検出に加えて、loading状態のボタンも拾う
+  "form button[type='submit'], form [data-action='generate'], button[aria-busy='true'], button[data-state='loading']";
 
-/** ==== Tunables（必要ならここだけ触る） ==== */
 const INACTIVITY_MS = 1500; // 本文が伸びない時間の閾値
-const ROTATE_MS = 1100;     // メッセージ回転間隔（体感：1000/1100/1200が推奨）
-const HIDE_DELAY_MS = 200;  // 完了後のフェード猶予
+const ROTATE_MS = 1100;     // メッセージ回転間隔
+const HIDE_DELAY_MS = 400;  // 完了後のフェード猶予
 const MIN_SHOW_MS = 900;    // 最低表示保証（チラつき防止）
 const MAX_LINE_LEN = 80;
 
@@ -53,14 +54,13 @@ const PHRASES: Record<Phase, string[]> = {
   idle: ["構想を始めています…"],
 };
 
-// 全Phaseを連結し、重複除去したグローバル回転リスト
-const GLOBAL_MESSAGES = Array.from(
-  new Set(
-    (Object.keys(PHRASES) as Phase[]).flatMap((k) => PHRASES[k])
-  )
-);
-
 const clamp = (n: number, a: number, b: number) => Math.max(a, Math.min(b, n));
+const choose = (arr: string[], avoid?: string) => {
+  if (!arr.length) return "";
+  const pool = avoid ? arr.filter((s) => s !== avoid) : arr;
+  const list = pool.length ? pool : arr;
+  return list[Math.floor(Math.random() * list.length)];
+};
 
 function sanitizeLine(s: string): string {
   let t = s.replace(/\s+/g, " ").trim();
@@ -93,23 +93,6 @@ function ensureHost(): Host {
   return { container, portal };
 }
 
-// 出力テキスト（オーバーレイ自身を除外して取得）
-function getOutputTextSansOverlay(host: Host): string {
-  const container = host?.container ?? queryOutputEl();
-  if (!container) return "";
-  let acc = "";
-  container.childNodes.forEach((node) => {
-    if (
-      node.nodeType === Node.ELEMENT_NODE &&
-      (node as HTMLElement).getAttribute?.("data-thinking-host") === "1"
-    ) {
-      return; // overlay自身はスキップ
-    }
-    acc += (node as HTMLElement | ChildNode)?.textContent ?? "";
-  });
-  return acc;
-}
-
 // 本文→フェーズ推定
 function inferPhase(text: string): Phase {
   const L = text.length;
@@ -128,6 +111,7 @@ function inferPhase(text: string): Phase {
   return "body";
 }
 
+// Busy(=生成中) 厳密判定：disabledは含めない
 function isGeneratingNow(btn: HTMLButtonElement): boolean {
   const txt = (btn.textContent || "").trim();
   const busy =
@@ -147,83 +131,31 @@ export default function ThinkingOverlay() {
   const [visible, setVisible] = useState(false);
   const [active, setActive] = useState(false);
 
+  // 状態/ガード
   const busyRef = useRef(false);
   const prevBusyRef = useRef(false);
   const shownRef = useRef(false);
-  const hideTimerRef = useRef<number | null>(null);
 
+  // 進捗
   const lastLenRef = useRef(0);
   const lastChangeAtRef = useRef(0);
   const showStartedAtRef = useRef(0);
-
-  // 回転系タイマー
   const rotateTimerRef = useRef<number | null>(null);
-  const initialRotateDelayRef = useRef<number | null>(null);
 
-  // グローバル回転インデックス（フェーズ配列が1件でも強制で進む）
-  const globalIdxRef = useRef(0);
-
-  // hostの参照を回転処理から見えるように保持
-  const hostRef = useRef<Host>(null);
-  useEffect(() => {
-    hostRef.current = host;
-  }, [host]);
-
-  // 出力テキスト取得（オーバーレイ自身を除外）
   const getText = useMemo(() => {
-    return () => getOutputTextSansOverlay(hostRef.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => queryOutputEl()?.textContent ?? "";
   }, []);
 
-  function nextGlobalMessage(prev?: string) {
-    let idx = (globalIdxRef.current + 1) % GLOBAL_MESSAGES.length;
-    if (GLOBAL_MESSAGES[idx] === prev) {
-      idx = (idx + 1) % GLOBAL_MESSAGES.length;
-    }
-    globalIdxRef.current = idx;
-    return GLOBAL_MESSAGES[idx];
-  }
-
   function startRotate() {
-    if (rotateTimerRef.current || initialRotateDelayRef.current) return;
-
-    // 初回は1周期分だけ遅らせて自然化（初期表示→1.1s後に最初の切替）
-    initialRotateDelayRef.current = window.setTimeout(() => {
-      setLabel((prev) => nextGlobalMessage(prev));
-      // 以後は等間隔ローテーション
-      rotateTimerRef.current = window.setInterval(() => {
-        const text = getText(); // overlay除外済み
-        const phase = inferPhase(text);
-        const list = PHRASES[phase] || PHRASES.idle;
-        setLabel((prev) => {
-          if (list.length >= 2) {
-            const candidates = list.filter((s) => s !== prev);
-            const choice =
-              candidates[Math.floor(Math.random() * candidates.length)] ??
-              list[0];
-            if (choice === prev) return nextGlobalMessage(prev);
-            return choice;
-          } else {
-            return nextGlobalMessage(prev);
-          }
-        });
-      }, ROTATE_MS) as unknown as number;
-
-      // 初回ディレイ完了マーク
-      if (initialRotateDelayRef.current) {
-        clearTimeout(initialRotateDelayRef.current);
-        initialRotateDelayRef.current = null;
-      }
+    if (rotateTimerRef.current) return;
+    rotateTimerRef.current = window.setInterval(() => {
+      const phase = inferPhase(getText());
+      setLabel((prev) => choose(PHRASES[phase] || PHRASES.idle, prev));
     }, ROTATE_MS) as unknown as number;
   }
-
   function stopRotate() {
-    if (initialRotateDelayRef.current) {
-      clearTimeout(initialRotateDelayRef.current);
-      initialRotateDelayRef.current = null;
-    }
     if (rotateTimerRef.current) {
-      clearInterval(rotateTimerRef.current);
+      window.clearInterval(rotateTimerRef.current);
       rotateTimerRef.current = null;
     }
   }
@@ -237,7 +169,7 @@ export default function ThinkingOverlay() {
 
     setVisible(true);
     setActive(true);
-    setLabel(GLOBAL_MESSAGES[globalIdxRef.current] ?? "構想を始めています…");
+    setLabel(choose(PHRASES.start));
     showStartedAtRef.current = performance.now();
     lastLenRef.current = 0;
     lastChangeAtRef.current = Date.now();
@@ -245,22 +177,26 @@ export default function ThinkingOverlay() {
   }
 
   function hideSoon() {
-    if (!shownRef.current || hideTimerRef.current) return;
-    const rest = clamp(MIN_SHOW_MS - (performance.now() - showStartedAtRef.current), 0, MIN_SHOW_MS);
-    hideTimerRef.current = window.setTimeout(() => {
+    if (!shownRef.current) return;
+    const rest = clamp(
+      MIN_SHOW_MS - (performance.now() - showStartedAtRef.current),
+      0,
+      MIN_SHOW_MS
+    );
+    window.setTimeout(() => {
       setActive(false);
-      setTimeout(() => {
-        setVisible(false);
-        if (hostRef.current?.portal?.parentNode) hostRef.current.portal.parentNode.removeChild(hostRef.current.portal);
-        setHost(null);
-        shownRef.current = false;
-        hideTimerRef.current = null;
-        stopRotate();
-      }, HIDE_DELAY_MS);
-    }, rest);
+      setVisible(false);
+      // DOM掃除（残留防止）
+      if (host?.portal && host.portal.parentNode) {
+        host.portal.parentNode.removeChild(host.portal);
+      }
+      setHost(null);
+      shownRef.current = false;
+      stopRotate();
+    }, rest + HIDE_DELAY_MS);
   }
 
-  // 監視はマウント1回のみ（依存=[]）— 途中のstate変化でcleanupしない
+  // 単発監視
   useEffect(() => {
     const root = document.body;
     if (!root) return;
@@ -268,46 +204,78 @@ export default function ThinkingOverlay() {
     const watchSubmit = () => {
       const btn = detectSubmitButton();
       if (!btn) return;
+
       const nowBusy = isGeneratingNow(btn);
       busyRef.current = nowBusy;
       const prev = prevBusyRef.current;
-      if (nowBusy && !prev) showNow();
+
+      if (nowBusy && !prev) {
+        // 生成開始：即表示
+        showNow();
+      }
+      // nowBusy=false になった瞬間は tick 側で最終判定する
       prevBusyRef.current = nowBusy;
     };
 
     const tick = () => {
-      // 出力テキスト進捗（overlay除外）
+      // 出力テキスト進捗
       const t = getText();
       const len = t.length;
+
+      // ★ 第二トリガー：本文が伸び始めたら自動で起動（Busy検出失敗時の保険）
+      if (len > lastLenRef.current && !shownRef.current) {
+        showNow();
+        // Busyの実態が取れない環境でも、表示維持のため暫定 busy=true 扱い
+        busyRef.current = true;
+      }
+
       if (len > lastLenRef.current) {
         lastLenRef.current = len;
         lastChangeAtRef.current = Date.now();
       }
-      // Busy中は表示維持
+
+      // Busy中は必ず表示維持（本文0でも隠さない）
       if (busyRef.current && shownRef.current) {
         if (!visible) setVisible(true);
         if (!active) setActive(true);
       }
-      // hide条件
+
+      // hide条件：Busyがfalse AND テキスト伸びが止まって INACTIVITY_MS 超
       const stopByInactivity = Date.now() - lastChangeAtRef.current > INACTIVITY_MS;
-      if (!busyRef.current && shownRef.current && stopByInactivity) hideSoon();
-      // hostの自己修復
-      if (!hostRef.current || (hostRef.current && !document.contains(hostRef.current.portal))) {
+      if (!busyRef.current && shownRef.current && stopByInactivity) {
+        hideSoon();
+      }
+
+      // hostの再作成（無ければ単発）
+      if (!host || (host && !document.contains(host.portal))) {
         const h = ensureHost();
         if (h) setHost(h);
       }
     };
 
-    // 初期
+    // 初期実行
     watchSubmit();
     tick();
 
-    // 監視
+    // 監視（DOM変化とポーリングの両輪）
+    const submitObserver = new MutationObserver(watchSubmit);
+    submitObserver.observe(root, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      characterData: true,
+    });
+
     const obs = new MutationObserver(() => {
       watchSubmit();
       tick();
     });
-    obs.observe(root, { subtree: true, childList: true, attributes: true, characterData: true });
+    obs.observe(root, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+    });
 
     const id = window.setInterval(() => {
       watchSubmit();
@@ -315,12 +283,13 @@ export default function ThinkingOverlay() {
     }, 300);
 
     return () => {
+      submitObserver.disconnect();
       obs.disconnect();
       window.clearInterval(id);
-      // 回転停止は hide 完了でのみ行う（途中cleanupでは止めない）
+      stopRotate();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // 依存=[] に固定
+  }, [host]);
 
   if (!host || !visible) return null;
 
@@ -328,13 +297,13 @@ export default function ThinkingOverlay() {
     <div
       className={[
         "pointer-events-none",
-        "transition-opacity duration-200 ease-in-out", // ★ Easing追加
+        "transition-opacity duration-200 ease-in-out",
         active ? "opacity-100" : "opacity-0",
       ].join(" ")}
       style={{ marginBottom: "0.5rem" }}
       aria-live="polite"
     >
-      <div className="inline-flex items-center rounded-full border bg-muted/40 px-2.5 py-1 text-xs text-muted-foreground backdrop-blur-sm">
+      <div className="inline-flex items-center rounded-full border bg-muted/40 px-2.5 py-1 text-xs text-muted-foreground">
         <span className="font-medium">{sanitizeLine(label)}</span>
         <span className="ml-1 inline-block animate-pulse">…</span>
       </div>
