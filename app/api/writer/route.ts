@@ -10,11 +10,8 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 // 🆕 toneプリセットを統合
-import * as Tone from "@/lib/tone-presets";
+import { tonePresets } from "./_shared/tone-presets";
 import { writerLog } from "@/lib/metrics/writerLogger";
-// compat shim (named/default/namespace all OK)
-const tonePresets: Record<string, any> =
-  (Tone as any).default ?? (Tone as any);/** FAQ セクション見出し（tests-augmented 前提 / カウント検知用） */
 const faqBlock = "## FAQ\n";
 
 /** 汎用 FAQ シード（冪等・3問確保のための最小種） */
