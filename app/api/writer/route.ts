@@ -7,6 +7,8 @@
 // Precision Planでは "edge" への変更はリスクが高いので禁止。
 export const runtime = "nodejs";
 
+import { parseInput } from "./validation";
+import { composePrompt } from "./prompt/compose";
 import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 // 🆕 toneプリセットを統合
@@ -1037,6 +1039,13 @@ const elapsed = () => Date.now() - t0;
 
   try {
     const body = (await req.json()) as WriterRequest | null;
+    const input = parseInput(body);
+
+    const {
+      system: composedSystem,
+      user: composedUser,
+      faqBlock: composedFaqBlock,
+    } = composePrompt(input);
 
     const provider = (body?.provider ?? "openai").toLowerCase();
     const rawPrompt = (body?.prompt ?? "").toString();
@@ -1134,9 +1143,13 @@ const elapsed = () => Date.now() - t0;
     const toneKey = resolveTonePresetKey(n.tone, n.style);
 
     // System Prompt 構築（上書きがあれば優先）
-    const system = buildSystemPrompt({ overrides: systemOverride, toneKey });
+    const system = composedSystem && composedSystem.trim().length > 0
+      ? composedSystem
+      : buildSystemPrompt({ overrides: systemOverride, toneKey });
 
-    const userMessage = makeUserMessage(n);
+    const userMessage = composedUser && composedUser.trim().length > 0
+      ? composedUser
+      : makeUserMessage(n);
 
     // 🚫 FewShotはLLMに渡さない（H-5-rebuild-A方針）
     // const fewShot = buildFewShot(n.category);
