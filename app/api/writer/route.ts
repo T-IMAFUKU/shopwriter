@@ -1,4 +1,4 @@
-// FULLFILE REPLACEMENT | target=app/api/writer/route.ts | from=<unavailable> | genAt=2025-11-01 03:00:00 JST
+// FULLFILE REPLACEMENT | target=app/api/writer/route.ts | from=<unavailable> | genAt=2025-11-12 20:00:00 JST
 
 // app/api/writer/route.ts
 
@@ -15,6 +15,7 @@ import { createHash } from "node:crypto";
 import { tonePresets } from "./_shared/tone-presets";
 import { writerLog } from "@/lib/metrics/writerLogger";
 const faqBlock = "## FAQ\n";
+import { composePromptSafe } from "./prompt/compose";
 
 /** 汎用 FAQ シード（冪等・3問確保のための最小種） */
 const faqSeeds = [
@@ -1040,8 +1041,9 @@ const elapsed = () => Date.now() - t0;
   try {
     const body = (await req.json()) as WriterRequest | null;
     const input = parseInput(body);
+    void composePromptSafe(input); // Stage2-safe: no-op warm call（挙動不変）
 
-    const {
+       const {
       system: composedSystem,
       user: composedUser,
       faqBlock: composedFaqBlock,
@@ -1138,6 +1140,20 @@ const elapsed = () => Date.now() - t0;
 
     // 入力正規化
     const n = normalizeInput(rawPrompt);
+    
+{
+  const payloadPre = {
+    phase: "precompose",
+    provider,
+    model,
+    input: { category: n.category, goal: n.goal, platform: n.platform ?? null },
+    hash: { prompt_sha256_8: sha256Hex(rawPrompt).slice(0, 8) },
+  };
+  logEvent("ok", payloadPre);
+  forceConsoleEvent("ok", payloadPre);
+  await emitWriterEvent("ok", payloadPre);
+}
+
 
     // 🆕 toneプリセット解決（tone/style → toneKey）
     const toneKey = resolveTonePresetKey(n.tone, n.style);
@@ -1291,4 +1307,3 @@ const elapsed = () => Date.now() - t0;
 
 /** （互換維持のダミー。可視カウント用・本体ロジックとは独立） */
 const __FAQ_SEED_CONTAINER__ = {};
-
