@@ -1,7 +1,3 @@
-// FULLFILE REPLACEMENT | target=app/api/writer/route.ts | from=<unavailable> | genAt=2025-11-12 20:00:00 JST
-
-// app/api/writer/route.ts
-
 // ランタイムは nodejs のまま維持すること。
 // Prisma / fetch(OpenAI) / ログ など Node.js 依存の処理があるため。
 // Precision Planでは "edge" への変更はリスクが高いので禁止。
