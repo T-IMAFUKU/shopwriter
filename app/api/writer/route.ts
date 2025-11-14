@@ -1107,8 +1107,6 @@ const n = normalizeInput(rawPrompt);
       ? composedUser
       : makeUserMessage(n);
 
-    // 🚫 FewShotはLLMに渡さない（H-5-rebuild-A方針）
-    // const fewShot = buildFewShot(n.category);
 
     // OpenAI呼び出し
     const t1 = Date.now();
@@ -1125,7 +1123,6 @@ const n = normalizeInput(rawPrompt);
           temperature,
           messages: [
             { role: "system", content: system },
-            // ...fewShot, // ← H-5-rebuild-Aでは使用禁止
             { role: "user", content: userMessage },
           ],
         }),
