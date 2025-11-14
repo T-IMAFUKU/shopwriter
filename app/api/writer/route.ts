@@ -17,45 +17,6 @@ import { writerLog } from "@/lib/metrics/writerLogger";
 const faqBlock = "## FAQ\n";
 import { composePromptSafe } from "./prompt/compose";
 
-/** 汎用 FAQ シード（冪等・3問確保のための最小種） */
-const faqSeeds = [
-  {
-    q: "配送までの目安は？",
-    a: "通常はご注文から1〜3営業日で出荷します（在庫により前後）。",
-  },
-  {
-    q: "返品・交換はできますか？",
-    a: "未使用・到着後7日以内は承ります。詳細は返品ポリシーをご確認ください。",
-  },
-  {
-    q: "支払い方法は？",
-    a: "クレジットカード、コンビニ払い、銀行振込などに対応しています。",
-  },
-];
-
-/* =========================
-   リクエスト/レスポンス型
-========================= */
-type WriterRequest = {
-  provider?: "openai" | string;
-  prompt?: string; // 自由文 or JSON
-  model?: string;
-  temperature?: number;
-  system?: string; // 上書き可
-};
-
-type WriterResponseOk = {
-  ok: true;
-  data: { text: string; meta: { style: string; tone: string; locale: string } };
-  output: string;
-};
-
-type WriterResponseErr = {
-  ok: false;
-  error: string;
-  details?: string;
-};
-
 /* =========================
    Normalizer（入力正規化）
 ========================= */
@@ -208,6 +169,48 @@ function coerceToShape(obj: any, raw: string): NormalizedInput {
     _raw: raw,
   };
 }
+
+
+/** 汎用 FAQ シード（冪等・3問確保のための最小種） */
+const faqSeeds = [
+  {
+    q: "配送までの目安は？",
+    a: "通常はご注文から1〜3営業日で出荷します（在庫により前後）。",
+  },
+  {
+    q: "返品・交換はできますか？",
+    a: "未使用・到着後7日以内は承ります。詳細は返品ポリシーをご確認ください。",
+  },
+  {
+    q: "支払い方法は？",
+    a: "クレジットカード、コンビニ払い、銀行振込などに対応しています。",
+  },
+];
+
+/* =========================
+   リクエスト/レスポンス型
+========================= */
+type WriterRequest = {
+  provider?: "openai" | string;
+  prompt?: string; // 自由文 or JSON
+  model?: string;
+  temperature?: number;
+  system?: string; // 上書き可
+};
+
+type WriterResponseOk = {
+  ok: true;
+  data: { text: string; meta: { style: string; tone: string; locale: string } };
+  output: string;
+};
+
+type WriterResponseErr = {
+  ok: false;
+  error: string;
+  details?: string;
+};
+
+
 
 /* =========================
    EC Lexicon & Templates（カテゴリ別ヒント）
@@ -436,68 +439,6 @@ function buildSystemPrompt(opts: { overrides?: string; toneKey: string }): strin
   return modules.join("\n\n");
 }
 
-/* =========================
-   Few-shot（WRITER_FEWSHOT=1/true時のみ）
-   ※ 現フェーズ(H-5-rebuild-A)ではLLMへは渡さない
-========================= */
-
-function buildFewShot(
-  category: string
-): { role: "user" | "assistant"; content: string }[] {
-  if (!/^(1|true)$/i.test(String(process.env.WRITER_FEWSHOT ?? ""))) return [];
-
-  const shots: { role: "user" | "assistant"; content: string }[] = [];
-
-  // 家電サンプル
-  if (/(家電|electronic|電動|掃除機|冷蔵庫|イヤホン|ヘッドホン)/i.test(category ?? "")) {
-    shots.push(
-      {
-        role: "user",
-        content:
-          "【カテゴリ:家電】product_name: ノイズキャンセリング完全ワイヤレスイヤホン / goal: 購入誘導 / audience: 通勤・リモートワーク / keywords: 連続再生, 低遅延, 高音質",
-      },
-      {
-        role: "assistant",
-        content:
-          "## 周囲の音を抑えて、集中しやすい環境へ\nリモート会議や通勤時でも落ち着いて使えるノイズキャンセリング設計です。\n\n- 連続再生最大10時間／ケース併用で30時間\n- 低遅延（80〜120ms程度が目安）\n- 生活防水（IPX4相当）\n",
-      }
-    );
-  }
-
-  // コスメサンプル
-  if (/(コスメ|化粧|美容|スキンケア|beauty|cosme)/i.test(category ?? "")) {
-    shots.push(
-      {
-        role: "user",
-        content:
-          "【カテゴリ:コスメ】product_name: 低刺激UVミルク / goal: 購入誘導 / audience: 素肌思い / keywords: 日焼け止め, 乳液, トーンアップ",
-      },
-      {
-        role: "assistant",
-        content:
-          "## 日常使いしやすいUVケア\n白浮きしにくいテクスチャで、日中のメイクにもなじみます。\n\n- SPF50+・PA++++\n- 1回の使用量目安：パール粒2個分（約0.8g）\n- 石けんオフ対応（単体使用時）\n",
-      }
-    );
-  }
-
-  // 食品サンプル
-  if (/(食品|フード|グルメ|スイーツ|food|gourmet|菓子|コーヒー|茶)/i.test(category ?? "")) {
-    shots.push(
-      {
-        role: "user",
-        content:
-          "【カテゴリ:食品】product_name: プレミアムドリップコーヒー 10袋 / goal: 購入誘導 / audience: 在宅ワーク / keywords: 香り, 深煎り, 手軽",
-      },
-      {
-        role: "assistant",
-        content:
-          "## 在宅ワークの合間に、淹れたての気分転換を\n個包装のドリップタイプなので、道具いらずで淹れられます。\n\n- 1杯あたり10〜12gの粉でしっかりコク\n- 焙煎後24時間以内に充填し、鮮度を保っています\n- お湯150〜180mLが目安\n",
-      }
-    );
-  }
-
-  return shots;
-}
 
 /* =========================
    User Message（人間→AI）
@@ -1138,9 +1079,8 @@ const elapsed = () => Date.now() - t0;
       });
     }
 
-    // 入力正規化
-    const n = normalizeInput(rawPrompt);
-    
+const n = normalizeInput(rawPrompt);
+
 {
   const payloadPre = {
     phase: "precompose",
@@ -1305,5 +1245,3 @@ const elapsed = () => Date.now() - t0;
   }
 }
 
-/** （互換維持のダミー。可視カウント用・本体ロジックとは独立） */
-const __FAQ_SEED_CONTAINER__ = {};
