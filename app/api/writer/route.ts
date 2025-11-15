@@ -183,30 +183,6 @@ const faqSeeds = [
   },
 ];
 
-/* =========================
-   リクエスト/レスポンス型
-========================= */
-type WriterRequest = {
-  provider?: "openai" | string;
-  prompt?: string; // 自由文 or JSON
-  model?: string;
-  temperature?: number;
-  system?: string; // 上書き可
-};
-
-type WriterResponseOk = {
-  ok: true;
-  data: { text: string; meta: { style: string; tone: string; locale: string } };
-  output: string;
-};
-
-type WriterResponseErr = {
-  ok: false;
-  error: string;
-  details?: string;
-};
-
-
 
 /* =========================
    EC Lexicon & Templates（カテゴリ別ヒント）
@@ -976,7 +952,7 @@ const elapsed = () => Date.now() - t0;
   let model: string | undefined;
 
   try {
-    const body = (await req.json()) as WriterRequest | null;
+    const body = await req.json();
     const input = parseInput(body);
     void composePromptSafe(input); // Stage2-safe: no-op warm call（挙動不変）
 
@@ -1021,7 +997,7 @@ const elapsed = () => Date.now() - t0;
         durationMs: elapsed(),
         requestId: rid,
       });
-      return NextResponse.json<WriterResponseErr>(err, { status: 400 });
+      return NextResponse.json(err, { status: 400 });
     }
 
     if (provider !== "openai") {
@@ -1048,7 +1024,7 @@ const elapsed = () => Date.now() - t0;
         durationMs: elapsed(),
         requestId: rid,
       });
-      return NextResponse.json<WriterResponseErr>(err, { status: 400 });
+      return NextResponse.json(err, { status: 400 });
     }
 
     const apiKey = process.env.OPENAI_API_KEY;
@@ -1070,9 +1046,8 @@ const elapsed = () => Date.now() - t0;
       await emitWriterEvent("error", payload);
 
       await writerLog({ phase: "failure", model, durationMs: elapsed(), requestId: rid });
-      return NextResponse.json<WriterResponseErr>(err, {
-        status: 500,
-      });
+      return NextResponse.json(err, { status: 500 });
+
     }
 
 const n = normalizeInput(rawPrompt);
@@ -1144,7 +1119,7 @@ const n = normalizeInput(rawPrompt);
       forceConsoleEvent("error", payload);
       await emitWriterEvent("error", payload);
 
-      return NextResponse.json<WriterResponseErr>(
+      return NextResponse.json(
         {
           ok: false,
           error: `openai api error: ${resp.status} ${resp.statusText}`,
@@ -1170,7 +1145,7 @@ const n = normalizeInput(rawPrompt);
       forceConsoleEvent("error", payload);
       await emitWriterEvent("error", payload);
 
-      return NextResponse.json<WriterResponseErr>(
+      return NextResponse.json(
         { ok: false, error: "empty content" },
         { status: 502 }
       );
@@ -1210,7 +1185,7 @@ const n = normalizeInput(rawPrompt);
     await emitWriterEvent("ok", payloadOk);
 
     // クライアントに返すレスポンス（testsが期待するshape）
-    const payload: WriterResponseOk = {
+    const payload= {
       ok: true,
       data: { text, meta },
       output: text,
@@ -1231,7 +1206,7 @@ const n = normalizeInput(rawPrompt);
 
     await writerLog({ phase: "failure", model, durationMs: elapsed(), requestId: rid });
 
-    return NextResponse.json<WriterResponseErr>(
+    return NextResponse.json(
       { ok: false, error: e?.message ?? "unexpected error" },
       { status: 500 }
     );
