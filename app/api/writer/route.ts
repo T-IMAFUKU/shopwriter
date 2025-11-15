@@ -51,12 +51,13 @@ function normalizeInput(raw: string | undefined): NormalizedInput {
     }
   }
 
-  // 2) 自由文モード：ざっくり抽出
   const lower = txt.toLowerCase();
   const pick = (re: RegExp, def = "") => {
     const m = re.exec(txt);
     return (m?.[1] ?? def).toString().trim();
   };
+  const hasAny = (keywords: string[]) =>
+    keywords.some((kw) => lower.includes(kw));
 
   const product_name =
     pick(/(?:商品名|製品名|product(?:\s+name)?)[：:]\s*(.+)/i) ||
@@ -66,27 +67,22 @@ function normalizeInput(raw: string | undefined): NormalizedInput {
 
   const category =
     pick(/(?:カテゴリ|カテゴリー|category)[：:]\s*(.+)/i) ||
-    (lower.includes("美容") || lower.includes("コスメ")
+    (hasAny(["美容", "コスメ"])
       ? "コスメ"
-      : lower.includes("家電") || lower.includes("電動")
+      : hasAny(["家電", "電動"])
       ? "家電"
-      : lower.includes("食品") || lower.includes("グルメ")
+      : hasAny(["食品", "グルメ"])
       ? "食品"
-      : lower.includes("アパレル") ||
-        lower.includes("衣料") ||
-        lower.includes("ファッション")
+      : hasAny(["アパレル", "衣料", "ファッション"])
       ? "アパレル"
       : "汎用");
 
   const goal =
-    pick(/(?:目的|goal)[：:]\s*(.+)/i) ||
-    (lower.includes("購入") || lower.includes("カート")
-      ? "購入誘導"
-      : "購入誘導");
+    pick(/(?:目的|goal)[：:]\s*(.+)/i) || "購入誘導";
 
   const audience =
     pick(/(?:対象|読者|audience)[：:]\s*(.+)/i) ||
-    (lower.includes("ビジネス") ? "ビジネス層" : "一般購買者");
+    (hasAny(["ビジネス"]) ? "ビジネス層" : "一般購買者");
 
   const platform =
     pick(/(?:媒体|platform)[：:]\s*(.+)/i) ||
@@ -102,21 +98,23 @@ function normalizeInput(raw: string | undefined): NormalizedInput {
       .map((v) => v.trim())
       .filter(Boolean);
 
-  const keywords = split(pick(/(?:キーワード|keywords?)[：:]\s*(.+)/i) || "");
+  const keywords = split(
+    pick(/(?:キーワード|keywords?)[：:]\s*(.+)/i)
+  );
   const constraints = split(
-    pick(/(?:制約|constraints?)[：:]\s*(.+)/i) || ""
+    pick(/(?:制約|constraints?)[：:]\s*(.+)/i)
   );
   const selling_points = split(
-    pick(/(?:強み|特長|selling[_\s-]?points?)[：:]\s*(.+)/i) || ""
+    pick(/(?:強み|特長|selling[_\s-]?points?)[：:]\s*(.+)/i)
   );
   const objections = split(
-    pick(/(?:不安|懸念|objections?)[：:]\s*(.+)/i) || ""
+    pick(/(?:不安|懸念|objections?)[：:]\s*(.+)/i)
   );
   const evidence = split(
-    pick(/(?:根拠|実証|evidence)[：:]\s*(.+)/i) || ""
+    pick(/(?:根拠|実証|evidence)[：:]\s*(.+)/i)
   );
   const cta_preference = split(
-    pick(/(?:cta|行動喚起)[：:]\s*(.+)/i) || ""
+    pick(/(?:cta|行動喚起)[：:]\s*(.+)/i)
   );
 
   return {
