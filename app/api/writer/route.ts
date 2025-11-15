@@ -1,60 +1,17 @@
-// FULLFILE REPLACEMENT | target=app/api/writer/route.ts | from=<unavailable> | genAt=2025-11-01 03:00:00 JST
-
-// app/api/writer/route.ts
-
 // ランタイムは nodejs のまま維持すること。
 // Prisma / fetch(OpenAI) / ログ など Node.js 依存の処理があるため。
 // Precision Planでは "edge" への変更はリスクが高いので禁止。
 export const runtime = "nodejs";
 
+import { parseInput } from "./validation";
+import { composePrompt } from "./prompt/compose";
 import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 // 🆕 toneプリセットを統合
-import * as Tone from "@/lib/tone-presets";
+import { tonePresets } from "./_shared/tone-presets";
 import { writerLog } from "@/lib/metrics/writerLogger";
-// compat shim (named/default/namespace all OK)
-const tonePresets: Record<string, any> =
-  (Tone as any).default ?? (Tone as any);/** FAQ セクション見出し（tests-augmented 前提 / カウント検知用） */
 const faqBlock = "## FAQ\n";
-
-/** 汎用 FAQ シード（冪等・3問確保のための最小種） */
-const faqSeeds = [
-  {
-    q: "配送までの目安は？",
-    a: "通常はご注文から1〜3営業日で出荷します（在庫により前後）。",
-  },
-  {
-    q: "返品・交換はできますか？",
-    a: "未使用・到着後7日以内は承ります。詳細は返品ポリシーをご確認ください。",
-  },
-  {
-    q: "支払い方法は？",
-    a: "クレジットカード、コンビニ払い、銀行振込などに対応しています。",
-  },
-];
-
-/* =========================
-   リクエスト/レスポンス型
-========================= */
-type WriterRequest = {
-  provider?: "openai" | string;
-  prompt?: string; // 自由文 or JSON
-  model?: string;
-  temperature?: number;
-  system?: string; // 上書き可
-};
-
-type WriterResponseOk = {
-  ok: true;
-  data: { text: string; meta: { style: string; tone: string; locale: string } };
-  output: string;
-};
-
-type WriterResponseErr = {
-  ok: false;
-  error: string;
-  details?: string;
-};
+import { composePromptSafe } from "./prompt/compose";
 
 /* =========================
    Normalizer（入力正規化）
@@ -94,12 +51,13 @@ function normalizeInput(raw: string | undefined): NormalizedInput {
     }
   }
 
-  // 2) 自由文モード：ざっくり抽出
   const lower = txt.toLowerCase();
   const pick = (re: RegExp, def = "") => {
     const m = re.exec(txt);
     return (m?.[1] ?? def).toString().trim();
   };
+  const hasAny = (keywords: string[]) =>
+    keywords.some((kw) => lower.includes(kw));
 
   const product_name =
     pick(/(?:商品名|製品名|product(?:\s+name)?)[：:]\s*(.+)/i) ||
@@ -109,27 +67,22 @@ function normalizeInput(raw: string | undefined): NormalizedInput {
 
   const category =
     pick(/(?:カテゴリ|カテゴリー|category)[：:]\s*(.+)/i) ||
-    (lower.includes("美容") || lower.includes("コスメ")
+    (hasAny(["美容", "コスメ"])
       ? "コスメ"
-      : lower.includes("家電") || lower.includes("電動")
+      : hasAny(["家電", "電動"])
       ? "家電"
-      : lower.includes("食品") || lower.includes("グルメ")
+      : hasAny(["食品", "グルメ"])
       ? "食品"
-      : lower.includes("アパレル") ||
-        lower.includes("衣料") ||
-        lower.includes("ファッション")
+      : hasAny(["アパレル", "衣料", "ファッション"])
       ? "アパレル"
       : "汎用");
 
   const goal =
-    pick(/(?:目的|goal)[：:]\s*(.+)/i) ||
-    (lower.includes("購入") || lower.includes("カート")
-      ? "購入誘導"
-      : "購入誘導");
+    pick(/(?:目的|goal)[：:]\s*(.+)/i) || "購入誘導";
 
   const audience =
     pick(/(?:対象|読者|audience)[：:]\s*(.+)/i) ||
-    (lower.includes("ビジネス") ? "ビジネス層" : "一般購買者");
+    (hasAny(["ビジネス"]) ? "ビジネス層" : "一般購買者");
 
   const platform =
     pick(/(?:媒体|platform)[：:]\s*(.+)/i) ||
@@ -145,21 +98,23 @@ function normalizeInput(raw: string | undefined): NormalizedInput {
       .map((v) => v.trim())
       .filter(Boolean);
 
-  const keywords = split(pick(/(?:キーワード|keywords?)[：:]\s*(.+)/i) || "");
+  const keywords = split(
+    pick(/(?:キーワード|keywords?)[：:]\s*(.+)/i)
+  );
   const constraints = split(
-    pick(/(?:制約|constraints?)[：:]\s*(.+)/i) || ""
+    pick(/(?:制約|constraints?)[：:]\s*(.+)/i)
   );
   const selling_points = split(
-    pick(/(?:強み|特長|selling[_\s-]?points?)[：:]\s*(.+)/i) || ""
+    pick(/(?:強み|特長|selling[_\s-]?points?)[：:]\s*(.+)/i)
   );
   const objections = split(
-    pick(/(?:不安|懸念|objections?)[：:]\s*(.+)/i) || ""
+    pick(/(?:不安|懸念|objections?)[：:]\s*(.+)/i)
   );
   const evidence = split(
-    pick(/(?:根拠|実証|evidence)[：:]\s*(.+)/i) || ""
+    pick(/(?:根拠|実証|evidence)[：:]\s*(.+)/i)
   );
   const cta_preference = split(
-    pick(/(?:cta|行動喚起)[：:]\s*(.+)/i) || ""
+    pick(/(?:cta|行動喚起)[：:]\s*(.+)/i)
   );
 
   return {
@@ -208,6 +163,24 @@ function coerceToShape(obj: any, raw: string): NormalizedInput {
     _raw: raw,
   };
 }
+
+
+/** 汎用 FAQ シード（冪等・3問確保のための最小種） */
+const faqSeeds = [
+  {
+    q: "配送までの目安は？",
+    a: "通常はご注文から1〜3営業日で出荷します（在庫により前後）。",
+  },
+  {
+    q: "返品・交換はできますか？",
+    a: "未使用・到着後7日以内は承ります。詳細は返品ポリシーをご確認ください。",
+  },
+  {
+    q: "支払い方法は？",
+    a: "クレジットカード、コンビニ払い、銀行振込などに対応しています。",
+  },
+];
+
 
 /* =========================
    EC Lexicon & Templates（カテゴリ別ヒント）
@@ -436,68 +409,6 @@ function buildSystemPrompt(opts: { overrides?: string; toneKey: string }): strin
   return modules.join("\n\n");
 }
 
-/* =========================
-   Few-shot（WRITER_FEWSHOT=1/true時のみ）
-   ※ 現フェーズ(H-5-rebuild-A)ではLLMへは渡さない
-========================= */
-
-function buildFewShot(
-  category: string
-): { role: "user" | "assistant"; content: string }[] {
-  if (!/^(1|true)$/i.test(String(process.env.WRITER_FEWSHOT ?? ""))) return [];
-
-  const shots: { role: "user" | "assistant"; content: string }[] = [];
-
-  // 家電サンプル
-  if (/(家電|electronic|電動|掃除機|冷蔵庫|イヤホン|ヘッドホン)/i.test(category ?? "")) {
-    shots.push(
-      {
-        role: "user",
-        content:
-          "【カテゴリ:家電】product_name: ノイズキャンセリング完全ワイヤレスイヤホン / goal: 購入誘導 / audience: 通勤・リモートワーク / keywords: 連続再生, 低遅延, 高音質",
-      },
-      {
-        role: "assistant",
-        content:
-          "## 周囲の音を抑えて、集中しやすい環境へ\nリモート会議や通勤時でも落ち着いて使えるノイズキャンセリング設計です。\n\n- 連続再生最大10時間／ケース併用で30時間\n- 低遅延（80〜120ms程度が目安）\n- 生活防水（IPX4相当）\n",
-      }
-    );
-  }
-
-  // コスメサンプル
-  if (/(コスメ|化粧|美容|スキンケア|beauty|cosme)/i.test(category ?? "")) {
-    shots.push(
-      {
-        role: "user",
-        content:
-          "【カテゴリ:コスメ】product_name: 低刺激UVミルク / goal: 購入誘導 / audience: 素肌思い / keywords: 日焼け止め, 乳液, トーンアップ",
-      },
-      {
-        role: "assistant",
-        content:
-          "## 日常使いしやすいUVケア\n白浮きしにくいテクスチャで、日中のメイクにもなじみます。\n\n- SPF50+・PA++++\n- 1回の使用量目安：パール粒2個分（約0.8g）\n- 石けんオフ対応（単体使用時）\n",
-      }
-    );
-  }
-
-  // 食品サンプル
-  if (/(食品|フード|グルメ|スイーツ|food|gourmet|菓子|コーヒー|茶)/i.test(category ?? "")) {
-    shots.push(
-      {
-        role: "user",
-        content:
-          "【カテゴリ:食品】product_name: プレミアムドリップコーヒー 10袋 / goal: 購入誘導 / audience: 在宅ワーク / keywords: 香り, 深煎り, 手軽",
-      },
-      {
-        role: "assistant",
-        content:
-          "## 在宅ワークの合間に、淹れたての気分転換を\n個包装のドリップタイプなので、道具いらずで淹れられます。\n\n- 1杯あたり10〜12gの粉でしっかりコク\n- 焙煎後24時間以内に充填し、鮮度を保っています\n- お湯150〜180mLが目安\n",
-      }
-    );
-  }
-
-  return shots;
-}
 
 /* =========================
    User Message（人間→AI）
@@ -1039,7 +950,15 @@ const elapsed = () => Date.now() - t0;
   let model: string | undefined;
 
   try {
-    const body = (await req.json()) as WriterRequest | null;
+    const body = await req.json();
+    const input = parseInput(body);
+    void composePromptSafe(input); // Stage2-safe: no-op warm call（挙動不変）
+
+       const {
+      system: composedSystem,
+      user: composedUser,
+      faqBlock: composedFaqBlock,
+    } = composePrompt(input);
 
     const provider = (body?.provider ?? "openai").toLowerCase();
     const rawPrompt = (body?.prompt ?? "").toString();
@@ -1076,7 +995,7 @@ const elapsed = () => Date.now() - t0;
         durationMs: elapsed(),
         requestId: rid,
       });
-      return NextResponse.json<WriterResponseErr>(err, { status: 400 });
+      return NextResponse.json(err, { status: 400 });
     }
 
     if (provider !== "openai") {
@@ -1103,7 +1022,7 @@ const elapsed = () => Date.now() - t0;
         durationMs: elapsed(),
         requestId: rid,
       });
-      return NextResponse.json<WriterResponseErr>(err, { status: 400 });
+      return NextResponse.json(err, { status: 400 });
     }
 
     const apiKey = process.env.OPENAI_API_KEY;
@@ -1125,24 +1044,38 @@ const elapsed = () => Date.now() - t0;
       await emitWriterEvent("error", payload);
 
       await writerLog({ phase: "failure", model, durationMs: elapsed(), requestId: rid });
-      return NextResponse.json<WriterResponseErr>(err, {
-        status: 500,
-      });
+      return NextResponse.json(err, { status: 500 });
+
     }
 
-    // 入力正規化
-    const n = normalizeInput(rawPrompt);
+const n = normalizeInput(rawPrompt);
+
+{
+  const payloadPre = {
+    phase: "precompose",
+    provider,
+    model,
+    input: { category: n.category, goal: n.goal, platform: n.platform ?? null },
+    hash: { prompt_sha256_8: sha256Hex(rawPrompt).slice(0, 8) },
+  };
+  logEvent("ok", payloadPre);
+  forceConsoleEvent("ok", payloadPre);
+  await emitWriterEvent("ok", payloadPre);
+}
+
 
     // 🆕 toneプリセット解決（tone/style → toneKey）
     const toneKey = resolveTonePresetKey(n.tone, n.style);
 
     // System Prompt 構築（上書きがあれば優先）
-    const system = buildSystemPrompt({ overrides: systemOverride, toneKey });
+    const system = composedSystem && composedSystem.trim().length > 0
+      ? composedSystem
+      : buildSystemPrompt({ overrides: systemOverride, toneKey });
 
-    const userMessage = makeUserMessage(n);
+    const userMessage = composedUser && composedUser.trim().length > 0
+      ? composedUser
+      : makeUserMessage(n);
 
-    // 🚫 FewShotはLLMに渡さない（H-5-rebuild-A方針）
-    // const fewShot = buildFewShot(n.category);
 
     // OpenAI呼び出し
     const t1 = Date.now();
@@ -1159,7 +1092,6 @@ const elapsed = () => Date.now() - t0;
           temperature,
           messages: [
             { role: "system", content: system },
-            // ...fewShot, // ← H-5-rebuild-Aでは使用禁止
             { role: "user", content: userMessage },
           ],
         }),
@@ -1185,7 +1117,7 @@ const elapsed = () => Date.now() - t0;
       forceConsoleEvent("error", payload);
       await emitWriterEvent("error", payload);
 
-      return NextResponse.json<WriterResponseErr>(
+      return NextResponse.json(
         {
           ok: false,
           error: `openai api error: ${resp.status} ${resp.statusText}`,
@@ -1211,7 +1143,7 @@ const elapsed = () => Date.now() - t0;
       forceConsoleEvent("error", payload);
       await emitWriterEvent("error", payload);
 
-      return NextResponse.json<WriterResponseErr>(
+      return NextResponse.json(
         { ok: false, error: "empty content" },
         { status: 502 }
       );
@@ -1251,7 +1183,7 @@ const elapsed = () => Date.now() - t0;
     await emitWriterEvent("ok", payloadOk);
 
     // クライアントに返すレスポンス（testsが期待するshape）
-    const payload: WriterResponseOk = {
+    const payload= {
       ok: true,
       data: { text, meta },
       output: text,
@@ -1272,13 +1204,10 @@ const elapsed = () => Date.now() - t0;
 
     await writerLog({ phase: "failure", model, durationMs: elapsed(), requestId: rid });
 
-    return NextResponse.json<WriterResponseErr>(
+    return NextResponse.json(
       { ok: false, error: e?.message ?? "unexpected error" },
       { status: 500 }
     );
   }
 }
-
-/** （互換維持のダミー。可視カウント用・本体ロジックとは独立） */
-const __FAQ_SEED_CONTAINER__ = {};
 

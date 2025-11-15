@@ -1,0 +1,39 @@
+# Git ブランチ操作チートシート（日本語注釈付き）
+
+## 基本コマンド
+| コマンド | 意味 | 説明 |
+|-----------|------|------|
+| git switch main | ブランチ切替 | main(本番)ブランチへ戻る |
+| git pull --rebase origin main | 最新化 | GitHubのmainを最新に反映 |
+| git switch -c feat/新ブランチ名 | 新規ブランチ作成 | mainを元に新しい枝を作って切替 |
+| git add -A | 変更を登録 | すべての変更をステージに追加 |
+| git commit -m "メッセージ" | コミット | 現時点の変更をスナップショット保存 |
+| git fetch origin | 取得のみ | GitHubの最新状況を確認（反映しない） |
+| git rebase origin/main | 最新mainに重ねる | 自分の作業をmainの最新状態へ再配置 |
+| git push -u origin HEAD | プッシュ | 作業中のブランチをGitHubにアップロード |
+| git push origin --delete ブランチ名 | 削除(リモート) | GitHub上の不要ブランチを削除 |
+| git branch -d ブランチ名 | 削除(ローカル) | ローカルPC上の不要ブランチを削除 |
+
+---
+
+## 補足
+- **main**：本番ブランチ。壊すと本番が止まる。
+- **feat/**：新機能ブランチ（例：`feat/h8-level3-final`）
+- **fix/**：修正用ブランチ
+- **refactor/**：整理用ブランチ
+- **chore/**：設定や依存更新
+- **hotfix/**：本番緊急修正
+
+---
+
+## ライフサイクルまとめ
+1. `git switch main` → 本番に戻る  
+2. `git pull --rebase origin main` → 最新化  
+3. `git switch -c feat/...` → 作業枝を作る  
+4. `git add -A` → 変更をまとめる  
+5. `git commit -m "..."` → 記録  
+6. `git rebase origin/main` → 最新mainへ重ねる  
+7. `git push -u origin HEAD` → GitHubへ送信  
+8. PR → チェック通過 → mainへマージ  
+9. `git push origin --delete ...` → リモート削除  
+10. `git branch -d ...` → ローカル削除
