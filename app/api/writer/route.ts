@@ -4,14 +4,196 @@
 export const runtime = "nodejs";
 
 import { parseInput } from "./validation";
+import { parseWriterRequest } from "./parse";
 import { composePrompt } from "./prompt/compose";
 import { NextResponse } from "next/server";
-import { createHash } from "node:crypto";
 // 🆕 toneプリセットを統合
 import { tonePresets } from "./_shared/tone-presets";
 import { writerLog } from "@/lib/metrics/writerLogger";
 const faqBlock = "## FAQ\n";
 import { composePromptSafe } from "./prompt/compose";
+import { buildWriterRequestContext } from "./request-parse";
+import {
+  sha256Hex,
+  logEvent,
+  forceConsoleEvent,
+  emitWriterEvent,
+} from "./_shared/logger";
+
+/* =========================
+   Writer Error Helper（C5-3 / C6-x）
+   - C5-2「現行挙動を維持」方針に基づき、まずは型とヘルパーを追加
+   - C6 で OpenAI 系 / 例外 系 Reason / ログ集約を順次反映
+========================= */
+
+export type WriterErrorReason =
+  | "validation" // 入力バリデーションエラー
+  | "content_policy" // コンテンツポリシー違反など
+  | "openai" // OpenAI 系一般カテゴリ
+  | "openai_api_error" // OpenAI API からのエラー応答（502 など）
+  | "openai_empty_content" // OpenAI 応答の本文欠落
+  | "timeout" // タイムアウト
+  | "rate_limit" // レートリミット
+  | "bad_request" // 想定外のリクエスト形式・empty prompt など
+  | "internal"; // 想定外の内部例外
+
+/**
+ * ログ用のペイロード型
+ * - 既存の writerLog 系とは C6 で順次結線
+ * - ここでは「sendWriterError から渡す形」を定義
+ */
+export type WriterErrorLogPayload = {
+  reason: string;
+  message?: string;
+  code?: string;
+  requestId?: string;
+  provider?: string;
+  model?: string;
+  durationMs?: number;
+  phase?: string;
+  meta?: Record<string, unknown>;
+  rawError?: unknown;
+  api?: {
+    status: number;
+    statusText: string;
+    ms?: number;
+  };
+};
+
+/**
+ * /api/writer のエラー時レスポンスボディ
+ *
+ * - 現行レスポンス shape（ok=false, error=string, 任意の追加フィールド）も許容
+ * - 将来の統一形（error: { reason, message, ... }）との union 型として定義
+ */
+export type WriterErrorResponseBody =
+  | {
+      ok: false;
+      error: {
+        reason: WriterErrorReason;
+        message: string;
+        code?: string;
+        issues?: unknown;
+      };
+      meta?: {
+        requestId?: string;
+        [key: string]: unknown;
+      };
+    }
+  | {
+      ok: false;
+      error: string;
+      [key: string]: unknown;
+    };
+
+/**
+ * sendWriterError のオプション型
+ * - reason / status / message / code / issues / requestId を集中管理
+ * - legacyBody を渡した場合は、既存 shape（ok=false, error=string+α）をそのまま返す
+ */
+export type WriterErrorOptions = {
+  reason: WriterErrorReason;
+  status: number;
+  message: string;
+  code?: string;
+  issues?: unknown;
+  requestId?: string;
+  provider?: string | null;
+  model?: string | null;
+  durationMs?: number;
+  /**
+   * 追加のログ用コンテキスト
+   * - writerLog / WRITER_EVENT と結線するときに利用
+   */
+  logPayload?: Partial<WriterErrorLogPayload>;
+  /**
+   * 既存レスポンス shape を維持したいときの生ボディ
+   * - 例: { ok: false, error: "prompt is required", details: "..." }
+   */
+  legacyBody?: { ok: false; error: string; [key: string]: unknown };
+};
+
+/**
+ * 共通エラーレスポンス送出ヘルパー
+ *
+ * C5-4 時点では：
+ * - ログは既存ロジック側に残し、ここではレスポンス生成に専念
+ * - legacyBody が指定された場合は、現行レスポンス shape をそのまま返す
+ *
+ * C5-5 / C6 以降：
+ * - logPayload と既存 writerLog 系をここに集約していく
+ */
+async function sendWriterError(options: WriterErrorOptions) {
+  let body: WriterErrorResponseBody;
+
+  if (options.legacyBody) {
+    // 🧯 現行レスポンス shape を完全維持
+    body = options.legacyBody;
+  } else {
+    // 🆕 統一エラー shape（将来の標準）
+    body = {
+      ok: false,
+      error: {
+        reason: options.reason,
+        message: options.message,
+        ...(options.code ? { code: options.code } : {}),
+        // issues フィールドは undefined をそのまま流さないように条件付きで付与
+        ...(typeof options.issues !== "undefined"
+          ? { issues: options.issues }
+          : {}),
+      },
+      meta: options.requestId ? { requestId: options.requestId } : undefined,
+    };
+  }
+
+  // logPayload が指定されている場合のみ、
+  // 既存ロジックと同等のログ出力（logEvent / forceConsoleEvent / emitWriterEvent / writerLog）を集約
+  if (options.logPayload) {
+    const lp = options.logPayload;
+
+    const payload: any = {
+      ok: false,
+      reason:
+        typeof lp.reason !== "undefined" ? lp.reason : options.reason,
+      provider:
+        typeof lp.provider !== "undefined"
+          ? lp.provider
+          : options.provider ?? undefined,
+      model:
+        typeof lp.model !== "undefined"
+          ? lp.model
+          : options.model ?? undefined,
+      meta:
+        typeof lp.meta !== "undefined"
+          ? lp.meta
+          : null,
+    };
+
+    if (typeof lp.api !== "undefined") {
+      payload.api = lp.api;
+    }
+    if (typeof lp.message !== "undefined") {
+      payload.message = lp.message;
+    }
+    if (typeof lp.rawError !== "undefined") {
+      payload.rawError = lp.rawError;
+    }
+
+    logEvent("error", payload);
+    forceConsoleEvent("error", payload);
+    await emitWriterEvent("error", payload);
+
+    // Precision Plan メトリクス（失敗フェーズ）
+    await writerLog({
+      phase: "failure",
+      model: options.model ?? undefined,
+      durationMs: options.durationMs,
+      requestId: options.requestId,
+    });
+  }
+
+  return NextResponse.json(body, { status: options.status });
+}
 
 /* =========================
    Normalizer（入力正規化）
@@ -77,8 +259,7 @@ function normalizeInput(raw: string | undefined): NormalizedInput {
       ? "アパレル"
       : "汎用");
 
-  const goal =
-    pick(/(?:目的|goal)[：:]\s*(.+)/i) || "購入誘導";
+  const goal = pick(/(?:目的|goal)[：:]\s*(.+)/i) || "購入誘導";
 
   const audience =
     pick(/(?:対象|読者|audience)[：:]\s*(.+)/i) ||
@@ -98,23 +279,17 @@ function normalizeInput(raw: string | undefined): NormalizedInput {
       .map((v) => v.trim())
       .filter(Boolean);
 
-  const keywords = split(
-    pick(/(?:キーワード|keywords?)[：:]\s*(.+)/i)
-  );
-  const constraints = split(
-    pick(/(?:制約|constraints?)[：:]\s*(.+)/i)
-  );
+  const keywords = split(pick(/(?:キーワード|keywords?)[：:]\s*(.+)/i));
+  const constraints = split(pick(/(?:制約|constraints?)[：:]\s*(.+)/i));
   const selling_points = split(
-    pick(/(?:強み|特長|selling[_\s-]?points?)[：:]\s*(.+)/i)
+    pick(/(?:強み|特長|selling[_\s-]?points?)[：:]\s*(.+)/i),
   );
   const objections = split(
-    pick(/(?:不安|懸念|objections?)[：:]\s*(.+)/i)
+    pick(/(?:不安|懸念|objections?)[：:]\s*(.+)/i),
   );
-  const evidence = split(
-    pick(/(?:根拠|実証|evidence)[：:]\s*(.+)/i)
-  );
+  const evidence = split(pick(/(?:根拠|実証|evidence)[：:]\s*(.+)/i));
   const cta_preference = split(
-    pick(/(?:cta|行動喚起)[：:]\s*(.+)/i)
+    pick(/(?:cta|行動喚起)[：:]\s*(.+)/i),
   );
 
   return {
@@ -144,7 +319,7 @@ function coerceToShape(obj: any, raw: string): NormalizedInput {
 
   return {
     product_name: String(
-      obj.product_name ?? obj.title ?? obj.name ?? "商品"
+      obj.product_name ?? obj.title ?? obj.name ?? "商品",
     ).trim(),
     category: String(obj.category ?? "汎用").trim(),
     goal: String(obj.goal ?? "購入誘導").trim(),
@@ -164,7 +339,6 @@ function coerceToShape(obj: any, raw: string): NormalizedInput {
   };
 }
 
-
 /** 汎用 FAQ シード（冪等・3問確保のための最小種） */
 const faqSeeds = [
   {
@@ -180,7 +354,6 @@ const faqSeeds = [
     a: "クレジットカード、コンビニ払い、銀行振込などに対応しています。",
   },
 ];
-
 
 /* =========================
    EC Lexicon & Templates（カテゴリ別ヒント）
@@ -334,7 +507,10 @@ function safeLower(s: string | null | undefined) {
   return (s ?? "").toString().trim().toLowerCase();
 }
 
-function resolveTonePresetKey(inputTone?: string | null, inputStyle?: string | null): string {
+function resolveTonePresetKey(
+  inputTone?: string | null,
+  inputStyle?: string | null,
+): string {
   const wanted = safeLower(inputTone) || safeLower(inputStyle) || "";
   const keys = Object.keys(tonePresets ?? {});
   if (!keys.length) return "warm_intelligent";
@@ -345,7 +521,7 @@ function resolveTonePresetKey(inputTone?: string | null, inputStyle?: string | n
   // alias 探索
   for (const k of keys) {
     const p = (tonePresets as Record<string, TonePreset>)[k] as TonePreset;
-    const aliases = (p?.aliases ?? []).map(safeLower);
+    const aliases = (p?.guidelines ?? []).map(safeLower);
     if (aliases.includes(wanted)) return k;
   }
 
@@ -361,8 +537,11 @@ function resolveTonePresetKey(inputTone?: string | null, inputStyle?: string | n
 }
 
 function renderToneModule(toneKey: string): string {
-  const p = (tonePresets as Record<string, TonePreset>)[toneKey] as TonePreset | undefined;
-  if (!p) return `【トーン】${toneKey}：落ち着いた知性と誠実さを保ち、読み手を尊重する。`;
+  const p = (tonePresets as Record<string, TonePreset>)[toneKey] as
+    | TonePreset
+    | undefined;
+  if (!p)
+    return `【トーン】${toneKey}：落ち着いた知性と誠実さを保ち、読み手を尊重する。`;
   const head = `【トーン】${toneKey}`;
   const sys = p.system ? `${p.system}` : "";
   const gl =
@@ -409,7 +588,6 @@ function buildSystemPrompt(opts: { overrides?: string; toneKey: string }): strin
   return modules.join("\n\n");
 }
 
-
 /* =========================
    User Message（人間→AI）
 ========================= */
@@ -455,16 +633,22 @@ function makeUserMessage(n: NormalizedInput): string {
    - locale は "ja-JP"
 ========================= */
 
-function extractMeta(text: string, toneKey: string): {
+function extractMeta(
+  text: string,
+  toneKey: string,
+): {
   style: string;
   tone: string;
   locale: string;
 } {
   const t = (text || "").trim();
   const lines = t.split(/\r?\n/);
-  const bulletCount = lines.filter((l) => /^[\-\*\u30fb・]/.test(l.trim()))
-    .length;
-  const h2Count = lines.filter((l) => /^##\s/.test(l.trim())).length;
+  const bulletCount = lines.filter((l) =>
+    /^[\-\*\u30fb・]/.test(l.trim()),
+  ).length;
+  const h2Count = lines.filter((l) =>
+    /^##\s/.test(l.trim()),
+  ).length;
   const charCount = t.length;
 
   let style = "summary";
@@ -495,11 +679,11 @@ function categoryFaqSeeds(cat: string): QA[] {
     return [
       mk(
         "保証期間はどのくらいですか？",
-        "メーカー保証は1年間です（消耗品を除く）。延長保証も選べます。"
+        "メーカー保証は1年間です（消耗品を除く）。延長保証も選べます。",
       ),
       mk(
         "対応機種や互換性は？",
-        "Bluetooth 5.3に対応します。詳細な対応コーデックは商品仕様をご確認ください。"
+        "Bluetooth 5.3に対応します。詳細な対応コーデックは商品仕様をご確認ください。",
       ),
     ];
   }
@@ -508,11 +692,11 @@ function categoryFaqSeeds(cat: string): QA[] {
     return [
       mk(
         "敏感肌でも使えますか？",
-        "パッチテスト済ですが、すべての方に刺激がないとは限りません。心配な場合は腕の内側でお試しください。"
+        "パッチテスト済ですが、すべての方に刺激がないとは限りません。心配な場合は腕の内側でお試しください。",
       ),
       mk(
         "石けんで落ちますか？",
-        "単体使用時は洗顔料で落とせます。重ね使い時はクレンジングをおすすめします。"
+        "単体使用時は洗顔料で落とせます。重ね使い時はクレンジングをおすすめします。",
       ),
     ];
   }
@@ -521,11 +705,11 @@ function categoryFaqSeeds(cat: string): QA[] {
     return [
       mk(
         "賞味期限はどのくらいですか？",
-        "未開封で製造から約12か月（常温）。開封後はお早めにお召し上がりください。"
+        "未開封で製造から約12か月（常温）。開封後はお早めにお召し上がりください。",
       ),
       mk(
         "アレルギー表示は？",
-        "主要7品目を含むアレルギー情報を商品ページに明記しています。"
+        "主要7品目を含むアレルギー情報を商品ページに明記しています。",
       ),
     ];
   }
@@ -534,11 +718,11 @@ function categoryFaqSeeds(cat: string): QA[] {
     return [
       mk(
         "サイズ交換は可能ですか？",
-        "未使用・タグ付きで到着後30日以内は交換を承ります（初回送料は当店負担です）。"
+        "未使用・タグ付きで到着後30日以内は交換を承ります（初回送料は当店負担です）。",
       ),
       mk(
         "洗濯方法は？",
-        "ネット使用・中性洗剤・陰干し推奨です。乾燥機は縮みの原因となるため避けてください。"
+        "ネット使用・中性洗剤・陰干し推奨です。乾燥機は縮みの原因となるため避けてください。",
       ),
     ];
   }
@@ -596,7 +780,7 @@ function postProcess(raw: string, n: NormalizedInput): string {
   // 3) 強すぎる販促見出し(H2)を抑制
   out = out.replace(
     /^##\s*(さあ|今すぐ|まずは|ぜひ|お試し|購入|申し込み).+$/gim,
-    ""
+    "",
   );
 
   // 4) 旧FAQ/CTAブロックを落とす
@@ -693,7 +877,7 @@ function postProcess(raw: string, n: NormalizedInput): string {
 
   const numericHits =
     out.match(
-      /(?:\d+(?:\.\d+)?\s?(?:g|kg|mm|cm|m|mAh|ms|時間|分|枚|袋|ml|mL|L|W|Hz|年|か月|ヶ月|日|回|%|％))/g
+      /(?:\d+(?:\.\d+)?\s?(?:g|kg|mm|cm|m|mAh|ms|時間|分|枚|袋|ml|mL|L|W|Hz|年|か月|ヶ月|日|回|%|％))/g,
     ) || [];
   const lex = pickLexicon(n.category);
   if (numericHits.length < 2) {
@@ -705,20 +889,20 @@ function postProcess(raw: string, n: NormalizedInput): string {
 
   const COOC_MAX = Math.max(
     0,
-    Math.min(5, Number(process.env.WRITER_COOC_MAX ?? 3))
+    Math.min(5, Number(process.env.WRITER_COOC_MAX ?? 3)),
   );
   const footnoteMode = String(
-    process.env.WRITER_FOOTNOTE_MODE ?? "compact"
+    process.env.WRITER_FOOTNOTE_MODE ?? "compact",
   ).toLowerCase();
   const escapeReg = (s: string) =>
     s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
   const needTerms = lex.cooccurrence.filter(
-    (kw) => !new RegExp(escapeReg(kw)).test(out)
+    (kw) => !new RegExp(escapeReg(kw)).test(out),
   );
   const picked = needTerms.slice(
     0,
-    Math.min(COOC_MAX, needTerms.length)
+    Math.min(COOC_MAX, needTerms.length),
   );
   const safety1 = lex.safetyPhrases[0] ?? "";
 
@@ -770,18 +954,18 @@ function postProcess(raw: string, n: NormalizedInput): string {
   {
     const faqMatches = [
       ...out.matchAll(
-        /^## FAQ[\s\S]*?(?=(?:\n## |\n一次CTA|$))/gm
+        /^## FAQ[\s\S]*?(?=(?:\n## |\n一次CTA|$))/gm,
       ),
     ];
     if (faqMatches.length > 1) {
       const firstFaqText = faqMatches[0][0];
       out = out.replace(
         /^## FAQ[\s\S]*?(?=(?:\n## |\n一次CTA|$))/gm,
-        ""
+        "",
       );
       out = out.replace(
         /\n一次CTA[：:]/m,
-        `\n${firstFaqText}\n\n一次CTA：`
+        `\n${firstFaqText}\n\n一次CTA：`,
       );
     }
   }
@@ -791,7 +975,7 @@ function postProcess(raw: string, n: NormalizedInput): string {
     const slice = out.slice(0, MAX);
     const last = Math.max(
       slice.lastIndexOf("。"),
-      slice.lastIndexOf("\n")
+      slice.lastIndexOf("\n"),
     );
     out = slice.slice(0, Math.max(0, last)) + "…";
   }
@@ -815,9 +999,12 @@ type WriterMetrics = {
 function analyzeText(text: string): WriterMetrics {
   const t = (text || "").trim();
   const lines = t.split(/\r?\n/);
-  const bulletCount = lines.filter((l) => /^[\-\*\u30fb・]/.test(l.trim()))
-    .length;
-  const h2Count = lines.filter((l) => /^##\s/.test(l.trim())).length;
+  const bulletCount = lines.filter((l) =>
+    /^[\-\*\u30fb・]/.test(l.trim()),
+  ).length;
+  const h2Count = lines.filter((l) =>
+    /^##\s/.test(l.trim()),
+  ).length;
   const faqCount =
     t.match(new RegExp("^" + faqBlock.replace(/\n$/, ""), "m"))
       ?.length ?? 0;
@@ -833,94 +1020,6 @@ function analyzeText(text: string): WriterMetrics {
     faqCount,
     hasFinalCTA,
   };
-}
-
-const WRITER_LOG_ENABLED =
-  String(process.env.WRITER_LOG ?? "1") !== "0";
-
-function sha256Hex(s: string): string {
-  return createHash("sha256").update(s || "").digest("hex");
-}
-
-/**
- * 観測ログ関数:
- * - WRITER_LOG_ENABLED が "0" でなければ console.log
- * - Better Stack 送信は emitWriterEvent() が別途やる
- */
-function logEvent(kind: "ok" | "error", payload: any) {
-  if (!WRITER_LOG_ENABLED) return;
-  const wrapped = {
-    ts: new Date().toISOString(),
-    route: "/api/writer",
-    kind,
-    ...payload,
-  };
-  console.log("WRITER_EVENT " + JSON.stringify(wrapped));
-}
-
-/**
- * 強制ログ:
- * - 環境変数に関係なく必ず console.log する
- * - Vercel の "No logs found" を避けるための最終保証
- */
-function forceConsoleEvent(
-  kind: "ok" | "error",
-  payload: any
-) {
-  try {
-    const wrapped = {
-      ts: new Date().toISOString(),
-      route: "/api/writer",
-      kind,
-      ...payload,
-    };
-    console.log("WRITER_EVENT " + JSON.stringify(wrapped));
-  } catch {
-    // 握りつぶす
-  }
-}
-
-/* =========================
-   🔵 Better Stack Direct Ingest
-   - WRITER_LOG_MODE=direct の時だけ有効
-========================= */
-
-const WRITER_LOG_MODE = String(
-  process.env.WRITER_LOG_MODE ?? ""
-).toLowerCase();
-const LOGTAIL_ENDPOINT =
-  process.env.LOGTAIL_ENDPOINT ?? "https://in.logtail.com";
-
-async function emitWriterEvent(
-  kind: "ok" | "error",
-  payload: any
-) {
-  try {
-    if (!WRITER_LOG_ENABLED) return;
-    if (WRITER_LOG_MODE !== "direct") return;
-    const token = process.env.LOGTAIL_SOURCE_TOKEN;
-    if (!token) return;
-
-    const body = {
-      event: "WRITER_EVENT",
-      route: "/api/writer",
-      kind,
-      payload,
-      ts: new Date().toISOString(),
-      env: process.env.VERCEL_ENV ?? "local",
-    };
-
-    await fetch(LOGTAIL_ENDPOINT, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-  } catch (e: any) {
-    console.warn("emitWriterEvent failed:", e?.message ?? "unknown");
-  }
 }
 
 /* =========================
@@ -941,34 +1040,67 @@ async function safeText(r: Response) {
 
 export async function POST(req: Request) {
   const t0 = Date.now();
-/** リクエスト単位のトレースID（可視トラッキング用） */
-const rid = (globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2));
+  /** リクエスト単位のトレースID（可視トラッキング用） */
+  const rid =
+    (globalThis as any).crypto?.randomUUID?.() ??
+    Math.random().toString(36).slice(2);
 
-/** 経過時間(ms)を返す小ヘルパー */
-const elapsed = () => Date.now() - t0;
+  /** 経過時間(ms)を返す小ヘルパー */
+  const elapsed = () => Date.now() - t0;
 
   let model: string | undefined;
+  let provider: string | undefined;
 
   try {
-    const body = await req.json();
-    const input = parseInput(body);
-    void composePromptSafe(input); // Stage2-safe: no-op warm call（挙動不変）
+    // ✅ B-3-2：buildWriterRequestContext で parse → input → compose までを一括処理
+    const ctxResult = await buildWriterRequestContext(req);
 
-       const {
+    if (!ctxResult.ok) {
+      const err = {
+        ok: false,
+        error: ctxResult.error?.message ?? "invalid request",
+      } as const;
+
+      return sendWriterError({
+        reason: "validation",
+        status: 400,
+        message: err.error,
+        requestId: rid,
+        provider: null,
+        model: null,
+        durationMs: elapsed(),
+        legacyBody: err,
+        logPayload: {
+          // 現行ログと同じく reason="invalid_request" を維持
+          reason: "invalid_request",
+        },
+      });
+    }
+
+    const { input, composed, raw: reqInput } = ctxResult.data;
+
+    const {
       system: composedSystem,
       user: composedUser,
       faqBlock: composedFaqBlock,
-    } = composePrompt(input);
+    } = composed;
 
-    const provider = (body?.provider ?? "openai").toLowerCase();
-    const rawPrompt = (body?.prompt ?? "").toString();
-    model = (body?.model ?? "gpt-4o-mini").toString();
+    provider = String(reqInput.provider ?? "openai").toLowerCase();
+    const rawPrompt = (reqInput.prompt ?? "").toString();
+    model = (reqInput.model ?? "gpt-4o-mini").toString();
     const temperature =
-      typeof body?.temperature === "number"
-        ? body!.temperature
+      typeof reqInput.temperature === "number"
+        ? reqInput.temperature
         : 0.7;
-    const systemOverride = (body?.system ?? "").toString();
-    await writerLog({ phase: "request", model, requestId: rid });
+    const systemOverride = (reqInput.system ?? "").toString();
+
+    await writerLog({
+      phase: "request",
+      model,
+      requestId: rid,
+    });
+
+    // --- Error branches（validation / provider / API key / OpenAI API / empty content）は sendWriterError に統一 ---
 
     // バリデーション
     if (!rawPrompt || rawPrompt.trim().length === 0) {
@@ -977,25 +1109,22 @@ const elapsed = () => Date.now() - t0;
         error: "prompt is required",
       } as const;
 
-      const payload = {
-        ok: false,
+      return sendWriterError({
         reason: "bad_request",
+        status: 400,
+        message: "prompt is required",
+        requestId: rid,
         provider,
         model,
-        meta: null,
-      };
-      logEvent("error", payload);
-      forceConsoleEvent("error", payload);
-      await emitWriterEvent("error", payload);
-
-      // ③-1: バリデーションNG（empty_prompt）—★この塊で置換
-      await writerLog({
-        phase: "failure",
-        model,
         durationMs: elapsed(),
-        requestId: rid,
+        legacyBody: err,
+        logPayload: {
+          // 既存の WRITER_EVENT と同じ shape を維持
+          reason: "bad_request",
+          provider,
+          model,
+        },
       });
-      return NextResponse.json(err, { status: 400 });
     }
 
     if (provider !== "openai") {
@@ -1004,25 +1133,22 @@ const elapsed = () => Date.now() - t0;
         error: `unsupported provider: ${provider}`,
       } as const;
 
-      const payload = {
-        ok: false,
-        reason: "unsupported_provider",
+      return sendWriterError({
+        reason: "bad_request",
+        status: 400,
+        message: err.error,
+        requestId: rid,
         provider,
         model,
-        meta: null,
-      };
-      logEvent("error", payload);
-      forceConsoleEvent("error", payload);
-      await emitWriterEvent("error", payload);
-
-      // ③-2: バリデーションNG（unsupported_provider）—★この塊で置換
-      await writerLog({
-        phase: "failure",
-        model,
         durationMs: elapsed(),
-        requestId: rid,
+        legacyBody: err,
+        logPayload: {
+          // 現行ログと同じく reason="unsupported_provider" を維持
+          reason: "unsupported_provider",
+          provider,
+          model,
+        },
       });
-      return NextResponse.json(err, { status: 400 });
     }
 
     const apiKey = process.env.OPENAI_API_KEY;
@@ -1032,50 +1158,58 @@ const elapsed = () => Date.now() - t0;
         error: "OPENAI_API_KEY is not set",
       } as const;
 
-      const payload = {
-        ok: false,
-        reason: "missing_api_key",
+      return sendWriterError({
+        reason: "internal",
+        status: 500,
+        message: err.error,
+        requestId: rid,
         provider,
         model,
-        meta: null,
-      };
-      logEvent("error", payload);
-      forceConsoleEvent("error", payload);
-      await emitWriterEvent("error", payload);
-
-      await writerLog({ phase: "failure", model, durationMs: elapsed(), requestId: rid });
-      return NextResponse.json(err, { status: 500 });
-
+        durationMs: elapsed(),
+        legacyBody: err,
+        logPayload: {
+          // 現行ログと同じく reason="missing_api_key" を維持
+          reason: "missing_api_key",
+          provider,
+          model,
+        },
+      });
     }
 
-const n = normalizeInput(rawPrompt);
+    const n = normalizeInput(rawPrompt);
 
-{
-  const payloadPre = {
-    phase: "precompose",
-    provider,
-    model,
-    input: { category: n.category, goal: n.goal, platform: n.platform ?? null },
-    hash: { prompt_sha256_8: sha256Hex(rawPrompt).slice(0, 8) },
-  };
-  logEvent("ok", payloadPre);
-  forceConsoleEvent("ok", payloadPre);
-  await emitWriterEvent("ok", payloadPre);
-}
-
+    {
+      const payloadPre = {
+        phase: "precompose",
+        provider,
+        model,
+        input: {
+          category: n.category,
+          goal: n.goal,
+          platform: n.platform ?? null,
+        },
+        hash: {
+          prompt_sha256_8: sha256Hex(rawPrompt).slice(0, 8),
+        },
+      };
+      logEvent("ok", payloadPre);
+      forceConsoleEvent("ok", payloadPre);
+      await emitWriterEvent("ok", payloadPre);
+    }
 
     // 🆕 toneプリセット解決（tone/style → toneKey）
     const toneKey = resolveTonePresetKey(n.tone, n.style);
 
     // System Prompt 構築（上書きがあれば優先）
-    const system = composedSystem && composedSystem.trim().length > 0
-      ? composedSystem
-      : buildSystemPrompt({ overrides: systemOverride, toneKey });
+    const system =
+      composedSystem && composedSystem.trim().length > 0
+        ? composedSystem
+        : buildSystemPrompt({ overrides: systemOverride, toneKey });
 
-    const userMessage = composedUser && composedUser.trim().length > 0
-      ? composedUser
-      : makeUserMessage(n);
-
+    const userMessage =
+      composedUser && composedUser.trim().length > 0
+        ? composedUser
+        : makeUserMessage(n);
 
     // OpenAI呼び出し
     const t1 = Date.now();
@@ -1095,58 +1229,73 @@ const n = normalizeInput(rawPrompt);
             { role: "user", content: userMessage },
           ],
         }),
-      }
+      },
     );
     const apiMs = Date.now() - t1;
 
     if (!resp.ok) {
       const errText = await safeText(resp);
+      const message = `openai api error: ${resp.status} ${resp.statusText}`;
 
-      const payload = {
-        ok: false,
+      return sendWriterError({
         reason: "openai_api_error",
+        status: 502,
+        message,
+        requestId: rid,
         provider,
         model,
-        api: {
-          status: resp.status,
-          statusText: resp.statusText,
-          ms: apiMs,
-        },
-      };
-      logEvent("error", payload);
-      forceConsoleEvent("error", payload);
-      await emitWriterEvent("error", payload);
-
-      return NextResponse.json(
-        {
+        durationMs: elapsed(),
+        legacyBody: {
           ok: false,
-          error: `openai api error: ${resp.status} ${resp.statusText}`,
+          error: message,
           details: errText?.slice(0, 2000) ?? "",
         },
-        { status: 502 }
-      );
+        logPayload: {
+          reason: "openai_api_error",
+          provider,
+          model,
+          api: {
+            status: resp.status,
+            statusText: resp.statusText,
+            ms: apiMs,
+          },
+        },
+      });
     }
 
     const data = (await resp.json()) as any;
     const content =
       data?.choices?.[0]?.message?.content?.toString()?.trim() ??
       "";
+
     if (!content) {
-      const payload = {
-        ok: false,
-        reason: "empty_content",
+      // C6-3: empty content を sendWriterError 化
+      // - ステータス: 502
+      // - レスポンスボディ: { ok:false, error:"empty content" } を維持
+      // - ログ: reason="openai_empty_content" + api(ms/status/statusText) を sendWriterError に集約
+      return sendWriterError({
+        reason: "openai_empty_content",
+        status: 502,
+        message: "empty content",
+        requestId: rid,
         provider,
         model,
-        api: { ms: apiMs },
-      };
-      logEvent("error", payload);
-      forceConsoleEvent("error", payload);
-      await emitWriterEvent("error", payload);
-
-      return NextResponse.json(
-        { ok: false, error: "empty content" },
-        { status: 502 }
-      );
+        durationMs: elapsed(),
+        legacyBody: {
+          ok: false,
+          error: "empty content",
+        },
+        logPayload: {
+          reason: "openai_empty_content",
+          provider,
+          model,
+          api: {
+            status: resp.status,
+            statusText: resp.statusText,
+            ms: apiMs,
+          },
+        },
+      });
     }
 
     // モデル生テキスト → Precision Plan後処理
@@ -1183,31 +1332,40 @@ const n = normalizeInput(rawPrompt);
     await emitWriterEvent("ok", payloadOk);
 
     // クライアントに返すレスポンス（testsが期待するshape）
-    const payload= {
+    const payload = {
       ok: true,
       data: { text, meta },
       output: text,
     };
 
-
-    await writerLog({ phase: "success", model, durationMs: elapsed(), requestId: rid });
+    await writerLog({
+      phase: "success",
+      model,
+      durationMs: elapsed(),
+      requestId: rid,
+    });
     return NextResponse.json(payload, { status: 200 });
   } catch (e: any) {
-    const payload = {
-      ok: false,
-      reason: "exception",
-      message: e?.message ?? "unknown",
-    };
-    logEvent("error", payload);
-    forceConsoleEvent("error", payload);
-    await emitWriterEvent("error", payload);
+    const message = e?.message ?? "unexpected error";
 
-    await writerLog({ phase: "failure", model, durationMs: elapsed(), requestId: rid });
-
-    return NextResponse.json(
-      { ok: false, error: e?.message ?? "unexpected error" },
-      { status: 500 }
-    );
+    return sendWriterError({
+      reason: "internal",
+      status: 500,
+      message,
+      requestId: rid,
+      provider: provider ?? null,
+      model: model ?? null,
+      durationMs: elapsed(),
+      legacyBody: {
+        ok: false,
+        error: message,
+      },
+      logPayload: {
+        // 旧ログの reason="exception" を維持しつつ、rawError も記録
+        reason: "exception",
+        message,
+        rawError: e,
+      },
+    });
   }
 }
-
