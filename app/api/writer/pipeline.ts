@@ -1,0 +1,447 @@
+// app/api/writer/pipeline.ts
+import { NextResponse } from "next/server";
+import {
+  sha256Hex,
+  logEvent,
+  forceConsoleEvent,
+  emitWriterEvent,
+} from "./_shared/logger";
+import { buildOpenAIRequestPayload, callOpenAI } from "./openai-client";
+import { writerLog } from "@/lib/metrics/writerLogger";
+import {
+  resolveTonePresetKey,
+  buildSystemPrompt,
+} from "./tone-utils";
+import { makeUserMessage } from "./user-message";
+import { postProcess, extractMeta, analyzeText } from "./postprocess";
+
+/* =========================
+   Normalized Input 型（route.ts と同形）
+========================= */
+
+export type NormalizedInput = {
+  product_name: string;
+  category: string;
+  goal: string;
+  audience: string;
+  platform?: string | null;
+  keywords: string[];
+  constraints: string[];
+  brand_voice?: string | null;
+  tone?: string | null;
+  style?: string | null;
+  length_hint?: string | null;
+  selling_points: string[];
+  objections: string[];
+  evidence: string[];
+  cta_preference: string[];
+  _raw?: string;
+};
+
+/* =========================
+   Writer Error Helper（OpenAI系専用の一部）
+========================= */
+
+export type WriterErrorReason =
+  | "validation"
+  | "content_policy"
+  | "openai"
+  | "openai_api_error"
+  | "openai_empty_content"
+  | "timeout"
+  | "rate_limit"
+  | "bad_request"
+  | "internal";
+
+export type WriterErrorLogPayload = {
+  reason: string;
+  message?: string;
+  code?: string;
+
+  requestId?: string;
+  provider?: string;
+  model?: string;
+  phase?: string;
+  durationMs?: number;
+
+  api?: {
+    status: number;
+    statusText: string;
+    ms?: number;
+  };
+
+  meta?: Record<string, unknown>;
+  rawError?: unknown;
+};
+
+export type WriterErrorResponseBody =
+  | {
+      ok: false;
+      error: {
+        reason: WriterErrorReason;
+        message: string;
+        code?: string;
+        issues?: unknown;
+      };
+      meta?: {
+        requestId?: string;
+        [key: string]: unknown;
+      };
+    }
+  | {
+      ok: false;
+      error: string;
+      [key: string]: unknown;
+    };
+
+export type WriterErrorOptions = {
+  reason: WriterErrorReason;
+  status: number;
+  message: string;
+  code?: string;
+  issues?: unknown;
+  requestId?: string;
+  provider?: string | null;
+  model?: string | null;
+  durationMs?: number;
+  logPayload?: Partial<WriterErrorLogPayload>;
+  legacyBody?: { ok: false; error: string; [key: string]: unknown };
+};
+
+export async function sendWriterError(
+  options: WriterErrorOptions,
+): Promise<Response> {
+  let body: WriterErrorResponseBody;
+
+  if (options.legacyBody) {
+    body = options.legacyBody;
+  } else {
+    body = {
+      ok: false,
+      error: {
+        reason: options.reason,
+        message: options.message,
+        ...(options.code ? { code: options.code } : {}),
+        ...(typeof options.issues !== "undefined"
+          ? { issues: options.issues }
+          : {}),
+      },
+      meta: options.requestId
+        ? { requestId: options.requestId }
+        : undefined,
+    };
+  }
+
+  if (options.logPayload) {
+    const lp = options.logPayload;
+
+    const payload: any = {
+      ok: false,
+      reason:
+        typeof lp.reason !== "undefined" ? lp.reason : options.reason,
+      provider:
+        typeof lp.provider !== "undefined"
+          ? lp.provider
+          : options.provider ?? undefined,
+      model:
+        typeof lp.model !== "undefined"
+          ? lp.model
+          : options.model ?? undefined,
+      meta:
+        typeof lp.meta !== "undefined"
+          ? lp.meta
+          : null,
+    };
+
+    if (typeof lp.api !== "undefined") {
+      payload.api = lp.api;
+    }
+    if (typeof lp.message !== "undefined") {
+      payload.message = lp.message;
+    }
+    if (typeof lp.rawError !== "undefined") {
+      payload.rawError = lp.rawError;
+    }
+
+    logEvent("error", payload);
+    forceConsoleEvent("error", payload);
+    await emitWriterEvent("error", payload);
+
+    await writerLog({
+      phase: "failure",
+      model: options.model ?? undefined,
+      durationMs: options.durationMs,
+      requestId: options.requestId,
+    });
+  }
+
+  return NextResponse.json(body, { status: options.status });
+}
+
+export async function handleOpenAIApiError(params: {
+  message: string;
+  details: string;
+  status: number;
+  statusText: string;
+  apiMs: number;
+  requestId: string;
+  provider: string | undefined;
+  model: string | undefined;
+  durationMs: number;
+}): Promise<Response> {
+  const {
+    message,
+    details,
+    status,
+    statusText,
+    apiMs,
+    requestId,
+    provider,
+    model,
+    durationMs,
+  } = params;
+
+  return sendWriterError({
+    reason: "openai_api_error",
+    status: 502,
+    message,
+    requestId,
+    provider,
+    model,
+    durationMs,
+    legacyBody: {
+      ok: false,
+      error: message,
+      details,
+    },
+    logPayload: {
+      reason: "openai_api_error",
+      provider,
+      model,
+      api: {
+        status,
+        statusText,
+        ms: apiMs,
+      },
+    },
+  });
+}
+
+export async function handleEmptyContentError(params: {
+  status: number;
+  statusText: string;
+  apiMs: number;
+  requestId: string;
+  provider: string | undefined;
+  model: string | undefined;
+  durationMs: number;
+}): Promise<Response> {
+  const { status, statusText, apiMs, requestId, provider, model, durationMs } =
+    params;
+
+  return sendWriterError({
+    reason: "openai_empty_content",
+    status: 502,
+    message: "empty content",
+    requestId,
+    provider,
+    model,
+    durationMs,
+    legacyBody: {
+      ok: false,
+      error: "empty content",
+    },
+    logPayload: {
+      reason: "openai_empty_content",
+      provider,
+      model,
+      api: {
+        status,
+        statusText,
+        ms: apiMs,
+      },
+    },
+  });
+}
+
+/* =========================
+   C7-3 正常フロー補助
+   - postProcess〜meta/metrics〜writerLog を関数化
+========================= */
+
+export type WriterSuccessArgs = {
+  content: string;
+  normalized: NormalizedInput;
+  toneKey: string;
+  provider?: string;
+  model?: string;
+  temperature: number;
+  apiMs: number;
+  t0: number;
+  requestId: string;
+  elapsedMs: number;
+};
+
+export async function finalizeWriterSuccess(
+  args: WriterSuccessArgs,
+): Promise<Response> {
+  const {
+    content,
+    normalized,
+    toneKey,
+    provider,
+    model,
+    temperature,
+    apiMs,
+    t0,
+    requestId,
+    elapsedMs,
+  } = args;
+
+  const text = postProcess(content, normalized);
+  const meta = extractMeta(text, toneKey);
+  const metrics = analyzeText(text);
+
+  const totalMs = Date.now() - t0;
+
+  const payloadOk = {
+    ok: true,
+    provider,
+    model,
+    temperature,
+    input: {
+      category: normalized.category,
+      goal: normalized.goal,
+      platform: normalized.platform ?? null,
+    },
+    meta,
+    metrics,
+    durations: { apiMs, totalMs },
+    hash: { text_sha256_16: sha256Hex(text).slice(0, 16) },
+  };
+
+  logEvent("ok", payloadOk);
+  forceConsoleEvent("ok", payloadOk);
+  await emitWriterEvent("ok", payloadOk);
+
+  const payload = {
+    ok: true,
+    data: { text, meta },
+    output: text,
+  };
+
+  await writerLog({
+    phase: "success",
+    model,
+    durationMs: elapsedMs,
+    requestId,
+  });
+
+  return NextResponse.json(payload, { status: 200 });
+}
+
+/* =========================
+   🆕 C7-4 Normal Flow Pipeline（A案）
+   - 正常系の「本体」（tone 解決〜OpenAI呼び出し〜成功/エラー処理）
+========================= */
+
+export type WriterPipelineArgs = {
+  rawPrompt: string;
+  normalized: NormalizedInput;
+  provider: string | undefined;
+  model: string | undefined;
+  temperature: number;
+  systemOverride: string;
+  composedSystem?: string | null;
+  composedUser?: string | null;
+  apiKey: string;
+  t0: number;
+  requestId: string;
+  elapsed: () => number;
+};
+
+export async function runWriterPipeline(
+  args: WriterPipelineArgs,
+): Promise<Response> {
+  const {
+    rawPrompt,
+    normalized,
+    provider,
+    model,
+    temperature,
+    systemOverride,
+    composedSystem,
+    composedUser,
+    apiKey,
+    t0,
+    requestId,
+    elapsed,
+  } = args;
+
+  const toneKey = resolveTonePresetKey(normalized.tone, normalized.style);
+
+  const system =
+    composedSystem && composedSystem.trim().length > 0
+      ? composedSystem
+      : buildSystemPrompt({ overrides: systemOverride, toneKey });
+
+  const userMessage =
+    composedUser && composedUser.trim().length > 0
+      ? composedUser
+      : makeUserMessage(normalized);
+
+  const openaiPayload = buildOpenAIRequestPayload({
+    model,
+    temperature,
+    system,
+    userMessage,
+  });
+
+  const openaiResult = await callOpenAI({
+    apiKey,
+    payload: openaiPayload,
+  });
+
+  if (!openaiResult.ok) {
+    const message = `openai api error: ${openaiResult.status} ${openaiResult.statusText}`;
+
+    return handleOpenAIApiError({
+      message,
+      details: openaiResult.errorText?.slice(0, 2000) ?? "",
+      status: openaiResult.status,
+      statusText: openaiResult.statusText,
+      apiMs: openaiResult.apiMs,
+      requestId,
+      provider,
+      model,
+      durationMs: elapsed(),
+    });
+  }
+
+  const { content, apiMs, status, statusText } = openaiResult;
+
+  if (!content) {
+    return handleEmptyContentError({
+      status,
+      statusText,
+      apiMs,
+      requestId,
+      provider,
+      model,
+      durationMs: elapsed(),
+    });
+  }
+
+  return finalizeWriterSuccess({
+    content,
+    normalized,
+    toneKey,
+    provider,
+    model,
+    temperature,
+    apiMs,
+    t0,
+    requestId,
+    elapsedMs: elapsed(),
+  });
+}
