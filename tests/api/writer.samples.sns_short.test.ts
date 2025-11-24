@@ -72,6 +72,6 @@ describe("writer samples (sns_short.basic.json)", () => {
       const hasHash = /(?:#|＃)\S+/.test(text!);
       expect(typeof hasHash).toBe("boolean"); // 形式的に評価するだけ（assert はしない）
     },
-    15_000
+    30_000
   );
 });

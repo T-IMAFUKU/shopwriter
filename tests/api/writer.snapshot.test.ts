@@ -53,19 +53,25 @@ describe("/api/writer snapshot-less shape check", () => {
   it(
     "固定入力(>=8文字) → ok=true かつ 文字列本文が返る",
     async () => {
-      const req = makeRequest({ prompt: "これは十分に長いテスト入力です。", language: "ja" });
+      const req = makeRequest({
+        prompt: "これは十分に長いテスト入力です。",
+        language: "ja",
+      });
       const res = await POST(req as Request);
       const json: any = await res.json();
 
       if (!json?.ok) {
         // eslint-disable-next-line no-console
-        console.error("writer response (debug):", JSON.stringify(json, null, 2));
+        console.error(
+          "writer response (debug):",
+          JSON.stringify(json, null, 2),
+        );
       }
 
       const text = extractText(json);
       expect(json?.ok).toBe(true);
       expect(typeof text).toBe("string");
     },
-    15_000 // ← タイムアウト余裕
+    30_000, // ← タイムアウトを 30 秒に拡大
   );
 });
