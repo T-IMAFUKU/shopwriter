@@ -111,11 +111,15 @@ export function analyzeText(text: string): WriterMetrics {
 }
 
 /* =========================
-   postProcess（H-7-⑨ 安定統合 + 押し売り見出しフィルタ）
-   - pipeline.ts にあった実装をそのまま移植
+   applyPostprocess（🆕 Precision正式エントリ）
+   - 旧 postProcess のロジックをそのまま移植
+   - 将来 FormalOutput レイヤーをかませるための入口
 ========================= */
 
-export function postProcess(raw: string, n: NormalizedInput): string {
+export function applyPostprocess(
+  raw: string,
+  n: NormalizedInput,
+): string {
   let out = (raw ?? "").toString().trim();
 
   // 記号・空行・見出しレベルの整理
@@ -330,4 +334,17 @@ export function postProcess(raw: string, n: NormalizedInput): string {
   }
 
   return out;
+}
+
+/* =========================
+   postProcess（レガシー別名）
+   - 既存コードとの互換のため残し、中身は applyPostprocess に委譲
+   - pipeline.ts などからの呼び出しはそのまま動作
+========================= */
+
+export function postProcess(
+  raw: string,
+  n: NormalizedInput,
+): string {
+  return applyPostprocess(raw, n);
 }
