@@ -14,6 +14,15 @@ import {
 } from "./tone-utils";
 import { makeUserMessage } from "./user-message";
 import { postProcess, extractMeta, analyzeText } from "./postprocess";
+import { buildPromptLayer } from "./prompt/core";
+
+/* =========================
+   🧪 Precision Mode Flag（Phase1）
+   - Phase1 では常に false（挙動は現行維持）
+   - 後続フェーズで compose-v2 / composedSystem / composedUser を採用するスイッチに昇格予定
+========================= */
+
+const PRECISION_MODE = false;
 
 /* =========================
    Normalized Input 型（route.ts と同形）
@@ -341,8 +350,109 @@ export async function finalizeWriterSuccess(
 }
 
 /* =========================
+   Phase1-P1-5 Precision Prompt 観測ログ
+   - compose-v2 の人格化 system/user を比較観測
+   - 本番レスポンス shape には影響なし
+   - A案（A-1）：userPreview をログに残さず、
+     長さ・有無・匿名ハッシュのみ保持
+========================= */
+
+type PrecisionPromptObservationArgs = {
+  mode: "on" | "off";
+  variant: string;
+  route: string;
+  provider?: string;
+  model?: string;
+  requestId: string;
+  toneKey: string;
+  currentSystem: string;
+  currentUser: string;
+  precisionSystem?: string | null;
+  precisionUser?: string | null;
+};
+
+function previewPromptSegment(
+  value: string | null | undefined,
+  maxLength = 160,
+): string {
+  if (!value) return "";
+  return value.length <= maxLength ? value : value.slice(0, maxLength);
+}
+
+async function logPrecisionPromptObservation(
+  args: PrecisionPromptObservationArgs,
+): Promise<void> {
+  const {
+    mode,
+    variant,
+    route,
+    provider,
+    model,
+    requestId,
+    toneKey,
+    currentSystem,
+    currentUser,
+    precisionSystem,
+    precisionUser,
+  } = args;
+
+  const currentHasUser = currentUser.trim().length > 0;
+  const precisionHasUser =
+    typeof precisionUser === "string" && precisionUser.trim().length > 0;
+
+  const currentUserHash8 = currentHasUser
+    ? sha256Hex(currentUser).slice(0, 8)
+    : null;
+
+  const precisionUserHash8 =
+    precisionHasUser && typeof precisionUser === "string"
+      ? sha256Hex(precisionUser).slice(0, 8)
+      : null;
+
+  const payload = {
+    phase: "precision_prompt" as const,
+    level: "DEBUG",
+    route,
+    message: "precision prompt observation",
+    provider,
+    model,
+    requestId,
+    toneKey,
+    precisionMode: mode,
+    variant,
+    role: "system_user_pair" as const,
+    current: {
+      systemPreview: previewPromptSegment(currentSystem),
+      systemLength: currentSystem.length,
+      userLength: currentUser.length,
+      hasUser: currentHasUser,
+      userHash8: currentUserHash8,
+    },
+    precision: {
+      systemPreview: previewPromptSegment(precisionSystem),
+      systemLength: precisionSystem ? precisionSystem.length : 0,
+      userLength: precisionUser ? precisionUser.length : 0,
+      hasSystem:
+        typeof precisionSystem === "string" &&
+        precisionSystem.trim().length > 0,
+      hasUser: precisionHasUser,
+      userHash8: precisionUserHash8,
+    },
+  };
+
+  // Phase1 では WriterLogKind に "debug" がないため、
+  // ひとまず "ok" チャンネルに流して観測する。
+  // phase="precision_prompt" で通常の ok と識別可能。
+  logEvent("ok", payload);
+  forceConsoleEvent("ok", payload);
+  await emitWriterEvent("ok", payload);
+}
+
+/* =========================
    🆕 C7-4 Normal Flow Pipeline（A案）
    - 正常系の「本体」（tone 解決〜OpenAI呼び出し〜成功/エラー処理）
+   - Phase1 Precision：
+     PRECISION_MODE=true のときのみ composedSystem/composedUser を採用
 ========================= */
 
 export type WriterPipelineArgs = {
@@ -380,15 +490,46 @@ export async function runWriterPipeline(
 
   const toneKey = resolveTonePresetKey(normalized.tone, normalized.style);
 
-  const system =
-    composedSystem && composedSystem.trim().length > 0
-      ? composedSystem
-      : buildSystemPrompt({ overrides: systemOverride, toneKey });
+  // 🔍 Precision Prompt Layer（安全モード接続）
+  // - 常に buildPromptLayer は実行（ログ・解析用途）
+  // - 実際に OpenAI に投げる system/user は PRECISION_MODE で切り替え
+  await buildPromptLayer({
+    normalized,
+    systemOverride,
+    composedSystem,
+    composedUser,
+    toneKey,
+  });
 
-  const userMessage =
-    composedUser && composedUser.trim().length > 0
-      ? composedUser
-      : makeUserMessage(normalized);
+  const baseSystem = buildSystemPrompt({ overrides: systemOverride, toneKey });
+  const baseUserMessage = makeUserMessage(normalized);
+
+  const shouldUseComposedSystem =
+    PRECISION_MODE &&
+    typeof composedSystem === "string" &&
+    composedSystem.trim().length > 0;
+
+  const shouldUseComposedUser =
+    PRECISION_MODE &&
+    typeof composedUser === "string" &&
+    composedUser.trim().length > 0;
+
+  const system = shouldUseComposedSystem ? composedSystem! : baseSystem;
+  const userMessage = shouldUseComposedUser ? composedUser! : baseUserMessage;
+
+  await logPrecisionPromptObservation({
+    mode: PRECISION_MODE ? "on" : "off",
+    variant: "compose-v2",
+    route: "/api/writer",
+    provider,
+    model,
+    requestId,
+    toneKey,
+    currentSystem: baseSystem,
+    currentUser: baseUserMessage,
+    precisionSystem: composedSystem ?? null,
+    precisionUser: composedUser ?? null,
+  });
 
   const openaiPayload = buildOpenAIRequestPayload({
     model,

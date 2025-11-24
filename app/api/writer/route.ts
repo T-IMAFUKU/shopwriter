@@ -23,6 +23,16 @@ import {
 
 /* =========================
    Route: POST /api/writer
+
+   Precision Phase1 メモ:
+   - route.ts は「リクエストの入口」として、
+     buildWriterRequestContext で組み立てた composed.system / composed.user を
+     runWriterPipeline に渡す役割を持つ。
+   - Precision モード（compose-v2 / Tone人格化）は
+     pipeline.ts ⇄ prompt/core.ts 側で動作しており、
+     現時点では PRECISION_MODE = false のため挙動は従来どおり。
+   - 本ファイルではロジックを変えず、どこで Precision がぶら下がるかを
+     コメントで明示するのみ（ゼロ差分ステップ）。
 ========================= */
 
 export async function POST(req: Request) {
@@ -49,6 +59,9 @@ export async function POST(req: Request) {
 
     const { input, composed, raw: reqInput } = ctxResult.data;
 
+    // composed は Stage1 (compose.ts) 由来の system/user。
+    // Precision Phase1 では、この値を入口として受け取り、
+    // pipeline.ts 側で compose-v2 の人格化 system/user と safely に共存させる。
     const {
       system: composedSystem,
       user: composedUser,
@@ -97,6 +110,9 @@ export async function POST(req: Request) {
       );
     }
 
+    // normalizeInput は Precision PhaseA/B で整備済みの正規化レイヤー。
+    // Precision Phase1 では、この normalized を起点に
+    // pipeline.ts 側で Tone人格化 / compose-v2 をサンドボックス実行する。
     const n = normalizeInput(rawPrompt);
 
     {
@@ -118,7 +134,11 @@ export async function POST(req: Request) {
       await emitWriterEvent("ok", payloadPre);
     }
 
-    // 正常系本体は runWriterPipeline に委譲
+    // 正常系本体は runWriterPipeline に委譲。
+    // Precision Phase1 では、ここから先で
+    // - normalized (n)
+    // - composedSystem / composedUser
+    // を起点に Prompt Core Layer（compose-v2 / Tone人格化）へ接続される。
     return runWriterPipeline({
       rawPrompt,
       normalized: n,
