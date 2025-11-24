@@ -501,7 +501,18 @@ export async function runWriterPipeline(
     toneKey,
   });
 
-  const baseSystem = buildSystemPrompt({ overrides: systemOverride, toneKey });
+  // ★ ここで system を強化：
+  //   - 情報不足でも合理的に補ってLPとして書き始める
+  //   - 「情報不足です」「申し訳ありませんが〜情報が不足しています」系の謝罪・お断りを禁止
+  const baseSystemRaw = buildSystemPrompt({ overrides: systemOverride, toneKey });
+
+  const baseSystem =
+    `${baseSystemRaw}\n\n` +
+    "制約:\n" +
+    "- ユーザーからの入力情報が部分的であっても、合理的に想像して不足を補い、LPとして成立する本文から書き始めてください。\n" +
+    "- 「情報が不足しているため作成できません」「申し訳ありませんが、情報が不足しています」など、情報不足を理由にした謝罪・お断りの文章は書かないでください。\n" +
+    "- 迷った場合は、一般的なEC向け商品LPとして妥当な前提を仮定して構いません。";
+
   const baseUserMessage = makeUserMessage(normalized);
 
   const shouldUseComposedSystem =
