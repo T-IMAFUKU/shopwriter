@@ -8,8 +8,265 @@ import {
   type QA,
   type ECLexicon,
 } from "./faq-lexicon";
+import { COMMON_BANNED_PATTERNS } from "./prompt/category-safety";
 
 const faqBlock = "## FAQ\n";
+
+/* =========================
+   妄想スペック・固有情報サニタイズ用ヘルパー
+   - input に含まれない COMMON_BANNED_PATTERNS を
+     出力テキストからやわらかい表現に置き換える
+   - 数値＋単位やレビュー/ランキング系の語だけを丸める
+   - 「最大8人」「何週間も使用可能」「数千冊の電子書籍」など
+     製品固有スペック寄りの表現も追加ルールで丸める
+========================= */
+
+type SpecSanitizeGroup = {
+  patterns: string[];
+  replacement: string;
+  /** 単語単体も置き換えるか（true: レビュー/ランキング系のみ） */
+  wordLevel: boolean;
+};
+
+const SPEC_SANITIZE_GROUPS: SpecSanitizeGroup[] = [
+  {
+    // 容量・重量・長さなど（数値＋単位だけサニタイズ）
+    patterns: ["ml", "mL", "g", "kg", "mg", "L", "ℓ", "mm", "cm", "m"],
+    replacement: "十分な量・サイズ感",
+    wordLevel: false,
+  },
+  {
+    // ストレージ・解像度・性能（数値＋単位だけ）
+    patterns: ["GB", "TB", "MB", "dpi", "K対応", "4K", "8K"],
+    replacement: "必要な性能を備えた仕様",
+    wordLevel: false,
+  },
+  {
+    // 価格・割引・ポイント（数値＋単位だけ）
+    patterns: ["円", "割引", "OFF", "ポイント還元", "キャッシュバック"],
+    replacement: "お得に感じられる条件",
+    wordLevel: false,
+  },
+  {
+    // パーセンテージ（数値＋%系のみ）
+    patterns: ["%", "％"],
+    replacement: "十分な水準",
+    wordLevel: false,
+  },
+  {
+    // レビュー・ランキング系（単語単体もそのまま丸めて良い）
+    patterns: [
+      "レビュー",
+      "口コミ",
+      "星",
+      "★",
+      "ランキング",
+      "第1位",
+      "No.1",
+      "ナンバーワン",
+    ],
+    replacement: "好意的な評価が期待できる印象",
+    wordLevel: true,
+  },
+  {
+    // 型番・モデル・認証・受賞など（単語単体も丸めてOK）
+    patterns: [
+      "型番",
+      "モデル",
+      "シリーズ",
+      "Edition",
+      "エディション",
+      "認証",
+      "受賞",
+      "アワード",
+      "グランプリ",
+    ],
+    replacement: "信頼感のある仕様・背景",
+    wordLevel: true,
+  },
+];
+
+type ExtraNumericSanitizeRule = {
+  re: RegExp;
+  replacement: string;
+};
+
+/**
+ * COMMON_BANNED_PATTERNS では表現しづらい、
+ * 「最大8人」「何週間も使用可能」「数千冊の電子書籍」などの数字＋単位を
+ * より一般的な表現に丸めるための追加ルール
+ */
+const EXTRA_NUMERIC_SANITIZE_RULES: ExtraNumericSanitizeRule[] = [
+  {
+    // プレイ人数（最大8人まで→複数人で）
+    re: /最大\s*\d+\s*人まで/g,
+    replacement: "複数人で",
+  },
+  {
+    // より汎用的な「〜人まで」
+    re: /\d+\s*人まで/g,
+    replacement: "複数人で",
+  },
+  {
+    // 期間：一度の充電で何週間も使用可能 → 一度の充電で長時間使用可能
+    re: /一度の充電で何週間も使用可能/g,
+    replacement: "一度の充電で長時間使用可能",
+  },
+  {
+    // 期間：一度の充電で数週間使用できる → 一度の充電で長時間使用できる
+    re: /一度の充電で数週間使用できる/g,
+    replacement: "一度の充電で長時間使用できる",
+  },
+  {
+    // 期間：何週間も使用可能 → 長時間使用可能
+    re: /何週間も使用可能/g,
+    replacement: "長時間使用可能",
+  },
+  {
+    // 冊数：数千冊の書籍 → 多くの書籍
+    re: /数千冊の書籍/g,
+    replacement: "多くの書籍",
+  },
+  {
+    // 冊数：数○○冊の電子書籍 → 多くの電子書籍
+    re: /数[百千万]*冊の電子書籍/g,
+    replacement: "多くの電子書籍",
+  },
+  {
+    // 冊数（数値＋冊）：○冊の書籍 → 多くの書籍
+    re: /\d+\s*冊の書籍/g,
+    replacement: "多くの書籍",
+  },
+  {
+    // ディスプレイサイズ：6インチの高解像度ディスプレイ → コンパクトな高解像度ディスプレイ
+    re: /\d+\s*インチの高解像度ディスプレイ/g,
+    replacement: "コンパクトな高解像度ディスプレイ",
+  },
+  {
+    // 防水等級：IPX8等級の防水機能 → 高い防水性能
+    re: /IPX8等級の防水機能/g,
+    replacement: "高い防水性能",
+  },
+  {
+    // 防水スペック：最大2メートルの水深でも30分間耐えることができます → 一定の水深でも安心してお使いいただけます
+    re: /最大\d+\s*メートルの水深でも\d+\s*分間耐えることができます/g,
+    replacement: "一定の水深でも安心してお使いいただけます",
+  },
+];
+
+function escapeRegLite(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildInputSpecHaystack(n: NormalizedInput): string {
+  const segments: string[] = [];
+
+  const pushSeg = (v: unknown) => {
+    if (!v) return;
+    if (Array.isArray(v)) {
+      for (const item of v) {
+        const s = (item ?? "").toString().trim();
+        if (s) segments.push(s);
+      }
+      return;
+    }
+    const s = (v ?? "").toString().trim();
+    if (s) segments.push(s);
+  };
+
+  // P2-3 と同様、元の依頼＋主要フィールドを対象にする
+  pushSeg((n as any)._raw);
+  pushSeg((n as any).product_name);
+  pushSeg((n as any).category);
+  pushSeg((n as any).goal);
+  pushSeg((n as any).keywords);
+  pushSeg((n as any).selling_points);
+  pushSeg((n as any).evidence);
+  pushSeg((n as any).constraints);
+
+  return segments.join(" ").toLowerCase();
+}
+
+type MaskResult = {
+  text: string;
+  removedPatterns: string[];
+};
+
+/**
+ * 出力テキストから「入力に存在しない推測スペック」をやわらかくサニタイズする
+ * - COMMON_BANNED_PATTERNS のうち、input に無くて output にだけあるパターンを対象
+ * - 数値＋単位は一般表現に変換
+ * - レビュー/ランキング/受賞などは単語単体も丸める
+ * - さらに、「最大8人」「何週間も使用可能」「数千冊の電子書籍」などのよくある固有スペック表現も
+ *   EXTRA_NUMERIC_SANITIZE_RULES で丸める
+ */
+function maskHallucinatedSpecs(out: string, n: NormalizedInput): MaskResult {
+  const inputLower = buildInputSpecHaystack(n);
+  const outLower = (out ?? "").toString().toLowerCase();
+
+  if (!outLower) {
+    return { text: out, removedPatterns: [] };
+  }
+
+  const suspicious: string[] = [];
+
+  for (const rawPattern of COMMON_BANNED_PATTERNS) {
+    const p = rawPattern.toLowerCase().trim();
+    if (!p) continue;
+
+    const inInput = inputLower.includes(p);
+    const inOut = outLower.includes(p);
+    if (!inInput && inOut) {
+      suspicious.push(rawPattern);
+    }
+  }
+
+  let text = out;
+  const extraRemoved: string[] = [];
+
+  // COMMON_BANNED_PATTERNS ベースのサニタイズ
+  if (suspicious.length > 0) {
+    for (const group of SPEC_SANITIZE_GROUPS) {
+      const targetPatterns = group.patterns.filter((p) =>
+        suspicious.includes(p),
+      );
+      if (targetPatterns.length === 0) continue;
+
+      for (const pat of targetPatterns) {
+        const esc = escapeRegLite(pat);
+
+        // 「数値 + 単位」パターンを一般表現に変換
+        const reNumBefore = new RegExp(`\\d+[\\d,.]*\\s*${esc}`, "gi");
+        const reNumAfter = new RegExp(`${esc}\\s*\\d+[\\d,.]*`, "gi");
+
+        text = text.replace(reNumBefore, group.replacement);
+        text = text.replace(reNumAfter, group.replacement);
+
+        // 数値を伴わない単語単体は、レビュー/ランキング/受賞系のみ丸める
+        if (group.wordLevel && !/[0-9]/.test(pat)) {
+          const reWord = new RegExp(esc, "gi");
+          text = text.replace(reWord, group.replacement);
+        }
+      }
+    }
+  }
+
+  // 追加の「数字＋単位」サニタイズ（COMMON_BANNED_PATTERNS 非依存）
+  // - 入力に同じ表現が含まれている場合はそのまま残す
+  for (const rule of EXTRA_NUMERIC_SANITIZE_RULES) {
+    text = text.replace(rule.re, (m) => {
+      const key = m.toLowerCase();
+      if (inputLower.includes(key)) {
+        return m;
+      }
+      extraRemoved.push(m);
+      return rule.replacement;
+    });
+  }
+
+  const unique = Array.from(new Set([...suspicious, ...extraRemoved]));
+  return { text, removedPatterns: unique };
+}
 
 /* =========================
    EC Lexicon ピックアップ関数
@@ -33,9 +290,7 @@ function pickLexicon(category: string): ECLexicon {
     )
   )
     return EC_LEXICON["食品"];
-  if (
-    /アパレル|衣料|ファッション|服|ウェア/i.test(category)
-  )
+  if (/アパレル|衣料|ファッション|服|ウェア/i.test(category))
     return EC_LEXICON["アパレル"];
   return EC_LEXICON["汎用"];
 }
@@ -112,8 +367,6 @@ export function analyzeText(text: string): WriterMetrics {
 
 /* =========================
    applyPostprocess（🆕 Precision正式エントリ）
-   - 旧 postProcess のロジックをそのまま移植
-   - 将来 FormalOutput レイヤーをかませるための入口
 ========================= */
 
 export function applyPostprocess(
@@ -136,7 +389,7 @@ export function applyPostprocess(
   // 既存の疑似見出し/FAQ/CTAブロックをクリア
   out = out.replace(/\n\*\*CTA\*\*[\s\S]*?(?=\n##\s|$)/gi, "\n");
   out = out.replace(/\n\*\*FAQ\*\*[\s\S]*?(?=\n##\s|$)/gi, "\n");
-  out = out.replace(/\n##\s*(よくある質問|FAQ)[\s\S]*?(?=\n##\s|$)/gi, "\n");
+  out = out.replace(/\n##\s*(よくある質問|ご質問|FAQ)[\s\S]*?(?=\n##\s|$)/gi, "\n");
   out = out.replace(/^\s*一次CTA[：:]\s?.+$/gim, "");
   out = out.replace(/^\s*代替CTA[：:]\s?.+$/gim, "");
 
@@ -175,7 +428,7 @@ export function applyPostprocess(
     if (!dedupMap.has(key)) dedupMap.set(key, p);
   }
 
-  for (const s of categoryFaqSeeds(n.category)) {
+  for (const s of categoryFaqSeeds((n as any).category)) {
     const key = normalizeQ(s.q);
     if (!dedupMap.has(key)) dedupMap.set(key, s);
   }
@@ -225,20 +478,10 @@ export function applyPostprocess(
       })
       .join("\n\n");
 
-  // 数値情報の補強（最低2つ）
-  const numericHits =
-    out.match(
-      /(?:\d+(?:\.\d+)?\s?(?:g|kg|mm|cm|m|mAh|ms|時間|分|枚|袋|ml|mL|L|W|Hz|年|か月|ヶ月|日|回|%|％))/g,
-    ) || [];
-  const lex = pickLexicon(n.category);
-  if (numericHits.length < 2) {
-    const addLine = `*${lex.numericTemplates
-      .slice(0, 2 - numericHits.length)
-      .join("／")}*`;
-    out += `\n\n${addLine}`;
-  }
+  // ⚠ 数値情報の補強ブロック（lex.numericTemplates）は削除済み
 
   // 共起語＆安心フレーズのフッタ追加
+  const lex = pickLexicon(((n as any).category as string) || "");
   const COOC_MAX = Math.max(
     0,
     Math.min(5, Number(process.env.WRITER_COOC_MAX ?? 3)),
@@ -274,7 +517,7 @@ export function applyPostprocess(
     }
   }
 
-  // CTA の仕上げ
+  // CTA の仕上げ（具体的な日数を使わない）
   const pref =
     n.cta_preference && n.cta_preference.length > 0
       ? n.cta_preference
@@ -283,7 +526,7 @@ export function applyPostprocess(
   const primaryAction = pref[0] || "今すぐ購入";
   const secondaryAction = pref[1] || pref[2] || "詳細を見る";
 
-  let primaryFuture = "まず試せます（30日以内は返品可）";
+  let primaryFuture = "まず試せます（返品条件あり）";
   if (
     footnoteMode === "inline" &&
     (globalThis as any).__WRITER_INLINE_SAFETY__
@@ -322,6 +565,16 @@ export function applyPostprocess(
     }
   }
 
+  // 妄想スペック・固有情報の簡易サニタイズ（修正版）
+  {
+    const masked = maskHallucinatedSpecs(out, n);
+    out = masked.text;
+  }
+
+  // 表現トーンの最終微調整（日本語ネイティブ寄り）
+  out = out.replace(/アイコン的存在/g, "象徴的な存在");
+  out = out.replace(/アイコンとして広く知られている/g, "象徴的な存在として広く知られています");
+
   // 全体を 5000 文字で丸める（末尾の文 or 改行まで）
   const MAX = 5000;
   if (out.length > MAX) {
@@ -338,8 +591,6 @@ export function applyPostprocess(
 
 /* =========================
    postProcess（レガシー別名）
-   - 既存コードとの互換のため残し、中身は applyPostprocess に委譲
-   - pipeline.ts などからの呼び出しはそのまま動作
 ========================= */
 
 export function postProcess(
