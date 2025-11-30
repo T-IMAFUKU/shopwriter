@@ -15,6 +15,13 @@ import {
 import { makeUserMessage } from "./user-message";
 import { postProcess, extractMeta, analyzeText } from "./postprocess";
 import { buildPromptLayer } from "./prompt/core";
+import type { ProductContext } from "@/server/products/repository";
+import { logProductContextStatus } from "./logger";
+import {
+  buildPrecisionProductPayload,
+  buildProductFactsDto,
+} from "@/server/products/dto";
+import { buildProductFactsBlock } from "./prompt/product-facts";
 
 /* =========================
    🧪 Precision Mode Flag（Phase1）
@@ -440,9 +447,6 @@ async function logPrecisionPromptObservation(
     },
   };
 
-  // Phase1 では WriterLogKind に "debug" がないため、
-  // ひとまず "ok" チャンネルに流して観測する。
-  // phase="precision_prompt" で通常の ok と識別可能。
   logEvent("ok", payload);
   forceConsoleEvent("ok", payload);
   await emitWriterEvent("ok", payload);
@@ -468,6 +472,8 @@ export type WriterPipelineArgs = {
   t0: number;
   requestId: string;
   elapsed: () => number;
+  productId?: string | null;
+  productContext?: ProductContext | null;
 };
 
 export async function runWriterPipeline(
@@ -486,13 +492,60 @@ export async function runWriterPipeline(
     t0,
     requestId,
     elapsed,
+    productId,
+    productContext,
   } = args;
 
   const toneKey = resolveTonePresetKey(normalized.tone, normalized.style);
 
+  // 🧪 ProductContext 観測ログ（生のコンテキスト）
+  logProductContextStatus({
+    productId: productId ?? null,
+    context: productContext ?? null,
+    meta: {
+      source: "writer.pipeline",
+      requestId,
+      path: "/api/writer",
+    },
+  });
+
+  // 🧪 ProductContext → Precision DTO 変換＆観測ログ
+  const precisionProductPayload = buildPrecisionProductPayload({
+    productId: productId ?? null,
+    context: productContext ?? null,
+  });
+
+  const productPayloadLog = {
+    phase: "precision_product" as const,
+    level: "DEBUG",
+    route: "/api/writer",
+    message: "precision product payload",
+    provider,
+    model,
+    requestId,
+    productId: productId ?? null,
+    payload: precisionProductPayload,
+  };
+
+  logEvent("ok", productPayloadLog);
+  forceConsoleEvent("ok", productPayloadLog);
+  await emitWriterEvent("ok", productPayloadLog);
+
+  // 🧪 PRODUCT_FACTS 用 DTO（ProductContext から構築）
+  const productFacts = buildProductFactsDto({
+    productId: productId ?? null,
+    enabled: true,
+    context: productContext ?? null,
+    error: null,
+  });
+
+  // Precision Product DTO + PRODUCT_FACTS DTO から PRODUCT_FACTS ブロックを生成（あれば）
+  const productFactsBlock = buildProductFactsBlock(
+    precisionProductPayload,
+    productFacts,
+  );
+
   // 🔍 Precision Prompt Layer（安全モード接続）
-  // - 常に buildPromptLayer は実行（ログ・解析用途）
-  // - 実際に OpenAI に投げる system/user は PRECISION_MODE で切り替え
   await buildPromptLayer({
     normalized,
     systemOverride,
@@ -502,16 +555,26 @@ export async function runWriterPipeline(
   });
 
   // ★ ここで system を強化：
-  //   - 情報不足でも合理的に補ってLPとして書き始める
-  //   - 「情報不足です」「申し訳ありませんが〜情報が不足しています」系の謝罪・お断りを禁止
-  const baseSystemRaw = buildSystemPrompt({ overrides: systemOverride, toneKey });
+  const baseSystemRaw = buildSystemPrompt({
+    overrides: systemOverride,
+    toneKey,
+  });
 
-  const baseSystem =
-    `${baseSystemRaw}\n\n` +
+  const constraintsBlock =
     "制約:\n" +
     "- ユーザーからの入力情報が部分的であっても、合理的に想像して不足を補い、LPとして成立する本文から書き始めてください。\n" +
     "- 「情報が不足しているため作成できません」「申し訳ありませんが、情報が不足しています」など、情報不足を理由にした謝罪・お断りの文章は書かないでください。\n" +
     "- 迷った場合は、一般的なEC向け商品LPとして妥当な前提を仮定して構いません。";
+
+  const systemParts: string[] = [baseSystemRaw];
+
+  if (productFactsBlock) {
+    systemParts.push(productFactsBlock);
+  }
+
+  systemParts.push(constraintsBlock);
+
+  const baseSystem = systemParts.join("\n\n");
 
   const baseUserMessage = makeUserMessage(normalized);
 

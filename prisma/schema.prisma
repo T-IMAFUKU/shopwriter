@@ -8,7 +8,7 @@ datasource db {
 }
 
 /// *
-///  * NextAuth 基本モデル
+/// * NextAuth 基本モデル
 model User {
   id            String        @id @default(cuid())
   name          String?
@@ -59,7 +59,7 @@ model VerificationToken {
 }
 
 /// *
-///  * 共有（既存機能）
+/// * 共有（既存機能）
 model Share {
   id        String        @id @default(cuid())
   title     String
@@ -75,11 +75,11 @@ model Share {
 }
 
 /// *
-///  * 新規：メトリクスイベント（最小版）
-///  * - ts: クライアント送信の元時刻（ms/秒は後続で正規化）
-///  * - receivedAt: サーバ受領時刻（集計キー）
-///  * - props: 任意メタ（JSONB）
-///  * - user/ share は将来の結合用に任意紐付け
+/// * 新規：メトリクスイベント（最小版）
+/// * - ts: クライアント送信の元時刻（ms/秒は後続で正規化）
+/// * - receivedAt: サーバ受領時刻（集計キー）
+/// * - props: 任意メタ（JSONB）
+/// * - user/ share は将来の結合用に任意紐付け
 model MetricEvent {
   id         String   @id @default(cuid())
   event      String
@@ -112,25 +112,82 @@ model Template {
   @@index([userId], map: "idx_template_user_id")
 }
 
-/// === EventLog: ダッシュボード用の簡易ログ（コードで使用中のフィールドに整合） ===
-/// DB には触れず型だけ更新できるよう、ここを変更して Prisma Client を再生成します。
+/// === EventLog: ダッシュボード用の簡易ログ（DB 定義に完全準拠） ===
+/// - 今回は DB 実体に合わせて Prisma モデルを揃える（型ズレ解消）
+/// - 将来 EventLog の型を変える場合は、専用フェーズを設けて慎重に migrate する
 model EventLog {
-  id         String   @id @default(cuid())
-  createdAt  DateTime @default(now())
-
-  // 実装に合わせて追加・任意化
-  category   String?       // app/api/eventlog などが送信
-  event      String        // イベント名
-  level      String        // INFO / WARN / ERROR など
-  url        String?
-  referrer   String?
-  ip         String?
-  userAgent  String?
+  id         String     @id @default(cuid())
+  createdAt  DateTime   @default(now()) @db.Timestamptz(6)
   userId     String?
   sessionId  String?
-  payload    Json?         // 任意メタ
+  category   String?
+  event      String
+  level      EventLevel @default(INFO)
+  url        String?
+  refType    String?
+  refId      String?
+  durationMs Int?
+  payload    Json?
+  context    Json?
+  ip         String?
+  userAgent  String?
 
-  // 互換：旧実装では必須だったが、現在は任意にする
-  message    String?
-  meta       Json?
+  @@index([category, event], map: "idx_eventlog_category_event")
+  @@index([createdAt], map: "idx_eventlog_created_at")
+  @@index([userId, createdAt], map: "idx_eventlog_user_created")
+}
+
+/// === Product: Precision 用 商品マスタ ===
+/// - 「商品そのもの」を表すマスタ
+/// - specs / attributes による拡張情報をぶら下げる
+model Product {
+  id          String             @id @default(cuid())
+  name        String
+  slug        String?            @unique
+  category    String
+  brand       String?
+  description String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  attributes  ProductAttribute[]
+  specs       ProductSpec[]
+}
+
+/// === ProductSpec: 数値・仕様の正確な値を管理するテーブル ===
+/// - 「ディスプレイサイズ」「重量」「発売日」など、スペック寄りの情報を保持
+/// - Precision Phase3 では、ここを “真値リスト” として Writer に渡す
+model ProductSpec {
+  id        String   @id @default(cuid())
+  productId String
+  key       String
+  value     String
+  unit      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([key])
+}
+
+/// === ProductAttribute: カラー・素材・タグなどの汎用属性テーブル ===
+/// - 「カラー」「素材」「ターゲットユーザー」など、スペック以外の属性を柔軟に追加する
+/// - key/value 形式なので Phase3 以降の拡張も安全
+model ProductAttribute {
+  id        String   @id @default(cuid())
+  productId String
+  key       String
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([key])
+}
+
+enum EventLevel {
+  INFO
+  WARN
+  ERROR
 }
