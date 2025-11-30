@@ -4,6 +4,7 @@
 export const runtime = "nodejs";
 
 import { writerLog } from "@/lib/metrics/writerLogger";
+import { getProductContextById } from "@/server/products/repository";
 import { buildWriterRequestContext } from "./request-parse";
 import {
   sha256Hex,
@@ -115,6 +116,26 @@ export async function POST(req: Request) {
     // pipeline.ts 側で Tone人格化 / compose-v2 をサンドボックス実行する。
     const n = normalizeInput(rawPrompt);
 
+    // 🧪 Precision Phase3: ProductContext 取得
+    // - reqInput は型の制約を避けるため any として扱い、
+    //   productId が string または number の場合に安全に string へ正規化する。
+    const unsafeRawInput = reqInput as any;
+    const rawProductId = unsafeRawInput?.productId;
+
+    let productId: string | null = null;
+
+    if (typeof rawProductId === "string") {
+      const trimmed = rawProductId.trim();
+      productId = trimmed.length > 0 ? trimmed : null;
+    } else if (typeof rawProductId === "number") {
+      if (Number.isFinite(rawProductId)) {
+        productId = String(rawProductId);
+      }
+    }
+
+    const productContext =
+      productId ? await getProductContextById(productId) : null;
+
     {
       const payloadPre = {
         phase: "precompose" as const,
@@ -139,6 +160,7 @@ export async function POST(req: Request) {
     // - normalized (n)
     // - composedSystem / composedUser
     // を起点に Prompt Core Layer（compose-v2 / Tone人格化）へ接続される。
+    // Precision Phase3 では、ProductContext もここで渡す。
     return runWriterPipeline({
       rawPrompt,
       normalized: n,
@@ -152,6 +174,8 @@ export async function POST(req: Request) {
       t0,
       requestId: rid,
       elapsed,
+      productId,
+      productContext,
     });
   } catch (e: unknown) {
     return handleUnexpectedError(e, {

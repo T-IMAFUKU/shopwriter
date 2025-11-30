@@ -5,6 +5,7 @@
  * - tone-presets は _shared から参照
  * - persona.ts / tone.ts は「ゼロ影響シム経由」で公式接続
  * - Phase2: 推測禁止・固有情報制御の安全ガイドラインを system / user 両方に注入
+ * - Phase3(P3-4): PrecisionProductPayload が渡されていれば PRODUCT_FACTS ブロックを system に追加
  */
 
 import type { WriterInput } from "../validation";
@@ -16,6 +17,10 @@ import * as toneLayer from "./tone";
 
 // Fewshot レイヤー（Precision Plan 用）
 import { resolveFewshot } from "./fewshot";
+
+// Precision Product DTO → PRODUCT_FACTS ブロック
+import type { PrecisionProductPayload } from "../product-dto";
+import { buildProductFactsBlock } from "./product-facts";
 
 /** ====== 安全最小の型 ====== */
 export type TonePreset = {
@@ -379,6 +384,11 @@ export function composePrompt(input: WriterInput): ComposeResult {
     ((input as any)?.faqSeeds as Array<{ q: unknown; a: unknown }> | undefined) ??
     ((input as any)?.options?.faqSeeds as Array<{ q: unknown; a: unknown }> | undefined);
 
+  // Precision Product Payload（あれば PRODUCT_FACTS に利用）
+  const precisionProduct =
+    ((input as any)?.precisionProduct as PrecisionProductPayload | null | undefined) ??
+    null;
+
   // ---- toneキー解決 → base system 決定 ---------------------------------------
   const toneKey = resolveTonePresetKey(toneKeyInput, style);
   const baseSystem =
@@ -414,16 +424,20 @@ export function composePrompt(input: WriterInput): ComposeResult {
   // ---- Fewshot ブロック（Precision ON の時だけ） -----------------------------
   const fewshotBlock = buildFewShot(n.category ?? null);
 
+  // ---- PRODUCT_FACTS ブロック（Precision Product DTO がある場合のみ） -------
+  const productFactsBlock = buildProductFactsBlock(precisionProduct);
+
   // ---- 推測禁止・固有情報制御レイヤー ----------------------------------------
   const safetySystem = buildSafetySystemFragment(n);
 
-  // systemPrompt に人格（persona）＋トーン（tone）＋ fewshot＋ hint ＋ safety を段階的に注入
+  // systemPrompt に人格（persona）＋トーン（tone）＋ fewshot＋ PRODUCT_FACTS ＋ safety を段階的に注入
   const system = [
     baseSystem,
     personaSystem,
     personaHint,
     toneHint,
     fewshotBlock,
+    productFactsBlock,
     safetySystem,
   ]
     .filter(Boolean)
