@@ -9,6 +9,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -94,7 +95,7 @@ function basicMarkdownToHtml(src: string): string {
   const flushList = () => {
     if (!listBuf.length) return;
     html.push(
-      "<ul>" + listBuf.map((i) => `<li>${i}</li>`).join("") + "</ul>"
+      "<ul>" + listBuf.map((i) => `<li>${i}</li>`).join("") + "</ul>",
     );
     listBuf = [];
   };
@@ -104,14 +105,14 @@ function basicMarkdownToHtml(src: string): string {
     if (line.startsWith("### ")) {
       flushList();
       html.push(
-        `<h3>${escapeHtml(line.replace(/^###\s+/, ""))}</h3>`
+        `<h3>${escapeHtml(line.replace(/^###\s+/, ""))}</h3>`,
       );
       continue;
     }
     if (line.startsWith("## ")) {
       flushList();
       html.push(
-        `<h2>${escapeHtml(line.replace(/^##\s+/, ""))}</h2>`
+        `<h2>${escapeHtml(line.replace(/^##\s+/, ""))}</h2>`,
       );
       continue;
     }
@@ -148,7 +149,7 @@ function splitParagraphs(text: string): string[] {
 async function readStreamByParagraphs(
   body: ReadableStream<Uint8Array>,
   onParagraph: (p: string) => void,
-  onFinish: (rest: string) => void
+  onFinish: (rest: string) => void,
 ) {
   const reader = body.getReader();
   const decoder = new TextDecoder("utf-8");
@@ -178,6 +179,7 @@ async function readStreamByParagraphs(
 async function callWriterStreaming(payload: {
   meta: Record<string, any>;
   prompt: string;
+  productId?: string | null;
 }) {
   const res = await fetch("/api/writer", {
     method: "POST",
@@ -194,11 +196,15 @@ async function callWriterStreaming(payload: {
    Main Component
 ========================= */
 export default function ClientPage() {
+  const searchParams = useSearchParams();
+  const productIdFromUrl = searchParams.get("productId");
+  const hasProductFacts = !!productIdFromUrl;
+
   // 出力保持
   const [result, setResult] = useState(""); // 全文（コピー/共有用）
   const [leadHtml, setLeadHtml] = useState(""); // 先頭段落（HTML）
   const [restParasHtml, setRestParasHtml] = useState<string[]>(
-    []
+    [],
   ); // 2段落目以降（HTML配列・段階描画）
 
   // 状態
@@ -242,7 +248,7 @@ export default function ClientPage() {
       });
     };
     requestAnimationFrame(() =>
-      requestAnimationFrame(run)
+      requestAnimationFrame(run),
     );
   }, [prefersReduce]);
 
@@ -296,8 +302,7 @@ export default function ClientPage() {
       await navigator.clipboard.writeText(result);
       setCopied(true);
       toast.success("コピーしました", {
-        description:
-          "内容をクリップボードに保存しました。",
+        description: "内容をクリップボードに保存しました。",
       });
     } catch {
       setCopied(true);
@@ -335,7 +340,7 @@ export default function ClientPage() {
     try {
       if (!result)
         throw new Error(
-          "共有する本文がありません。先に生成してください。"
+          "共有する本文がありません。先に生成してください。",
         );
       const res = await createShare({
         title: product
@@ -357,7 +362,7 @@ export default function ClientPage() {
                     window.open(
                       `/share/${id}`,
                       "_blank",
-                      "noopener,noreferrer"
+                      "noopener,noreferrer",
                     );
                   } catch {}
                 },
@@ -403,7 +408,7 @@ export default function ClientPage() {
         clearTimeout(skeletonTimerRef.current);
       skeletonTimerRef.current = window.setTimeout(
         () => setShowSkeleton(true),
-        DUR.SKELETON_DELAY_MS
+        DUR.SKELETON_DELAY_MS,
       );
 
       // タイマー
@@ -456,7 +461,8 @@ export default function ClientPage() {
           cta: vals.cta,
         },
         prompt,
-      };
+        productId: productIdFromUrl,
+      } as const;
 
       try {
         const res = await callWriterStreaming(payload);
@@ -505,7 +511,7 @@ export default function ClientPage() {
                   basicMarkdownToHtml(rest),
                 ]);
               }
-            }
+            },
           );
 
           // 全文再構成（コピー/共有用）
@@ -521,19 +527,19 @@ export default function ClientPage() {
           setShowDoneBadge(true);
           celebTimerRef.current = window.setTimeout(
             () => setJustCompleted(false),
-            DUR.CELEB_MS
+            DUR.CELEB_MS,
           );
           badgeTimerRef.current = window.setTimeout(
             () => setShowDoneBadge(false),
-            DUR.DONE_BADGE_MS
+            DUR.DONE_BADGE_MS,
           );
 
           console.debug(
             "[H-8/L2] stream TTFP(ms) ≈",
             Math.round(
               (tFirstPaintRef.current ?? 0) -
-                (tSubmitRef.current ?? 0)
-            )
+                (tSubmitRef.current ?? 0),
+            ),
           );
           setIsLoading(false);
           return;
@@ -566,11 +572,11 @@ export default function ClientPage() {
             setShowDoneBadge(true);
             celebTimerRef.current = window.setTimeout(
               () => setJustCompleted(false),
-              DUR.CELEB_MS
+              DUR.CELEB_MS,
             );
             badgeTimerRef.current = window.setTimeout(
               () => setShowDoneBadge(false),
-              DUR.DONE_BADGE_MS
+              DUR.DONE_BADGE_MS,
             );
             return;
           }
@@ -581,24 +587,24 @@ export default function ClientPage() {
           i += 1;
           pseudoStreamTimerRef.current = window.setTimeout(
             pushNext,
-            DUR.PSEUDO_STREAM_INTERVAL_MS
+            DUR.PSEUDO_STREAM_INTERVAL_MS,
           );
         };
         if (rest.length) {
           pseudoStreamTimerRef.current = window.setTimeout(
             pushNext,
-            DUR.PSEUDO_STREAM_INTERVAL_MS
+            DUR.PSEUDO_STREAM_INTERVAL_MS,
           );
         } else {
           setJustCompleted(true);
           setShowDoneBadge(true);
           celebTimerRef.current = window.setTimeout(
             () => setJustCompleted(false),
-            DUR.CELEB_MS
+            DUR.CELEB_MS,
           );
           badgeTimerRef.current = window.setTimeout(
             () => setShowDoneBadge(false),
-            DUR.DONE_BADGE_MS
+            DUR.DONE_BADGE_MS,
           );
         }
 
@@ -607,8 +613,8 @@ export default function ClientPage() {
           "[H-8/L2] pseudo-stream TTFP(ms) ≈",
           Math.round(
             (tFirstPaintRef.current ?? 0) -
-              (tSubmitRef.current ?? 0)
-          )
+              (tSubmitRef.current ?? 0),
+          ),
         );
         setIsLoading(false);
       } catch (e: any) {
@@ -622,7 +628,7 @@ export default function ClientPage() {
         });
       }
     },
-    [scrollToResultSmart]
+    [scrollToResultSmart, productIdFromUrl],
   );
 
   // plain text 再構成（結果整形用）
@@ -776,7 +782,7 @@ export default function ClientPage() {
           <span
             className={clsx(
               "inline-flex items-center gap-1 rounded-full border px-2 py-1",
-              isLoading ? "bg-indigo-50 text-indigo-700" : "bg-white/70"
+              isLoading ? "bg-indigo-50 text-indigo-700" : "bg-white/70",
             )}
           >
             <span className="inline-flex size-4 items-center justify-center rounded-full bg-indigo-600/15 text-indigo-700 text-[10px] font-semibold">
@@ -806,6 +812,15 @@ export default function ClientPage() {
             )}
           </AnimatePresence>
         </div>
+
+        {hasProductFacts && (
+          <div className="mt-2 flex justify-center">
+            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] text-emerald-700">
+              <span className="inline-block size-1.5 rounded-full bg-emerald-500" />
+              商品情報を反映しています
+            </span>
+          </div>
+        )}
       </div>
 
       {/* 2カラム */}
@@ -848,7 +863,7 @@ export default function ClientPage() {
                   aria-invalid={!!errors.product}
                   className={clsx(
                     errors.product &&
-                      "border-red-300 focus-visible:ring-red-400"
+                      "border-red-300 focus-visible:ring-red-400",
                   )}
                   {...register("product")}
                 />
@@ -869,7 +884,7 @@ export default function ClientPage() {
                   aria-invalid={!!errors.purpose}
                   className={clsx(
                     errors.purpose &&
-                      "border-red-300 focus-visible:ring-red-400"
+                      "border-red-300 focus-visible:ring-red-400",
                   )}
                   {...register("purpose")}
                 />
@@ -896,7 +911,7 @@ export default function ClientPage() {
                   aria-invalid={!!errors.features}
                   className={clsx(
                     errors.features &&
-                      "border-red-300 focus-visible:ring-red-400"
+                      "border-red-300 focus-visible:ring-red-400",
                   )}
                   {...register("features")}
                 />
@@ -941,9 +956,7 @@ export default function ClientPage() {
                       落ち着いた/専門的
                     </option>
                     <option value="casual">カジュアル</option>
-                    <option value="energetic">
-                      エネルギッシュ
-                    </option>
+                    <option value="energetic">エネルギッシュ</option>
                   </select>
                 </div>
               </div>
@@ -1067,7 +1080,7 @@ export default function ClientPage() {
           <Card
             className={clsx(
               "relative p-5 md:p-6 overflow-visible",
-              justCompleted && "shadow-soft-md ring-2 ring-indigo-300/60"
+              justCompleted && "shadow-soft-md ring-2 ring-indigo-300/60",
             )}
           >
             <div className="mb-3 flex items-center justify-between flex-wrap gap-3">
