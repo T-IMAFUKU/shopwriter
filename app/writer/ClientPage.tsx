@@ -9,7 +9,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -80,6 +79,14 @@ const FormSchema = z.object({
 type FormValues = z.infer<typeof FormSchema>;
 
 /* =========================
+   Props
+========================= */
+type ClientPageProps = {
+  /** /writer?productId=xxx から渡される商品ID（なければ null/undefined） */
+  productId?: string | null;
+};
+
+/* =========================
    Utils
 ========================= */
 function escapeHtml(s: string): string {
@@ -94,9 +101,7 @@ function basicMarkdownToHtml(src: string): string {
 
   const flushList = () => {
     if (!listBuf.length) return;
-    html.push(
-      "<ul>" + listBuf.map((i) => `<li>${i}</li>`).join("") + "</ul>",
-    );
+    html.push("<ul>" + listBuf.map((i) => `<li>${i}</li>`).join("") + "</ul>");
     listBuf = [];
   };
 
@@ -104,16 +109,12 @@ function basicMarkdownToHtml(src: string): string {
     const line = raw.trim();
     if (line.startsWith("### ")) {
       flushList();
-      html.push(
-        `<h3>${escapeHtml(line.replace(/^###\s+/, ""))}</h3>`,
-      );
+      html.push(`<h3>${escapeHtml(line.replace(/^###\s+/, ""))}</h3>`);
       continue;
     }
     if (line.startsWith("## ")) {
       flushList();
-      html.push(
-        `<h2>${escapeHtml(line.replace(/^##\s+/, ""))}</h2>`,
-      );
+      html.push(`<h2>${escapeHtml(line.replace(/^##\s+/, ""))}</h2>`);
       continue;
     }
     if (line.startsWith("- ")) {
@@ -195,17 +196,15 @@ async function callWriterStreaming(payload: {
 /* =========================
    Main Component
 ========================= */
-export default function ClientPage() {
-  const searchParams = useSearchParams();
-  const productIdFromUrl = searchParams.get("productId");
-  const hasProductFacts = !!productIdFromUrl;
+export default function ClientPage({ productId }: ClientPageProps) {
+  const hasProductFacts = !!productId;
 
   // 出力保持
   const [result, setResult] = useState(""); // 全文（コピー/共有用）
   const [leadHtml, setLeadHtml] = useState(""); // 先頭段落（HTML）
-  const [restParasHtml, setRestParasHtml] = useState<string[]>(
-    [],
-  ); // 2段落目以降（HTML配列・段階描画）
+  const [restParasHtml, setRestParasHtml] = useState<string[]>([]); // 2段落目以降（HTML配列・段階描画）
+  // PRODUCT_FACTS（/api/writer の meta.productFacts をそのまま保持）
+  const [productFacts, setProductFacts] = useState<any | null>(null);
 
   // 状態
   const [isLoading, setIsLoading] = useState(false);
@@ -239,17 +238,14 @@ export default function ClientPage() {
       const OFFSET = 120;
       const rect = el.getBoundingClientRect();
       const vh = window.innerHeight;
-      const visibleEnough =
-        rect.top >= 64 && rect.bottom <= vh - 96;
+      const visibleEnough = rect.top >= 64 && rect.bottom <= vh - 96;
       if (visibleEnough) return;
       window.scrollTo({
         top: Math.max(0, rect.top + window.scrollY - OFFSET),
         behavior: prefersReduce ? "auto" : "smooth",
       });
     };
-    requestAnimationFrame(() =>
-      requestAnimationFrame(run),
-    );
+    requestAnimationFrame(() => requestAnimationFrame(run));
   }, [prefersReduce]);
 
   // Form
@@ -282,12 +278,9 @@ export default function ClientPage() {
   ========================= */
   useEffect(() => {
     return () => {
-      if (skeletonTimerRef.current)
-        clearTimeout(skeletonTimerRef.current);
-      if (celebTimerRef.current)
-        clearTimeout(celebTimerRef.current);
-      if (badgeTimerRef.current)
-        clearTimeout(badgeTimerRef.current);
+      if (skeletonTimerRef.current) clearTimeout(skeletonTimerRef.current);
+      if (celebTimerRef.current) clearTimeout(celebTimerRef.current);
+      if (badgeTimerRef.current) clearTimeout(badgeTimerRef.current);
       if (pseudoStreamTimerRef.current)
         clearTimeout(pseudoStreamTimerRef.current);
     };
@@ -314,10 +307,7 @@ export default function ClientPage() {
     }
   }, [result]);
 
-  async function createShare(params: {
-    title: string;
-    body: string;
-  }) {
+  async function createShare(params: { title: string; body: string }) {
     const headers: HeadersInit = {
       "content-type": "application/json",
     };
@@ -339,13 +329,9 @@ export default function ClientPage() {
     setShareId(null);
     try {
       if (!result)
-        throw new Error(
-          "共有する本文がありません。先に生成してください。",
-        );
+        throw new Error("共有する本文がありません。先に生成してください。");
       const res = await createShare({
-        title: product
-          ? `${product} / Writer出力`
-          : "Writer出力",
+        title: product ? `${product} / Writer出力` : "Writer出力",
         body: result,
       });
       if (res.status === 201) {
@@ -372,9 +358,7 @@ export default function ClientPage() {
       } else {
         const j = await res.json().catch(() => ({}));
         const msg =
-          j?.message ||
-          j?.error ||
-          `共有に失敗しました（${res.status}）`;
+          j?.message || j?.error || `共有に失敗しました（${res.status}）`;
         throw new Error(msg);
       }
     } catch (e: any) {
@@ -399,13 +383,13 @@ export default function ClientPage() {
       setResult("");
       setLeadHtml("");
       setRestParasHtml([]);
+      setProductFacts(null);
       setJustCompleted(false);
       setShowDoneBadge(false);
 
       // Thinking / Skeleton
       setShowThinking(true);
-      if (skeletonTimerRef.current)
-        clearTimeout(skeletonTimerRef.current);
+      if (skeletonTimerRef.current) clearTimeout(skeletonTimerRef.current);
       skeletonTimerRef.current = window.setTimeout(
         () => setShowSkeleton(true),
         DUR.SKELETON_DELAY_MS,
@@ -461,7 +445,7 @@ export default function ClientPage() {
           cta: vals.cta,
         },
         prompt,
-        productId: productIdFromUrl,
+        productId,
       } as const;
 
       try {
@@ -514,7 +498,8 @@ export default function ClientPage() {
             },
           );
 
-          // 全文再構成（コピー/共有用）
+          // stream 経路では meta.productFacts は扱わず、
+          // PRODUCT_FACTS パネルは JSON レスポンス時のみ更新する方針。
           const plain = [leadHtmlToPlain(), ...restParasToPlain()]
             .join("\n\n")
             .trim();
@@ -552,8 +537,11 @@ export default function ClientPage() {
           (j?.output as string) ??
           (typeof j === "string" ? j : "");
 
-        if (!text)
-          throw new Error(j?.message || "生成結果が空でした。");
+        // PRODUCT_FACTS を meta からそのまま取得して表示
+        const pf = (j as any)?.data?.meta?.productFacts ?? null;
+        setProductFacts(pf ?? null);
+
+        if (!text) throw new Error(j?.message || "生成結果が空でした。");
 
         const [lead, ...rest] = splitParagraphs(text);
         if (lead) {
@@ -628,7 +616,7 @@ export default function ClientPage() {
         });
       }
     },
-    [scrollToResultSmart, productIdFromUrl],
+    [scrollToResultSmart, productId],
   );
 
   // plain text 再構成（結果整形用）
@@ -648,6 +636,12 @@ export default function ClientPage() {
     return arr;
   };
 
+  // onSubmit ラッパ：宣言順を整理して安全に参照
+  const submit = useCallback(() => {
+    if (isLoading || isSubmitting || !isValid) return;
+    void handleSubmit(onSubmit)();
+  }, [handleSubmit, isLoading, isSubmitting, isValid, onSubmit]);
+
   /* =========================
      Ctrl/⌘ + Enter
   ========================= */
@@ -655,14 +649,11 @@ export default function ClientPage() {
     const handler = (e: KeyboardEvent) => {
       // @ts-ignore
       if ((e as any).isComposing) return;
-      const isMac = navigator.platform
-        .toLowerCase()
-        .includes("mac");
+      const isMac = navigator.platform.toLowerCase().includes("mac");
       const mod = isMac ? e.metaKey : e.ctrlKey;
       if (!(mod && e.key === "Enter")) return;
-      if (isLoading || isSubmitting || !isValid) return;
       e.preventDefault();
-      void handleSubmit(onSubmit)();
+      submit();
     };
     document.addEventListener("keydown", handler, {
       passive: false,
@@ -670,7 +661,7 @@ export default function ClientPage() {
     return () => {
       document.removeEventListener("keydown", handler);
     };
-  }, [handleSubmit, onSubmit, isLoading, isSubmitting, isValid]);
+  }, [submit]);
 
   /* =========================
      背景モーション
@@ -681,14 +672,29 @@ export default function ClientPage() {
   const fadeBg = useTransform(scrollYProgress, [0, 0.3], [1, 0.8]);
 
   /* =========================
+     PRODUCT_FACTS のUI用整形
+  ========================= */
+  const productFactsItems: Array<{
+    kind?: string;
+    label?: string;
+    value?: string;
+    sourceId?: string;
+  }> = Array.isArray((productFacts as any)?.items)
+    ? ((productFacts as any).items as any[])
+    : [];
+  const hasReadableProductFacts =
+    hasProductFacts && productFactsItems.length > 0;
+
+  /* =========================
      提出UI
   ========================= */
   const submitDisabled = !isValid || isLoading || isSubmitting;
-  const submitReason = !isValid
-    ? "必須項目の入力条件を満たしていません（それぞれのエラーメッセージを確認）"
-    : isLoading || isSubmitting
-    ? "実行中です"
-    : "";
+  const submitReason =
+    !isValid
+      ? "必須項目の入力条件を満たしていません（それぞれのエラーメッセージを確認）"
+      : isLoading || isSubmitting
+      ? "実行中です"
+      : "";
 
   return (
     <div className="relative min-h-[calc(100dvh-160px)] isolate before:absolute before:inset-0 before:-z-20 before:bg-[linear-gradient(180deg,#F3F6FF_0%,#F9FBFF_50%,#FFFFFF_100%)]">
@@ -770,7 +776,7 @@ export default function ClientPage() {
         </motion.div>
       </div>
 
-      {/* ステップ表示 */}
+      {/* ステップ表示 + PRODUCT_FACTS */}
       <div className="mx-auto max-w-7xl px-8 md:px-12 mt-2 md:mt-4">
         <div className="flex flex-wrap items-center justify-center gap-2 text-[12px] text-neutral-600 max-w-xl mx-auto text-center">
           <span className="inline-flex items-center gap-1 rounded-full border px-2 py-1 bg-white/70">
@@ -821,6 +827,57 @@ export default function ClientPage() {
             </span>
           </div>
         )}
+
+        {hasProductFacts && productFacts && (
+          <div className="mt-3 max-w-3xl mx-auto">
+            <Card className="border-emerald-100 bg-emerald-50/60 dark:bg-emerald-950/40 dark:border-emerald-900 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex size-5 items-center justify-center rounded-full bg-emerald-600/15 text-emerald-700 text-[11px] font-semibold">
+                    DB
+                  </span>
+                  <p className="text-xs font-semibold text-emerald-800 dark:text-emerald-100">
+                    商品情報（PRODUCT_FACTS）
+                  </p>
+                </div>
+                <p className="text-[10px] text-emerald-700/80 dark:text-emerald-200/80">
+                  ※ DBから取得した商品仕様だけを、そのまま表示しています
+                </p>
+              </div>
+
+              {hasReadableProductFacts ? (
+                <div className="mt-3 rounded-md bg-white/80 dark:bg-neutral-950/60 border border-emerald-100/70 dark:border-emerald-800/70 px-3 py-2 text-[11px] text-emerald-900 dark:text-emerald-50">
+                  <div className="space-y-1.5">
+                    {productFactsItems.map((item, index) => (
+                      <div
+                        key={`${item.sourceId ?? item.label ?? "item"}-${index}`}
+                        className="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-0.5 sm:gap-2 border-b border-emerald-100/70 last:border-none py-1.5"
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="font-medium truncate">
+                            {item.label ?? "項目"}
+                          </span>
+                          {item.kind && (
+                            <span className="text-[10px] text-emerald-700/70">
+                              {item.kind === "spec" ? "（仕様）" : "（属性）"}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-emerald-900 dark:text-emerald-50 whitespace-pre-wrap break-words max-w-full sm:max-w-[60%]">
+                          {item.value ?? "-"}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-2 rounded-md bg-white/80 dark:bg-neutral-950/60 border border-emerald-100/70 dark:border-emerald-800/70 px-3 py-2 max-h-56 overflow-auto text-[11px] font-mono text-emerald-900 dark:text-emerald-50 whitespace-pre">
+                  {JSON.stringify(productFacts, null, 2)}
+                </div>
+              )}
+            </Card>
+          </div>
+        )}
       </div>
 
       {/* 2カラム */}
@@ -837,9 +894,7 @@ export default function ClientPage() {
                 <span className="inline-flex size-6 items-center justify-center rounded-full bg-indigo-600/15 text-indigo-700 text-xs font-semibold">
                   1
                 </span>
-                <h2 className="text-sm font-semibold">
-                  入力（最短指定）
-                </h2>
+                <h2 className="text-sm font-semibold">入力（最短指定）</h2>
               </div>
               <div className="text-xs text-neutral-500 hidden sm:block">
                 Ctrl/⌘ + Enter で生成
@@ -850,7 +905,7 @@ export default function ClientPage() {
               className="space-y-4"
               onSubmit={(e) => {
                 e.preventDefault();
-                void handleSubmit(onSubmit)();
+                submit();
               }}
             >
               {/* 商品名 */}
@@ -952,9 +1007,7 @@ export default function ClientPage() {
                     {...register("tone")}
                   >
                     <option value="friendly">親しみやすい</option>
-                    <option value="professional">
-                      落ち着いた/専門的
-                    </option>
+                    <option value="professional">落ち着いた/専門的</option>
                     <option value="casual">カジュアル</option>
                     <option value="energetic">エネルギッシュ</option>
                   </select>

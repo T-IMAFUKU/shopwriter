@@ -42,6 +42,20 @@ app/api/writer/route.SSOT.*.ts
 app/api/writer/route.SSOT.*.ts.bak_*
 app/api/writer/health/route.ts.bak_*
 
+# === Precision Plan バックアップ（writer 配下） ===
+# Phase2 / Phase3 で作った手動バックアップファイルを Git 対象外にする
+app/api/writer/*.P2-*-backup
+app/api/writer/*.bak-P2-*
+app/api/writer/*.P3-*.backup.ts
+
+# === Prisma 関連バックアップ ===
+prisma/db-pull-preview.prisma
+prisma/migrations.*backup*/
+prisma/migrations/*_p3_product_schema_clean/
+
+# === ローカル専用 writer 設定ファイル ===
+writer-*.json
+
 # === IDE ===
 .vscode/*
 !.vscode/settings.json
