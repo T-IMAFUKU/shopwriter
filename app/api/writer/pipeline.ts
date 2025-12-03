@@ -32,6 +32,12 @@ import { buildProductFactsBlock } from "./prompt/product-facts";
 const PRECISION_MODE = false;
 
 /* =========================
+   PRODUCT_FACTS 型（dto の ReturnType から推論）
+========================= */
+
+type ProductFacts = ReturnType<typeof buildProductFactsDto>;
+
+/* =========================
    Normalized Input 型（route.ts と同形）
 ========================= */
 
@@ -296,6 +302,7 @@ export type WriterSuccessArgs = {
   t0: number;
   requestId: string;
   elapsedMs: number;
+  productFacts?: ProductFacts | null;
 };
 
 export async function finalizeWriterSuccess(
@@ -312,10 +319,17 @@ export async function finalizeWriterSuccess(
     t0,
     requestId,
     elapsedMs,
+    productFacts,
   } = args;
 
   const text = postProcess(content, normalized);
-  const meta = extractMeta(text, toneKey);
+
+  const baseMeta = extractMeta(text, toneKey);
+  const meta = {
+    ...baseMeta,
+    ...(productFacts ? { productFacts } : {}),
+  };
+
   const metrics = analyzeText(text);
 
   const totalMs = Date.now() - t0;
@@ -658,5 +672,6 @@ export async function runWriterPipeline(
     t0,
     requestId,
     elapsedMs: elapsed(),
+    productFacts,
   });
 }
