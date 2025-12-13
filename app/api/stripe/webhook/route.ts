@@ -5,9 +5,9 @@
 // - Stripe 署名検証（raw body）
 // - checkout.session.completed / customer.subscription.updated / invoice.payment_failed などで User を更新
 //
-// 重要：customer.subscription.updated の payload が薄いケースがあり current_period_end が無いことがある。
-//       その場合は Stripe API (subscriptions.retrieve) で補完して subscriptionCurrentPeriodEnd を保存する。
-//       さらに、current_period_end の型が number 以外（string/bigint）でも拾えるようにする。
+// 重要：新しい Stripe API では subscription 直下の current_period_end が無い。
+//       代わりに subscription items の items.data[].current_period_end を使う。
+//       event payload が薄い場合は Stripe API (subscriptions.retrieve) で items を補完して保存する。
 
 import { NextRequest, NextResponse } from "next/server";
 import type Stripe from "stripe";
@@ -61,13 +61,41 @@ function normalizeUnixSeconds(
     if (Number.isFinite(n) && n > 0) return { unix: n, kind: "string" };
     return { unix: undefined, kind: "string" };
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   if (typeof v === "bigint") {
     const n = Number(v);
     if (Number.isFinite(n) && n > 0) return { unix: n, kind: "bigint" };
     return { unix: undefined, kind: "bigint" };
   }
   return { unix: undefined, kind: "none" };
+}
+
+function maxUnix(values: Array<number | undefined>): number | undefined {
+  const nums = values.filter((x): x is number => typeof x === "number" && Number.isFinite(x) && x > 0);
+  if (nums.length === 0) return undefined;
+  return Math.max(...nums);
+}
+
+function extractPeriodEndFromItemsAny(subscriptionLike: any): {
+  unix: number | undefined;
+  preview: string;
+} {
+  const items = subscriptionLike?.items?.data;
+  if (!Array.isArray(items) || items.length === 0) return { unix: undefined, preview: "items:none" };
+
+  const unixList: Array<number | undefined> = [];
+  const previews: string[] = [];
+
+  for (const it of items) {
+    const raw = it?.current_period_end;
+    const n = normalizeUnixSeconds(raw);
+    unixList.push(n.unix);
+    previews.push(raw == null ? "null" : String(raw));
+  }
+
+  return {
+    unix: maxUnix(unixList),
+    preview: `items:${previews.join(",")}`,
+  };
 }
 
 // Checkout Session から user を推定するヘルパー
@@ -161,45 +189,32 @@ async function handleCheckoutSessionCompleted(event: Stripe.Event) {
   });
 }
 
-// ✅ payloadが薄いケース対策：current_period_end を Stripe API から補完（型も吸収）
+// ✅ items.data[].current_period_end を優先して periodEnd を解決
 async function resolveCurrentPeriodEndUnix(subscription: Stripe.Subscription): Promise<{
   unix: number | undefined;
-  source: "event" | "retrieve" | "none";
-  rawType: "number" | "string" | "bigint" | "none";
-  rawValuePreview: string;
+  source: "eventItems" | "retrieveItems" | "none";
+  rawPreview: string;
 }> {
-  const rawFromEvent = (subscription as any)?.current_period_end;
-  const nEvent = normalizeUnixSeconds(rawFromEvent);
-  if (nEvent.unix) {
-    return {
-      unix: nEvent.unix,
-      source: "event",
-      rawType: nEvent.kind,
-      rawValuePreview: String(rawFromEvent),
-    };
+  // 1) event payload の items から取る
+  const fromEvent = extractPeriodEndFromItemsAny(subscription as any);
+  if (typeof fromEvent.unix === "number") {
+    return { unix: fromEvent.unix, source: "eventItems", rawPreview: fromEvent.preview };
   }
 
+  // 2) Stripe API retrieve で items を補完して取る（expand で items を確実に）
   try {
-    const retrieved = await stripe.subscriptions.retrieve(subscription.id);
-    const rawFromRetrieve = (retrieved as any)?.current_period_end;
-    const nRet = normalizeUnixSeconds(rawFromRetrieve);
-
-    if (nRet.unix) {
-      return {
-        unix: nRet.unix,
-        source: "retrieve",
-        rawType: nRet.kind,
-        rawValuePreview: String(rawFromRetrieve),
-      };
+    const retrieved = await stripe.subscriptions.retrieve(subscription.id, {
+      expand: ["items.data"],
+    });
+    const fromRetrieve = extractPeriodEndFromItemsAny(retrieved as any);
+    if (typeof fromRetrieve.unix === "number") {
+      return { unix: fromRetrieve.unix, source: "retrieveItems", rawPreview: fromRetrieve.preview };
     }
 
-    // 🔎 取れてない時は「生値/型」を出す（原因確定のため）
-    console.warn("[stripe-webhook] current_period_end missing/invalid", {
+    console.warn("[stripe-webhook] periodEnd missing/invalid on items", {
       subscriptionId: subscription.id,
-      eventRawType: typeof rawFromEvent,
-      eventRawPreview: rawFromEvent == null ? "null" : String(rawFromEvent),
-      retrieveRawType: typeof rawFromRetrieve,
-      retrieveRawPreview: rawFromRetrieve == null ? "null" : String(rawFromRetrieve),
+      eventItemsPreview: fromEvent.preview,
+      retrieveItemsPreview: fromRetrieve.preview,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
@@ -209,12 +224,7 @@ async function resolveCurrentPeriodEndUnix(subscription: Stripe.Subscription): P
     });
   }
 
-  return {
-    unix: undefined,
-    source: "none",
-    rawType: "none",
-    rawValuePreview: "none",
-  };
+  return { unix: undefined, source: "none", rawPreview: "none" };
 }
 
 async function handleCustomerSubscriptionUpdated(event: Stripe.Event) {
@@ -261,8 +271,7 @@ async function handleCustomerSubscriptionUpdated(event: Stripe.Event) {
     appStatus,
     periodEnd,
     periodEndSource: resolved.source,
-    periodEndRawType: resolved.rawType,
-    periodEndRawPreview: resolved.rawValuePreview,
+    periodEndRawPreview: resolved.rawPreview,
   });
 }
 
@@ -324,7 +333,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Webhook secret not configured" }, { status: 500 });
   }
 
-  // ✅ Route Handler では req.headers が最も確実
   const sig = req.headers.get("stripe-signature");
   if (!sig) {
     return NextResponse.json({ error: "Missing stripe-signature" }, { status: 400 });
@@ -373,7 +381,6 @@ export async function POST(req: NextRequest) {
       type: event.type,
       message,
     });
-    // Stripeには200を返す（再送ループ回避）。エラーはログで追う。
   }
 
   return NextResponse.json({ ok: true }, { status: 200 });
