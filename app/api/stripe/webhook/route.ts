@@ -5,10 +5,10 @@
 // - Stripe 署名検証（raw body）
 // - checkout.session.completed / customer.subscription.updated / invoice.payment_failed などで User を更新
 //
-// 重要：subscription.updated は stripeCustomerId 未設定でも飛んでくるため、metadata.userId をフォールバックにする
+// 重要：customer.subscription.updated の payload が薄いケースがあり current_period_end が無いことがある。
+//       その場合は Stripe API (subscriptions.retrieve) で補完して subscriptionCurrentPeriodEnd を保存する。
 
 import { NextRequest, NextResponse } from "next/server";
-import { headers } from "next/headers";
 import type Stripe from "stripe";
 
 import { stripe } from "@/lib/stripe";
@@ -73,7 +73,7 @@ async function findUserForCheckoutSession(session: Stripe.Checkout.Session) {
   return null;
 }
 
-// Subscription から user を推定するヘルパー（今回の要点）
+// Subscription から user を推定するヘルパー
 async function findUserForSubscription(subscription: Stripe.Subscription) {
   const customerId = subscription.customer as string | undefined;
 
@@ -139,6 +139,33 @@ async function handleCheckoutSessionCompleted(event: Stripe.Event) {
   });
 }
 
+// ✅ payloadが薄いケース対策：current_period_end を Stripe API から補完
+async function resolveCurrentPeriodEndUnix(subscription: Stripe.Subscription): Promise<{
+  unix: number | undefined;
+  source: "event" | "retrieve" | "none";
+}> {
+  const fromEvent = (subscription as any).current_period_end as number | undefined;
+  if (typeof fromEvent === "number" && fromEvent > 0) {
+    return { unix: fromEvent, source: "event" };
+  }
+
+  try {
+    const retrieved = await stripe.subscriptions.retrieve(subscription.id);
+    const fromRetrieve = (retrieved as any).current_period_end as number | undefined;
+    if (typeof fromRetrieve === "number" && fromRetrieve > 0) {
+      return { unix: fromRetrieve, source: "retrieve" };
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("[stripe-webhook] Failed to retrieve subscription for periodEnd", {
+      subscriptionId: subscription.id,
+      message,
+    });
+  }
+
+  return { unix: undefined, source: "none" };
+}
+
 async function handleCustomerSubscriptionUpdated(event: Stripe.Event) {
   const subscription = event.data.object as Stripe.Subscription;
 
@@ -158,9 +185,11 @@ async function handleCustomerSubscriptionUpdated(event: Stripe.Event) {
     return;
   }
 
-  const rawPeriodEnd = (subscription as any).current_period_end as number | undefined;
   const appStatus = mapStripeStatusToSubscriptionStatus(subscription.status);
-  const periodEnd = unixSecondsToDateTime(rawPeriodEnd ?? null);
+
+  const { unix: periodEndUnix, source: periodEndSource } =
+    await resolveCurrentPeriodEndUnix(subscription);
+  const periodEnd = unixSecondsToDateTime(periodEndUnix ?? null);
 
   await prisma.user.update({
     where: { id: user.id },
@@ -181,6 +210,7 @@ async function handleCustomerSubscriptionUpdated(event: Stripe.Event) {
     status: subscription.status,
     appStatus,
     periodEnd,
+    periodEndSource,
   });
 }
 
@@ -242,7 +272,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Webhook secret not configured" }, { status: 500 });
   }
 
-  const sig = headers().get("stripe-signature");
+  // ✅ Route Handler では req.headers が最も確実
+  const sig = req.headers.get("stripe-signature");
   if (!sig) {
     return NextResponse.json({ error: "Missing stripe-signature" }, { status: 400 });
   }
