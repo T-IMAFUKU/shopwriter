@@ -7,6 +7,7 @@
 //
 // 重要：customer.subscription.updated の payload が薄いケースがあり current_period_end が無いことがある。
 //       その場合は Stripe API (subscriptions.retrieve) で補完して subscriptionCurrentPeriodEnd を保存する。
+//       さらに、current_period_end の型が number 以外（string/bigint）でも拾えるようにする。
 
 import { NextRequest, NextResponse } from "next/server";
 import type Stripe from "stripe";
@@ -46,6 +47,27 @@ function mapStripeStatusToSubscriptionStatus(
 function unixSecondsToDateTime(unix: number | null | undefined): Date | undefined {
   if (!unix || typeof unix !== "number") return undefined;
   return new Date(unix * 1000);
+}
+
+// number/string/bigint を unix秒(number) に正規化
+function normalizeUnixSeconds(
+  v: unknown,
+): { unix: number | undefined; kind: "number" | "string" | "bigint" | "none" } {
+  if (typeof v === "number" && Number.isFinite(v) && v > 0) {
+    return { unix: v, kind: "number" };
+  }
+  if (typeof v === "string") {
+    const n = Number.parseInt(v, 10);
+    if (Number.isFinite(n) && n > 0) return { unix: n, kind: "string" };
+    return { unix: undefined, kind: "string" };
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if (typeof v === "bigint") {
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0) return { unix: n, kind: "bigint" };
+    return { unix: undefined, kind: "bigint" };
+  }
+  return { unix: undefined, kind: "none" };
 }
 
 // Checkout Session から user を推定するヘルパー
@@ -139,22 +161,46 @@ async function handleCheckoutSessionCompleted(event: Stripe.Event) {
   });
 }
 
-// ✅ payloadが薄いケース対策：current_period_end を Stripe API から補完
+// ✅ payloadが薄いケース対策：current_period_end を Stripe API から補完（型も吸収）
 async function resolveCurrentPeriodEndUnix(subscription: Stripe.Subscription): Promise<{
   unix: number | undefined;
   source: "event" | "retrieve" | "none";
+  rawType: "number" | "string" | "bigint" | "none";
+  rawValuePreview: string;
 }> {
-  const fromEvent = (subscription as any).current_period_end as number | undefined;
-  if (typeof fromEvent === "number" && fromEvent > 0) {
-    return { unix: fromEvent, source: "event" };
+  const rawFromEvent = (subscription as any)?.current_period_end;
+  const nEvent = normalizeUnixSeconds(rawFromEvent);
+  if (nEvent.unix) {
+    return {
+      unix: nEvent.unix,
+      source: "event",
+      rawType: nEvent.kind,
+      rawValuePreview: String(rawFromEvent),
+    };
   }
 
   try {
     const retrieved = await stripe.subscriptions.retrieve(subscription.id);
-    const fromRetrieve = (retrieved as any).current_period_end as number | undefined;
-    if (typeof fromRetrieve === "number" && fromRetrieve > 0) {
-      return { unix: fromRetrieve, source: "retrieve" };
+    const rawFromRetrieve = (retrieved as any)?.current_period_end;
+    const nRet = normalizeUnixSeconds(rawFromRetrieve);
+
+    if (nRet.unix) {
+      return {
+        unix: nRet.unix,
+        source: "retrieve",
+        rawType: nRet.kind,
+        rawValuePreview: String(rawFromRetrieve),
+      };
     }
+
+    // 🔎 取れてない時は「生値/型」を出す（原因確定のため）
+    console.warn("[stripe-webhook] current_period_end missing/invalid", {
+      subscriptionId: subscription.id,
+      eventRawType: typeof rawFromEvent,
+      eventRawPreview: rawFromEvent == null ? "null" : String(rawFromEvent),
+      retrieveRawType: typeof rawFromRetrieve,
+      retrieveRawPreview: rawFromRetrieve == null ? "null" : String(rawFromRetrieve),
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error("[stripe-webhook] Failed to retrieve subscription for periodEnd", {
@@ -163,7 +209,12 @@ async function resolveCurrentPeriodEndUnix(subscription: Stripe.Subscription): P
     });
   }
 
-  return { unix: undefined, source: "none" };
+  return {
+    unix: undefined,
+    source: "none",
+    rawType: "none",
+    rawValuePreview: "none",
+  };
 }
 
 async function handleCustomerSubscriptionUpdated(event: Stripe.Event) {
@@ -187,9 +238,8 @@ async function handleCustomerSubscriptionUpdated(event: Stripe.Event) {
 
   const appStatus = mapStripeStatusToSubscriptionStatus(subscription.status);
 
-  const { unix: periodEndUnix, source: periodEndSource } =
-    await resolveCurrentPeriodEndUnix(subscription);
-  const periodEnd = unixSecondsToDateTime(periodEndUnix ?? null);
+  const resolved = await resolveCurrentPeriodEndUnix(subscription);
+  const periodEnd = unixSecondsToDateTime(resolved.unix ?? null);
 
   await prisma.user.update({
     where: { id: user.id },
@@ -210,7 +260,9 @@ async function handleCustomerSubscriptionUpdated(event: Stripe.Event) {
     status: subscription.status,
     appStatus,
     periodEnd,
-    periodEndSource,
+    periodEndSource: resolved.source,
+    periodEndRawType: resolved.rawType,
+    periodEndRawPreview: resolved.rawValuePreview,
   });
 }
 
