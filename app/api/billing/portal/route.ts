@@ -1,17 +1,29 @@
 // app/api/billing/portal/route.ts
 import { NextResponse } from "next/server";
-import { stripe } from "@/lib/stripe";
 
 /**
  * 顧客ポータル（Stripe Billing Portal）に遷移するためのセッションを作成する API。
- * 
- * 最小構成版：
- * - Stripe Customer ID は「Checkout成功時に自動作成されるもの」を使用
- * - 将来、NextAuth.user.id と Stripe customer.id の紐付けをDBに保存するフェーズで拡張予定
+ *
+ * smoke / CI では Stripe を触らない（ENV 未設定のため）
+ * → POST 時に遅延 import + 環境変数ガード
  */
 export async function POST(req: Request) {
   try {
-    // 顧客情報の取得（必要に応じて拡張）
+    // smoke / CI ガード（Stripe系ENVが無ければ即OKで返す）
+    if (!process.env.STRIPE_SECRET_KEY) {
+      return NextResponse.json(
+        {
+          ok: true,
+          skipped: true,
+          reason: "Stripe disabled in smoke/CI",
+        },
+        { status: 200 },
+      );
+    }
+
+    // 実行時のみ Stripe を import
+    const { stripe } = await import("@/lib/stripe");
+
     const { customerId } = await req.json().catch(() => ({}));
 
     if (!customerId) {
@@ -21,7 +33,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // 顧客ポータルのセッションを作成
     const session = await stripe.billingPortal.sessions.create({
       customer: customerId,
       return_url: `${process.env.NEXT_PUBLIC_APP_URL}/billing/return`,
@@ -34,12 +45,14 @@ export async function POST(req: Request) {
       },
       { status: 200 },
     );
-  } catch (err: any) {
-    console.error("Portal Error:", err);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("Portal Error:", message);
+
     return NextResponse.json(
       {
         ok: false,
-        error: err.message || "Unknown error",
+        error: message,
       },
       { status: 500 },
     );
