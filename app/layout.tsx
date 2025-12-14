@@ -7,6 +7,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Crown } from "lucide-react";
 import { Logo } from "@/components/Logo"; // ← ブランドアイコン
+import { AuthButton } from "@/components/AuthButton";
 
 // ===== グローバル・ヘルプ（遅延なしで安定読込）=====
 const HelpDropdown = dynamic(() => import("@/components/global/HelpDropdown"), {
@@ -78,10 +79,7 @@ export const metadata: Metadata = {
     creator: "@", // 任意
   },
   icons: {
-    icon: [
-      { url: "/favicon.ico" },
-      { url: "/icon.svg", type: "image/svg+xml" },
-    ],
+    icon: [{ url: "/favicon.ico" }, { url: "/icon.svg", type: "image/svg+xml" }],
     apple: [{ url: "/apple-touch-icon.png" }],
   },
 };
@@ -110,7 +108,7 @@ export default function RootLayout({
       >
         {/* グローバル Provider（Toaster は providers 内で1つだけ提供） */}
         <Providers>
-          {/* ==== グローバルヘッダー（ブランド＋CTA＋ヘルプ） ==== */}
+          {/* ==== グローバルヘッダー（ブランド＋CTA＋ログイン＋ヘルプ） ==== */}
           <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
             <div className="mx-auto max-w-7xl px-4 md:px-8">
               <div className="flex h-12 items-center justify-between gap-3">
@@ -159,6 +157,9 @@ export default function RootLayout({
                       プランを見る
                     </Link>
                   </Button>
+
+                  {/* ✅ 常時表示：ログイン/ログアウト（導線復旧の本流） */}
+                  <AuthButton />
 
                   {/* 常時表示：ヘルプ（ドロップダウン） */}
                   <HelpDropdown />
