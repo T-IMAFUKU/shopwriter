@@ -1,25 +1,31 @@
 "use client";
 
-import { useSession, signIn, signOut } from "next-auth/react";
+import { signIn, signOut, useSession } from "next-auth/react";
 
 export function AuthButton() {
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const signedIn = status === "authenticated";
 
-  return signedIn ? (
-    <div className="flex items-center gap-3">
-      <span className="text-sm text-gray-600">
-        {session?.user?.name ?? session?.user?.email ?? "郢晢ｽｭ郢ｧ・ｰ郢ｧ・､郢晢ｽｳ闕ｳ・ｭ"}
-      </span>
-      <button onClick={() => signOut()} className="rounded-xl border px-3 py-1.5">
-        郢ｧ・ｵ郢ｧ・､郢晢ｽｳ郢ｧ・｢郢ｧ・ｦ郢昴・
+  // B仕様：常に「ログイン/ログアウト」だけ（ユーザー名は表示しない）
+  if (signedIn) {
+    return (
+      <button
+        type="button"
+        onClick={() => signOut()}
+        className="rounded-xl border px-3 py-1.5 text-sm hover:bg-muted"
+      >
+        ログアウト
       </button>
-    </div>
-  ) : (
-    <button onClick={() => signIn("github")} className="rounded-xl border px-3 py-1.5">
-      郢ｧ・ｵ郢ｧ・､郢晢ｽｳ郢ｧ・､郢晢ｽｳ
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => signIn("github")}
+      className="rounded-xl border px-3 py-1.5 text-sm hover:bg-muted"
+    >
+      ログイン
     </button>
   );
 }
-
-
