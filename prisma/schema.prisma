@@ -22,6 +22,14 @@ model User {
   sessions      Session[]
   shares        Share[]
   Template      Template[]
+
+  /// Stripe Billing 連携用フィールド
+  /// - 各ユーザーに Stripe 顧客を 1:1 で紐づける
+  /// - Subscription 状態と、現在の請求期間の終了日時を保持
+  stripeCustomerId             String?             @unique
+  stripeSubscriptionId         String?
+  subscriptionStatus           SubscriptionStatus  @default(INACTIVE)
+  subscriptionCurrentPeriodEnd DateTime?
 }
 
 model Account {
@@ -190,4 +198,13 @@ enum EventLevel {
   INFO
   WARN
   ERROR
+}
+
+/// Stripe サブスクリプション状態
+enum SubscriptionStatus {
+  INACTIVE
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
 }
