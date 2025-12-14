@@ -62,3 +62,10 @@ writer-*.json
 !.vscode/extensions.json
 !.vscode/tasks.json
 .vercel
+
+_safety_untracked_dump/
+
+
+# local safety dump
+_safety_untracked_dump/
+

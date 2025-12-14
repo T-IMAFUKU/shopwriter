@@ -1,11 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": [
-      "dom",
-      "dom.iterable",
-      "ES2022"
-    ],
+    "lib": ["dom", "dom.iterable", "ES2022"],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -25,39 +21,16 @@
     "verbatimModuleSyntax": true,
     "baseUrl": ".",
     "paths": {
-      "@/lib/*": [
-        "lib/*",
-        "src/lib/*"
-      ],
-      "@/components/*": [
-        "components/*",
-        "src/components/*"
-      ],
-      "@/app/*": [
-        "app/*",
-        "src/app/*"
-      ],
-      "@/*": [
-        "./*",
-        "./src/*"
-      ],
-      "@/contracts": [
-        "contracts/index.ts",
-        "src/contracts/index.ts"
-      ],
-      "@/contracts/*": [
-        "contracts/*",
-        "src/contracts/*"
-      ]
+      "@/lib/*": ["lib/*", "src/lib/*"],
+      "@/components/*": ["components/*", "src/components/*"],
+      "@/app/*": ["app/*", "src/app/*"],
+      "@/*": ["./*", "./src/*"],
+      "@/contracts": ["contracts/index.ts", "src/contracts/index.ts"],
+      "@/contracts/*": ["contracts/*", "src/contracts/*"]
     },
     "esModuleInterop": true
   },
-  "include": [
-    "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
-    ".next/types/**/*.ts"
-  ],
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
   "exclude": [
     "node_modules",
     ".next",
@@ -67,6 +40,8 @@
     "**/.logs/**",
     "_collect",
     "**/_collect/**",
-    "lib/notify.ts"
+    "lib/notify.ts",
+    "_safety_untracked_dump",
+    "**/_safety_untracked_dump/**"
   ]
 }
