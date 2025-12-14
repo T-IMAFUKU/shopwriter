@@ -1,0 +1,503 @@
+// app/account/billing/page.tsx
+// Stripe Billing UI (Phase D-7 / ステータス別UI枠組み + 価格API連携版)
+// - Webhook で同期される購読ステータスを前提にした UI
+// - 有料プラン一覧は /api/billing/plans から Stripe Price 情報を取得して表示
+// - Checkout / Billing Portal のロジックはそのまま保持
+
+"use client";
+
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+
+type PlanCode =
+  | "FREE"
+  | "TRIALING"
+  | "BASIC_980"
+  | "STANDARD_2980"
+  | "PREMIUM_5980";
+
+// Prisma の enum SubscriptionStatus と対応させる想定のコード
+type SubscriptionStatusCode =
+  | "NONE"
+  | "TRIALING"
+  | "ACTIVE"
+  | "PAST_DUE"
+  | "CANCELED"
+  | "INACTIVE";
+
+// /api/billing/plans のレスポンスのうち、UI で使う部分だけを型として定義
+type BillingPlansApiPlan = {
+  code: PlanCode;
+  label: string;
+  description: string;
+  price: {
+    id: string;
+    unitAmount: number;
+    currency: string;
+    interval: string;
+  };
+  limits: {
+    monthly: number | null;
+    hourly: number | null;
+  };
+};
+
+type BillingPlansApiResponse =
+  | {
+      ok: true;
+      data: {
+        plans: BillingPlansApiPlan[];
+      };
+    }
+  | {
+      ok: false;
+      error?: {
+        message?: string;
+      };
+    };
+
+// UI 用に整形した 1 プランぶんの情報
+type BillingPlanSummary = {
+  code: PlanCode;
+  label: string;
+  description: string;
+  priceText: string;
+  quotaText: string;
+};
+
+// ==========================
+// ステータス → 表示テキスト変換
+// ==========================
+function getSubscriptionUi(status: SubscriptionStatusCode) {
+  switch (status) {
+    case "TRIALING":
+      return {
+        planLabel: "トライアルプラン（お試し中）",
+        priceText:
+          "お試し期間中です。課金開始前にいつでもキャンセルできます。",
+        badgeText: "お試し中",
+        badgeClass: "bg-sky-50 text-sky-700 border border-sky-100",
+        nextBillingText:
+          "次回請求日：Stripe 側の請求スケジュールに従います（テスト環境）",
+        noteText:
+          "トライアル終了後は、現在のプラン設定に応じて自動的に有料プランへ切り替わります。",
+      };
+    case "ACTIVE":
+      return {
+        planLabel: "有料プラン（テスト環境）",
+        priceText:
+          "有料プランをご利用中です。請求やお支払い状況は Stripe 側で管理されています。",
+        badgeText: "有効（有料プラン）",
+        badgeClass:
+          "bg-emerald-50 text-emerald-700 border border-emerald-100",
+        nextBillingText:
+          "次回請求日：次回請求日の情報は取得できませんでした（テスト環境）",
+        noteText:
+          "本番環境では、ここに実際の請求サイクルと金額が表示される想定です。",
+      };
+    case "PAST_DUE":
+      return {
+        planLabel: "有料プラン（お支払い要確認）",
+        priceText:
+          "お支払いに問題が発生しています。お支払い方法の更新または再決済が必要です。",
+        badgeText: "お支払い要確認",
+        badgeClass: "bg-amber-50 text-amber-800 border border-amber-100",
+        nextBillingText:
+          "次回請求日：お支払い状況が解消されるまで未確定です。",
+        noteText:
+          "Stripe カスタマーポータルからお支払い方法を確認・更新してください。",
+      };
+    case "CANCELED":
+      return {
+        planLabel: "解約済みプラン",
+        priceText:
+          "現在の請求期間終了後は、自動的に無料プランへ切り替わります。",
+        badgeText: "解約済み",
+        badgeClass:
+          "bg-slate-100 text-slate-600 border border-slate-200",
+        nextBillingText:
+          "次回請求日：現在の請求期間終了までは有料機能をご利用いただけます。",
+        noteText:
+          "再度有料プランをご利用いただく場合は、あらためてプランを選択してください。",
+      };
+    case "INACTIVE":
+      return {
+        planLabel: "利用停止中プラン",
+        priceText:
+          "現在、有料プランはご利用いただけません。必要に応じてプランを再度ご契約ください。",
+        badgeText: "利用停止中",
+        badgeClass:
+          "bg-slate-100 text-slate-600 border border-slate-200",
+        nextBillingText:
+          "次回請求日：なし（利用停止中のため請求は発生しません）。",
+        noteText:
+          "一時的なエラーや設定変更によりこの状態になる場合があります。",
+      };
+    case "NONE":
+    default:
+      return {
+        planLabel: "無料プラン",
+        priceText:
+          "現在は無料枠をご利用中です。有料プランにアップグレードすると、生成回数や機能が拡張されます。",
+        badgeText: "無料プラン",
+        badgeClass:
+          "bg-slate-100 text-slate-700 border border-slate-200",
+        nextBillingText:
+          "次回請求日：なし（無料プランのため請求は発生しません）。",
+        noteText:
+          "今後、有料プランの種類や価格は検証を経て順次調整していく予定です。",
+      };
+  }
+}
+
+// /api/billing/plans の情報を UI 用に整形するヘルパー
+function normalizePlansForUi(
+  apiPlans: BillingPlansApiPlan[],
+): BillingPlanSummary[] {
+  return apiPlans.map((plan) => {
+    const { unitAmount, currency, interval } = plan.price;
+
+    // 金額表示（現状は JPY 前提のシンプルな表現）
+    let priceText: string;
+    if (currency === "jpy") {
+      const formatted = unitAmount.toLocaleString("ja-JP");
+      priceText = `月額 ${formatted}円`;
+    } else {
+      priceText = `${interval} ${unitAmount} ${currency}`;
+    }
+
+    // 利用回数の説明（limits から組み立て）
+    const quotaParts: string[] = [];
+    if (plan.limits.monthly != null) {
+      quotaParts.push(`月${plan.limits.monthly}回`);
+    }
+    if (plan.limits.hourly != null) {
+      quotaParts.push(`1hあたり${plan.limits.hourly}回まで`);
+    }
+    const quotaText =
+      quotaParts.length > 0 ? quotaParts.join(" ＋ ") : "制限なし（無制限）";
+
+    return {
+      code: plan.code,
+      label: plan.label,
+      description: plan.description,
+      priceText,
+      quotaText,
+    };
+  });
+}
+
+// ==========================
+// Suspense ラッパー
+// ==========================
+export default function BillingPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto max-w-3xl px-6 py-12">
+          <p className="text-sm text-slate-600">
+            請求情報を読み込み中です…
+          </p>
+        </div>
+      }
+    >
+      <BillingPageContent />
+    </Suspense>
+  );
+}
+
+// ==========================
+// 実際の中身コンポーネント
+// ==========================
+function BillingPageContent() {
+  const params = useSearchParams();
+
+  const checkoutStatus = params.get("checkout");
+  const [message, setMessage] = useState<string | null>(null);
+  const [isCheckoutPosting, setIsCheckoutPosting] = useState(false);
+  const [isPortalOpening, setIsPortalOpening] = useState(false);
+
+  // /api/billing/plans から取得したプラン一覧
+  const [planSummaries, setPlanSummaries] = useState<BillingPlanSummary[] | null>(
+    null,
+  );
+  const [plansLoading, setPlansLoading] = useState(true);
+  const [plansError, setPlansError] = useState<string | null>(null);
+
+  // checkout=success|cancel フラッシュメッセージ
+  useEffect(() => {
+    if (checkoutStatus === "success") {
+      setMessage("決済が完了しました。ありがとうございます。");
+    } else if (checkoutStatus === "cancel") {
+      setMessage("決済をキャンセルしました。再度お試しください。");
+    } else {
+      setMessage(null);
+    }
+  }, [checkoutStatus]);
+
+  // 有料プラン一覧を API から取得
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchPlans() {
+      try {
+        setPlansLoading(true);
+        setPlansError(null);
+
+        const res = await fetch("/api/billing/plans", {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+        });
+
+        const data: BillingPlansApiResponse = await res.json();
+
+        if (!res.ok || !data.ok) {
+          const msg =
+            (!data.ok && data.error?.message) ||
+            "プラン情報を取得できませんでした。時間をおいて再度お試しください。";
+          if (!cancelled) {
+            setPlansError(msg);
+            setPlanSummaries(null);
+          }
+          return;
+        }
+
+        const summaries = normalizePlansForUi(data.data.plans);
+        if (!cancelled) {
+          setPlanSummaries(summaries);
+          setPlansError(null);
+        }
+      } catch (err) {
+        console.error("Failed to fetch /api/billing/plans:", err);
+        if (!cancelled) {
+          setPlansError(
+            "プラン情報を取得できませんでした。時間をおいて再度お試しください。",
+          );
+          setPlanSummaries(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setPlansLoading(false);
+        }
+      }
+    }
+
+    fetchPlans();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // --- ★ 現時点ではモック値（後続ステップで DB 実データに差し替え） ---
+  // Webhook により User.subscriptionStatus が更新される前提で、
+  // UI 側はこの status をもとに表示を切り替える。
+  const subscriptionStatus: SubscriptionStatusCode = "ACTIVE";
+  const stripeSubscriptionId = "sub_xxxxxxxxxxxxxxxxxxxxx"; // ← あとで DB から実値を連携予定
+
+  const ui = getSubscriptionUi(subscriptionStatus);
+
+  // Checkout API 呼び出し（D-5 実装分を保持：UI からの利用は後続フェーズ）
+  async function startCheckout(planCode: PlanCode) {
+    try {
+      setIsCheckoutPosting(true);
+
+      const res = await fetch("/api/stripe/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ planCode }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.ok || !data.url) {
+        console.error("Checkout error:", data);
+        alert(
+          "決済を開始できませんでした。しばらくしてから再度お試しください。",
+        );
+        return;
+      }
+
+      // Stripe Checkout 画面へ遷移
+      window.location.href = data.url;
+    } catch (err) {
+      console.error(err);
+      alert("エラーが発生しました。時間をおいて再試行してください。");
+    } finally {
+      setIsCheckoutPosting(false);
+    }
+  }
+
+  // Billing Portal API 呼び出し
+  async function openBillingPortal() {
+    try {
+      setIsPortalOpening(true);
+
+      const res = await fetch("/api/stripe/portal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.ok || !data.url) {
+        console.error("Billing Portal error:", {
+          status: res.status,
+          data,
+        });
+
+        if (res.status === 401) {
+          alert("ログインしてからお試しください。");
+          return;
+        }
+
+        if (res.status === 400) {
+          // D-7（Webhook）導入前は多くの場合ここに来る想定
+          alert(
+            "まだ決済情報が連携されていません。プラン購入後にご利用いただけます。",
+          );
+          return;
+        }
+
+        alert(
+          "請求情報のページを開けませんでした。時間をおいて再度お試しください。",
+        );
+        return;
+      }
+
+      // Stripe Billing Portal 画面へ遷移
+      window.location.href = data.url;
+    } catch (err) {
+      console.error(err);
+      alert("エラーが発生しました。時間をおいて再試行してください。");
+    } finally {
+      setIsPortalOpening(false);
+    }
+  }
+
+  return (
+    <div className="mx-auto max-w-3xl px-6 py-10 space-y-8">
+      {/* ページタイトル */}
+      <header className="space-y-2">
+        <h1 className="text-2xl font-bold tracking-tight">請求とプラン</h1>
+        <p className="text-sm text-slate-600">
+          現在のご利用プランと請求情報を確認できます。
+        </p>
+      </header>
+
+      {/* フラッシュメッセージ */}
+      {message && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+          {message}
+        </div>
+      )}
+
+      <section className="space-y-6">
+        {/* 現在のご利用プラン（ステータス別表示） */}
+        <div className="rounded-xl border bg-white px-6 py-5 shadow-sm">
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-slate-500">
+                現在のご利用プラン
+              </p>
+              <p className="text-lg font-semibold text-slate-900">
+                {ui.planLabel}
+              </p>
+              <p className="text-sm text-slate-700">{ui.priceText}</p>
+              <p className="mt-2 text-xs text-slate-500">
+                {ui.nextBillingText}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">{ui.noteText}</p>
+
+              {/* 開発メモ：あとで削除予定 */}
+              <p className="mt-2 text-[11px] text-slate-400">
+                開発メモ：subscriptionStatus = {subscriptionStatus} /
+                stripeSubscriptionId = {stripeSubscriptionId}
+              </p>
+            </div>
+
+            <span
+              className={[
+                "inline-flex items-center rounded-full px-3 py-1 text-xs font-medium",
+                ui.badgeClass,
+              ].join(" ")}
+            >
+              {ui.badgeText}
+            </span>
+          </div>
+        </div>
+
+        {/* 請求情報・支払い管理（Billing Portal） */}
+        <div className="space-y-3 rounded-xl border bg-white px-6 py-5 shadow-sm">
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-slate-900">
+              請求情報・支払い管理
+            </p>
+            <p className="text-sm text-slate-700">
+              支払い方法の変更や請求履歴の確認は、Stripe のカスタマーポータルから行えます。
+            </p>
+            <p className="text-xs text-slate-500">
+              ※請求書の履歴や領収書のダウンロードは、カスタマーポータル上で提供予定です。
+            </p>
+          </div>
+
+          <button
+            onClick={openBillingPortal}
+            disabled={isPortalOpening}
+            className="inline-flex items-center justify-center rounded-md bg-indigo-600 px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {isPortalOpening ? "読み込み中…" : "請求情報を確認・変更する"}
+          </button>
+        </div>
+
+        {/* 有料プランのご案内（Stripe Price 連動） */}
+        <div className="space-y-2 rounded-xl border border-dashed bg-slate-50 px-6 py-5">
+          <p className="text-sm font-semibold text-slate-900">
+            有料プランのご案内
+          </p>
+          <p className="text-sm text-slate-700">
+            ShopWriter をより快適にご利用いただくため、複数の有料プランをご用意しています。
+            金額は Stripe の Price 情報と同期されています。
+          </p>
+
+          {/* 読み込み中・エラー・成功で出し分け */}
+          {plansLoading && (
+            <p className="mt-2 text-xs text-slate-500">
+              プラン情報を読み込み中です…
+            </p>
+          )}
+
+          {!plansLoading && plansError && (
+            <p className="mt-2 text-xs text-red-600">
+              {plansError}
+            </p>
+          )}
+
+          {!plansLoading && !plansError && planSummaries && (
+            <ul className="mt-2 space-y-1 text-sm text-slate-700">
+              {planSummaries.map((plan) => (
+                <li key={plan.code}>
+                  ・{plan.label}（{plan.priceText}）：{plan.quotaText}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <p className="mt-2 text-xs text-slate-500">
+            ※本ページでは、まず UI と情報の整備を行っています。実際のプラン申し込みフローは後続フェーズで実装予定です。
+          </p>
+
+          {/* D-5 の Checkout ロジックがあるため、将来ここから startCheckout(plan.code) を呼び出す */}
+          {/* TODO: Phase1-D-B-Stripe
+              将来ここで plan.code を startCheckout(plan.code) に渡し、
+              /api/billing/plans の価格情報を用いた表示と連動した Checkout を行う */}
+          {isCheckoutPosting && (
+            <p className="mt-2 text-xs text-slate-500">
+              プラン変更の処理中です…
+            </p>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
