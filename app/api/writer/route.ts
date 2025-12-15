@@ -1,3 +1,4 @@
+// app/api/writer/route.ts
 // ランタイムは nodejs のまま維持すること。
 // Prisma / fetch(OpenAI) / ログ など Node.js 依存の処理があるため。
 // Precision Plan では "edge" への変更はリスクが高いので禁止。
@@ -6,12 +7,7 @@ export const runtime = "nodejs";
 import { writerLog } from "@/lib/metrics/writerLogger";
 import { getProductContextById } from "@/server/products/repository";
 import { buildWriterRequestContext } from "./request-parse";
-import {
-  sha256Hex,
-  logEvent,
-  forceConsoleEvent,
-  emitWriterEvent,
-} from "./_shared/logger";
+import { sha256Hex, logEvent, forceConsoleEvent, emitWriterEvent } from "./_shared/logger";
 import { runWriterPipeline } from "./pipeline";
 import { normalizeInput } from "./normalizer";
 import {
@@ -22,19 +18,183 @@ import {
   handleUnexpectedError,
 } from "./error-layer";
 
-/* =========================
-   Route: POST /api/writer
+// --- ✅ Billing Gate (Stripe subscriptionStatus) ---
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { prisma } from "@/lib/prisma";
 
-   Precision Phase1 メモ:
-   - route.ts は「リクエストの入口」として、
-     buildWriterRequestContext で組み立てた composed.system / composed.user を
-     runWriterPipeline に渡す役割を持つ。
-   - Precision モード（compose-v2 / Tone人格化）は
-     pipeline.ts ⇄ prompt/core.ts 側で動作しており、
-     現時点では PRECISION_MODE = false のため挙動は従来どおり。
-   - 本ファイルではロジックを変えず、どこで Precision がぶら下がるかを
-     コメントで明示するのみ（ゼロ差分ステップ）。
-========================= */
+type BillingGateReason = "PAST_DUE" | "CANCELED_PERIOD_ENDED" | "UNKNOWN_STATUS";
+
+function paymentRequired(
+  reason: BillingGateReason,
+  detail: {
+    subscriptionStatus: string | null;
+    subscriptionCurrentPeriodEnd: string | null;
+  },
+) {
+  return Response.json(
+    {
+      ok: false,
+      error: {
+        code: "payment_required",
+        reason,
+        ...detail,
+      },
+    },
+    { status: 402 },
+  );
+}
+
+function isLikelyCuid(id: unknown): id is string {
+  if (typeof id !== "string") return false;
+  return id.length >= 20 && id.startsWith("c");
+}
+
+async function checkSubscriptionGate(
+  session: unknown, // ✅ 型ズレ回避（最短で動作を確定する）
+  rid: string,
+  elapsedMs: number,
+) {
+  const s = session as any;
+
+  const sessionUserId = s?.user?.id ?? null;
+  const sessionEmail = s?.user?.email ?? null;
+
+  // セッションが無ければ「無料扱い」= ここでは止めない
+  if (!s || (!sessionEmail && !sessionUserId)) {
+    await emitWriterEvent("ok", {
+      phase: "billing_gate" as const,
+      ok: true,
+      reason: "NO_SESSION",
+      requestId: rid,
+      durationMs: elapsedMs,
+    } as any);
+    return { ok: true as const };
+  }
+
+  // email を第一優先にする（GitHub数値IDが混ざるため）
+  let u:
+    | {
+        subscriptionStatus: string | null;
+        subscriptionCurrentPeriodEnd: Date | null;
+      }
+    | null = null;
+
+  if (typeof sessionEmail === "string" && sessionEmail.length > 0) {
+    u = await prisma.user.findUnique({
+      where: { email: sessionEmail },
+      select: {
+        subscriptionStatus: true,
+        subscriptionCurrentPeriodEnd: true,
+      },
+    });
+  } else if (isLikelyCuid(sessionUserId)) {
+    u = await prisma.user.findUnique({
+      where: { id: sessionUserId },
+      select: {
+        subscriptionStatus: true,
+        subscriptionCurrentPeriodEnd: true,
+      },
+    });
+  }
+
+  // DBに居ないなら無料扱い（ここでは止めない）
+  if (!u) {
+    await emitWriterEvent("ok", {
+      phase: "billing_gate" as const,
+      ok: true,
+      reason: "USER_NOT_FOUND",
+      requestId: rid,
+      durationMs: elapsedMs,
+      sessionEmail: sessionEmail ?? null,
+      sessionUserId: typeof sessionUserId === "string" ? sessionUserId : null,
+    } as any);
+    return { ok: true as const };
+  }
+
+  const statusRaw = u.subscriptionStatus ?? null;
+  const status = statusRaw ? String(statusRaw).toUpperCase() : null;
+
+  const periodEndDate = u.subscriptionCurrentPeriodEnd ?? null;
+  const periodEndIso = periodEndDate ? new Date(periodEndDate).toISOString() : null;
+
+  if (status === "PAST_DUE") {
+    await emitWriterEvent("ok", {
+      phase: "billing_gate" as const,
+      ok: false,
+      reason: "PAST_DUE",
+      requestId: rid,
+      durationMs: elapsedMs,
+      subscriptionStatus: status,
+      subscriptionCurrentPeriodEnd: periodEndIso,
+    } as any);
+
+    return {
+      ok: false as const,
+      response: paymentRequired("PAST_DUE", {
+        subscriptionStatus: status,
+        subscriptionCurrentPeriodEnd: periodEndIso,
+      }),
+    };
+  }
+
+  if (status === "CANCELED") {
+    if (!periodEndDate) {
+      await emitWriterEvent("ok", {
+        phase: "billing_gate" as const,
+        ok: false,
+        reason: "CANCELED_PERIOD_ENDED",
+        requestId: rid,
+        durationMs: elapsedMs,
+        subscriptionStatus: status,
+        subscriptionCurrentPeriodEnd: null,
+      } as any);
+
+      return {
+        ok: false as const,
+        response: paymentRequired("CANCELED_PERIOD_ENDED", {
+          subscriptionStatus: status,
+          subscriptionCurrentPeriodEnd: null,
+        }),
+      };
+    }
+
+    const now = Date.now();
+    const end = new Date(periodEndDate).getTime();
+
+    if (!Number.isFinite(end) || now > end) {
+      await emitWriterEvent("ok", {
+        phase: "billing_gate" as const,
+        ok: false,
+        reason: "CANCELED_PERIOD_ENDED",
+        requestId: rid,
+        durationMs: elapsedMs,
+        subscriptionStatus: status,
+        subscriptionCurrentPeriodEnd: periodEndIso,
+      } as any);
+
+      return {
+        ok: false as const,
+        response: paymentRequired("CANCELED_PERIOD_ENDED", {
+          subscriptionStatus: status,
+          subscriptionCurrentPeriodEnd: periodEndIso,
+        }),
+      };
+    }
+  }
+
+  await emitWriterEvent("ok", {
+    phase: "billing_gate" as const,
+    ok: true,
+    reason: "PASS",
+    requestId: rid,
+    durationMs: elapsedMs,
+    subscriptionStatus: status,
+    subscriptionCurrentPeriodEnd: periodEndIso,
+  } as any);
+
+  return { ok: true as const };
+}
 
 export async function POST(req: Request) {
   const t0 = Date.now();
@@ -58,23 +218,14 @@ export async function POST(req: Request) {
       );
     }
 
-    const { input, composed, raw: reqInput } = ctxResult.data;
-
-    // composed は Stage1 (compose.ts) 由来の system/user。
-    // Precision Phase1 では、この値を入口として受け取り、
-    // pipeline.ts 側で compose-v2 の人格化 system/user と safely に共存させる。
-    const {
-      system: composedSystem,
-      user: composedUser,
-    } = composed;
+    const { composed, raw: reqInput } = ctxResult.data;
+    const { system: composedSystem, user: composedUser } = composed;
 
     provider = String(reqInput.provider ?? "openai").toLowerCase();
     const rawPrompt = (reqInput.prompt ?? "").toString();
     model = (reqInput.model ?? "gpt-4o-mini").toString();
     const temperature =
-      typeof reqInput.temperature === "number"
-        ? reqInput.temperature
-        : 0.7;
+      typeof reqInput.temperature === "number" ? reqInput.temperature : 0.7;
     const systemOverride = (reqInput.system ?? "").toString();
 
     await writerLog({
@@ -84,41 +235,25 @@ export async function POST(req: Request) {
     });
 
     if (!rawPrompt || rawPrompt.trim().length === 0) {
-      return handlePromptRequiredError(
-        provider,
-        model,
-        rid,
-        elapsed(),
-      );
+      return handlePromptRequiredError(provider, model, rid, elapsed());
     }
 
     if (provider !== "openai") {
-      return handleUnsupportedProviderError(
-        provider,
-        model,
-        rid,
-        elapsed(),
-      );
+      return handleUnsupportedProviderError(provider, model, rid, elapsed());
     }
 
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      return handleMissingApiKeyError(
-        provider,
-        model,
-        rid,
-        elapsed(),
-      );
+      return handleMissingApiKeyError(provider, model, rid, elapsed());
     }
 
-    // normalizeInput は Precision PhaseA/B で整備済みの正規化レイヤー。
-    // Precision Phase1 では、この normalized を起点に
-    // pipeline.ts 側で Tone人格化 / compose-v2 をサンドボックス実行する。
+    // ✅ 課金ゲート（ここで止める）
+    const session = await getServerSession(authOptions);
+    const gate = await checkSubscriptionGate(session, rid, elapsed());
+    if (!gate.ok) return gate.response;
+
     const n = normalizeInput(rawPrompt);
 
-    // 🧪 Precision Phase3: ProductContext 取得
-    // - reqInput は型の制約を避けるため any として扱い、
-    //   productId が string または number の場合に安全に string へ正規化する。
     const unsafeRawInput = reqInput as any;
     const rawProductId = unsafeRawInput?.productId;
 
@@ -133,8 +268,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const productContext =
-      productId ? await getProductContextById(productId) : null;
+    const productContext = productId ? await getProductContextById(productId) : null;
 
     {
       const payloadPre = {
@@ -155,12 +289,6 @@ export async function POST(req: Request) {
       await emitWriterEvent("ok", payloadPre);
     }
 
-    // 正常系本体は runWriterPipeline に委譲。
-    // Precision Phase1 では、ここから先で
-    // - normalized (n)
-    // - composedSystem / composedUser
-    // を起点に Prompt Core Layer（compose-v2 / Tone人格化）へ接続される。
-    // Precision Phase3 では、ProductContext もここで渡す。
     return runWriterPipeline({
       rawPrompt,
       normalized: n,
