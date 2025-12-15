@@ -1,19 +1,71 @@
 // FILE: app/debug/session/page.tsx
 "use client";
 
-// 隴幢ｽｬ騾｡・ｪ郢晁侭ﾎ晉ｹ晏ｳｨ縲定棔・ｱ隰ｨ蜉ｱ・邵ｺ・ｪ邵ｺ繝ｻ・ｮ迚吶・邵ｺ・ｪ鬮ｱ蜥丞飭郢ｧ・ｹ郢ｧ・ｿ郢晄じﾂ繝ｻ
-// 繝ｻ莠･・ｾ讙趣ｽｶ螢ｹ繝ｵ郢ｧ・ｧ郢晢ｽｼ郢ｧ・ｺ邵ｺ・ｧ SessionProvider 郢ｧ雋橸ｽｰ荳ｻ繝ｻ邵ｺ蜉ｱ笳・ｹｧ蟲ｨﾂ竏夲ｼ・ｸｺ阮呻ｽ定怦繝ｻ繝ｻ陞ｳ貅ｯ・｣繝ｻ竊楢ｬ鯉ｽｻ邵ｺ蟶吮穐邵ｺ蜻ｻ・ｼ繝ｻ
-export const dynamic = "force-static";
+import { useEffect, useState } from "react";
 
-export default function SessionDebugStub() {
+type SessionJson = Record<string, unknown> | null;
+
+export default function DebugSessionPage() {
+  const [session, setSession] = useState<SessionJson>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const res = await fetch("/api/auth/session", {
+          method: "GET",
+          credentials: "include",
+          headers: { accept: "application/json" },
+          cache: "no-store",
+        });
+
+        const text = await res.text();
+        const json = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+
+        if (!cancelled) setSession(json);
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : String(e));
+          setSession(null);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className="container max-w-3xl py-10">
       <h1 className="text-2xl font-semibold">Session Debug</h1>
+
       <p className="mt-2 text-sm text-muted-foreground">
-        隴幢ｽｬ騾｡・ｪ郢晁侭ﾎ晉ｹ晁・・ｰ・｡騾｡・･陋ｹ謔ｶ繝ｻ邵ｺ貅假ｽ∫ｸｲ竏壹Ι郢晁・繝｣郢ｧ・ｰ陷・ｽｺ陷牙ｸ吶・闕ｳﾂ隴弱ｉ蝎ｪ邵ｺ・ｫ霎滂ｽ｡陷会ｽｹ陋ｹ謔ｶ・邵ｺ・ｦ邵ｺ繝ｻ竏ｪ邵ｺ蜷ｶﾂ繝ｻ
+        ブラウザのログインCookieがある場合に限り、/api/auth/session の内容が表示されます。
       </p>
+
+      <div className="mt-6 rounded-lg border bg-background p-4">
+        {loading ? (
+          <p className="text-sm">loading...</p>
+        ) : error ? (
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-destructive">error</p>
+            <pre className="whitespace-pre-wrap break-words text-sm">{error}</pre>
+          </div>
+        ) : (
+          <pre className="whitespace-pre-wrap break-words text-sm">
+            {JSON.stringify(session, null, 2)}
+          </pre>
+        )}
+      </div>
     </div>
   );
 }
-
-
