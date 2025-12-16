@@ -169,7 +169,21 @@ export default function RootLayout({
           </header>
 
           {/* ==== ページ本体 ==== */}
-          {children}
+          <div className="min-h-[calc(100dvh-3rem)]">{children}</div>
+
+          {/* ==== Stripe審査対策：全ページ共通フッター（特商法リンク） ==== */}
+          <footer className="border-t bg-background">
+            <div className="mx-auto max-w-7xl px-4 py-6 md:px-8">
+              <div className="flex flex-col gap-2 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between">
+                <span>© {new Date().getFullYear()} ShopWriter</span>
+                <nav className="flex items-center gap-4">
+                  <Link href="/legal/tokushoho" className="underline">
+                    特定商取引法に基づく表記
+                  </Link>
+                </nav>
+              </div>
+            </div>
+          </footer>
         </Providers>
       </body>
     </html>
