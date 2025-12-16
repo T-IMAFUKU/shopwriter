@@ -169,19 +169,39 @@ export default function RootLayout({
           </header>
 
           {/* ==== ページ本体 ==== */}
-          <div className="min-h-[calc(100dvh-3rem)]">{children}</div>
+          <div className="min-h-dvh">{children}</div>
 
-          {/* ==== Stripe審査対策：全ページ共通フッター（特商法リンク） ==== */}
+          {/* ==== グローバルフッター（Stripe審査/法務導線） ==== */}
           <footer className="border-t bg-background">
-            <div className="mx-auto max-w-7xl px-4 py-6 md:px-8">
-              <div className="flex flex-col gap-2 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between">
-                <span>© {new Date().getFullYear()} ShopWriter</span>
-                <nav className="flex items-center gap-4">
-                  <Link href="/legal/tokushoho" className="underline">
-                    特定商取引法に基づく表記
-                  </Link>
-                </nav>
-              </div>
+            <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-6 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between md:px-8">
+              <div>© {new Date().getFullYear()} ShopWriter</div>
+
+              <nav className="flex flex-wrap items-center gap-x-6 gap-y-2">
+                <Link
+                  href="/support"
+                  className="hover:text-foreground underline-offset-4 hover:underline"
+                >
+                  サポート
+                </Link>
+                <Link
+                  href="/privacy"
+                  className="hover:text-foreground underline-offset-4 hover:underline"
+                >
+                  プライバシーポリシー
+                </Link>
+                <Link
+                  href="/terms"
+                  className="hover:text-foreground underline-offset-4 hover:underline"
+                >
+                  利用規約
+                </Link>
+                <Link
+                  href="/legal/tokushoho"
+                  className="hover:text-foreground underline-offset-4 hover:underline"
+                >
+                  特定商取引法に基づく表記
+                </Link>
+              </nav>
             </div>
           </footer>
         </Providers>
