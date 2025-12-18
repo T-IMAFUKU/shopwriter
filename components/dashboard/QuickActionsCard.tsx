@@ -9,6 +9,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { PenLine, Package } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
@@ -31,21 +32,31 @@ export function QuickActionsCard({
       </CardHeader>
 
       <CardContent className="p-5 md:p-6 pt-0">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Button asChild size="lg" className="justify-start">
-            <Link href={writerHref} aria-label="文章作成へ">
-              文章作成
+        {/* コンパクトボタンは維持しつつ、カード幅が広い時の“左スカスカ”をmin-widthで緩和 */}
+        <div className="flex flex-col items-start gap-2 sm:flex-row sm:flex-wrap sm:gap-3">
+          <Button asChild className="h-9 px-4 sm:min-w-[180px]">
+            <Link
+              href={writerHref}
+              aria-label="文章作成へ"
+              className="inline-flex items-center gap-2"
+            >
+              <PenLine className="h-4 w-4" aria-hidden="true" />
+              <span className="text-sm font-medium">文章作成</span>
             </Link>
           </Button>
 
           <Button
             asChild
-            size="lg"
             variant="secondary"
-            className="justify-start"
+            className="h-9 px-4 sm:min-w-[180px]"
           >
-            <Link href={productsHref} aria-label="商品情報管理へ">
-              商品情報管理
+            <Link
+              href={productsHref}
+              aria-label="商品情報管理へ"
+              className="inline-flex items-center gap-2"
+            >
+              <Package className="h-4 w-4" aria-hidden="true" />
+              <span className="text-sm font-medium">商品情報管理</span>
             </Link>
           </Button>
         </div>
