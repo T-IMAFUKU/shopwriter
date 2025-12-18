@@ -1,7 +1,8 @@
 // app/(dashboard)/products/page.tsx
 // L2-08-D: /products 最低限UI（空状態 + 「新規作成」ダミー）
 // - DB接続（最新10件）は維持
-// - まずは「管理画面らしさ」だけ最低限足す（作り込みは後回し）
+// - 一覧行クリックで /products/[id] へ遷移（L2-09A-2）
+// - まずは「管理画面らしさ」だけ最低限（作り込みは後回し）
 
 export const dynamic = "force-dynamic";
 
@@ -103,14 +104,20 @@ export default async function ProductsPage() {
           {!error && products.length > 0 && (
             <ul className="divide-y text-sm">
               {products.map((p) => (
-                <li key={p.id} className="flex items-center justify-between py-3">
-                  <div className="min-w-0">
-                    <p className="truncate font-medium">{p.name}</p>
-                    <p className="text-xs text-muted-foreground">ID: {p.id}</p>
-                  </div>
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {fmtDate(p.updatedAt)}
-                  </span>
+                <li key={p.id}>
+                  <Link
+                    href={`/products/${p.id}`}
+                    className="flex items-center justify-between gap-4 rounded-md px-2 py-3 transition hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={`商品詳細へ: ${p.name}`}
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{p.name}</p>
+                      <p className="text-xs text-muted-foreground">ID: {p.id}</p>
+                    </div>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {fmtDate(p.updatedAt)}
+                    </span>
+                  </Link>
                 </li>
               ))}
             </ul>
