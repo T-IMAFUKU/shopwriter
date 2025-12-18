@@ -1,27 +1,64 @@
 // middleware.ts
+// Auth Guard (NextAuth v4)
+// - 目的: 未ログイン状態での /products /account/* /dashboard などのアクセスを防ぐ
+// - 方針: 公開ページは通す / 保護ページはトークン必須
+// - 注意: middleware は Edge で動く（DBアクセスはしない）
+
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import { getToken } from "next-auth/jwt";
 
-/**
- * 譁ｹ驥晢ｼ・
- * - /api 縺ｯ邨ｶ蟇ｾ縺ｫ騾壹＆縺ｪ縺・ｼ医Α繝峨Ν繧ｦ繧ｧ繧｢縺ｮ蠖ｱ髻ｿ繧ｼ繝ｭ・・
- * - 髱咏噪/蜀・Κ繝代せ・・next, 髱咏噪繝輔ぃ繧､繝ｫ・峨ｂ蟇ｾ雎｡螟・
- * - 縺昴ｌ莉･螟厄ｼ医・繝ｼ繧ｸ驕ｷ遘ｻ邉ｻ・峨・蟆・擂縺ｮ諡｡蠑ｵ縺ｫ蛯吶∴縺ｦ邏騾壹ｊ・・o-op・・
- */
+const PUBLIC_PATHS: string[] = [
+  "/", // トップ
+  "/help", // ヘルプ
+  "/share", // 共有ページ（もし /share/* がある前提なら許可）
+  "/pricing", // もし存在するなら（無くても害はない）
+  "/plans", // もし存在するなら（無くても害はない）
+];
 
-export function middleware(_req: NextRequest) {
-  // 菴輔ｂ縺励↑縺・ｼ育ｴ騾壹ｊ・・
-  return NextResponse.next();
+const PROTECTED_PREFIXES: string[] = [
+  "/dashboard", // ダッシュボード一式
+  "/products", // 商品情報管理（今回）
+  "/account", // 請求情報など（/account/billing 等）
+];
+
+function isPublicPath(pathname: string): boolean {
+  // 完全一致 or 配下を許可
+  return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
 
-/**
- * matcher 縺ｮ驥崎ｦ√・繧､繝ｳ繝茨ｼ・
- * - `((?!api|_next|.*\\..*).*)` 縺ｧ /api 縺ｨ /_next 縺ｨ諡｡蠑ｵ蟄蝉ｻ倥″髱咏噪雉・肇繧貞ｮ悟・髯､螟・
- * - /share/* 縺ｪ縺ｩ縺ｮ蜈ｬ髢九ン繝･繝ｼ縺ｯ縺薙％縺ｧ邏騾壹ｊ縺輔○繧具ｼ医Ο繧ｸ繝・け縺ｯ蠕檎ｶ壹〒螳溯｣・庄閭ｽ・・
- */
+function isProtectedPath(pathname: string): boolean {
+  return PROTECTED_PREFIXES.some(
+    (p) => pathname === p || pathname.startsWith(p + "/"),
+  );
+}
+
+export async function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+
+  // 1) 公開ページは素通し
+  if (isPublicPath(pathname)) return NextResponse.next();
+
+  // 2) 保護ページ以外は素通し（今は“必要なところだけ”守る）
+  if (!isProtectedPath(pathname)) return NextResponse.next();
+
+  // 3) 保護ページは NextAuth token 必須
+  const secret = process.env.NEXTAUTH_SECRET;
+  const token = await getToken({ req, secret });
+
+  if (token) return NextResponse.next();
+
+  // 未ログインは NextAuth の signin へ（戻り先付き）
+  const signInUrl = req.nextUrl.clone();
+  signInUrl.pathname = "/api/auth/signin";
+  signInUrl.searchParams.set("callbackUrl", req.nextUrl.href);
+
+  return NextResponse.redirect(signInUrl);
+}
+
 export const config = {
   matcher: [
-    // 縺吶∋縺ｦ縺ｮ /api 繧帝勁螟悶・ _next / 髱咏噪繝輔ぃ繧､繝ｫ繧る勁螟厄ｼ井ｾ・ .png, .svg, .ico, .js, .css 縺ｪ縺ｩ・・
+    // /api, /_next, 拡張子付きファイル（.png .css 等）を除外してページだけ middleware 対象
     "/((?!api|_next|.*\\..*).*)",
   ],
 };
