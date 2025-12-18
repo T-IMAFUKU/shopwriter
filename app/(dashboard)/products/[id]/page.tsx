@@ -1,7 +1,7 @@
 // app/(dashboard)/products/[id]/page.tsx
-// L2-09B-1: 商品詳細ページ（最小DB取得）
-// - 商品IDで Product を1件取得して name を表示
-// - UIは最小（shadcn/ui）
+// L2-10-1: 商品詳細 → 文章作成（Writer）導線（リンクのみ）
+// - 商品詳細ページ（最小DB取得）
+// - 「この商品で文章作成する」ボタンで /writer?productId=... へ遷移
 // - middleware.ts のガード前提（ここでは追加制御しない）
 
 export const dynamic = "force-dynamic";
@@ -30,6 +30,8 @@ export default async function ProductDetailPage({ params }: PageProps) {
 
   if (!product) notFound();
 
+  const writerHref = `/writer?productId=${encodeURIComponent(product.id)}`;
+
   return (
     <div className="mx-auto w-full max-w-3xl space-y-4 p-4">
       <div className="flex items-center justify-between gap-3">
@@ -40,9 +42,15 @@ export default async function ProductDetailPage({ params }: PageProps) {
           </p>
         </div>
 
-        <Button asChild variant="outline">
-          <Link href="/products">一覧に戻る</Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button asChild>
+            <Link href={writerHref}>この商品で文章作成</Link>
+          </Button>
+
+          <Button asChild variant="outline">
+            <Link href="/products">一覧に戻る</Link>
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -64,7 +72,7 @@ export default async function ProductDetailPage({ params }: PageProps) {
           </div>
 
           <div className="text-sm text-muted-foreground">
-            ※ 次のステップで「文章作成」への導線（Writer連携）を追加していきます。
+            ※ ここではリンク導線のみ（DB追加/API追加はしない）
           </div>
         </CardContent>
       </Card>
