@@ -132,20 +132,27 @@ export default function RootLayout({
                 </Link>
 
                 {/* 右：アクション群 */}
-                <div className="flex items-center gap-2">
-                  {/* md以上で表示：共有の使い方 */}
+                <div className="flex items-center gap-1">
+                  {/* ✅ 常時表示：ダッシュボード（低優先・戻り導線 / ghost統一） */}
+                  <Button asChild variant="ghost" size="sm" className="px-2">
+                    <Link href="/dashboard" aria-label="ダッシュボードへ">
+                      ダッシュボード
+                    </Link>
+                  </Button>
+
+                  {/* md以上で表示：共有の使い方（ghost統一） */}
                   <Button
                     asChild
                     variant="ghost"
                     size="sm"
-                    className="hidden md:inline-flex"
+                    className="hidden md:inline-flex px-2"
                   >
                     <Link href="/share/guide" aria-label="共有の使い方">
                       共有の使い方
                     </Link>
                   </Button>
 
-                  {/* md以上で表示：プランを見る */}
+                  {/* md以上で表示：プランを見る（主役CTA：現状の強さ維持） */}
                   <Button
                     asChild
                     size="sm"
@@ -158,7 +165,7 @@ export default function RootLayout({
                     </Link>
                   </Button>
 
-                  {/* ✅ 常時表示：ログイン/ログアウト（導線復旧の本流） */}
+                  {/* ✅ 常時表示：ログイン/ログアウト */}
                   <AuthButton />
 
                   {/* 常時表示：ヘルプ（ドロップダウン） */}
