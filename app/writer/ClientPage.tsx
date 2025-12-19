@@ -252,10 +252,11 @@ export default function ClientPage({ productId }: ClientPageProps) {
   const {
     register,
     handleSubmit,
-    formState: { errors, isValid, isSubmitting },
+    formState: { errors, isValid, isSubmitting, dirtyFields },
     watch,
     reset,
     control,
+    setValue,
   } = useForm<FormValues>({
     resolver: zodResolver(FormSchema),
     mode: "onChange",
@@ -272,6 +273,81 @@ export default function ClientPage({ productId }: ClientPageProps) {
   });
   const product = watch("product");
   const featuresLen = [...(watch("features") ?? "")].length;
+
+  /* =========================
+     L2-11: productId -> product.name 初回のみ自動セット（手入力は上書きしない）
+  ========================= */
+  const prefillDoneForProductIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!productId) return;
+    if (prefillDoneForProductIdRef.current === productId) return;
+
+    // すでに入力済み、またはユーザーが触っているなら何もしない
+    const alreadyTyped = (product ?? "").trim().length > 0;
+    const userEdited = !!(dirtyFields as any)?.product;
+    if (alreadyTyped || userEdited) {
+      prefillDoneForProductIdRef.current = productId;
+      return;
+    }
+
+    const ac = new AbortController();
+
+    (async () => {
+      try {
+        // まずは一般的な形：/api/products/:id
+        const res = await fetch(`/api/products/${encodeURIComponent(productId)}`, {
+          method: "GET",
+          headers: { "content-type": "application/json" },
+          signal: ac.signal,
+        });
+
+        if (!res.ok) {
+          // 失敗しても現状維持（ガード/課金/Writerを壊さない）
+          prefillDoneForProductIdRef.current = productId;
+          return;
+        }
+
+        const j: any = await res.json().catch(() => ({}));
+        const name =
+          (typeof j?.name === "string" && j.name) ||
+          (typeof j?.product?.name === "string" && j.product.name) ||
+          (typeof j?.data?.name === "string" && j.data.name) ||
+          "";
+
+        const clean = String(name || "").trim();
+        if (!clean) {
+          prefillDoneForProductIdRef.current = productId;
+          return;
+        }
+
+        // 直前でユーザーが入力した可能性もあるので再チェック
+        const stillEmpty = (watch("product") ?? "").trim().length === 0;
+        const stillNotDirty = !!(dirtyFields as any)?.product === false;
+        if (!stillEmpty || !stillNotDirty) {
+          prefillDoneForProductIdRef.current = productId;
+          return;
+        }
+
+        setValue("product", clean, {
+          shouldDirty: false,
+          shouldTouch: false,
+          shouldValidate: true,
+        });
+
+        prefillDoneForProductIdRef.current = productId;
+      } catch {
+        // Abort/通信失敗などは握りつぶし（現状維持）
+        prefillDoneForProductIdRef.current = productId;
+      }
+    })();
+
+    return () => {
+      ac.abort();
+    };
+    // dirtyFields/product を依存に入れると毎回動きやすいので、最小の依存に寄せる
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productId, setValue, watch, product]);
 
   /* =========================
      クリーンアップ
@@ -522,8 +598,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
           console.debug(
             "[H-8/L2] stream TTFP(ms) ≈",
             Math.round(
-              (tFirstPaintRef.current ?? 0) -
-                (tSubmitRef.current ?? 0),
+              (tFirstPaintRef.current ?? 0) - (tSubmitRef.current ?? 0),
             ),
           );
           setIsLoading(false);
@@ -568,10 +643,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
             );
             return;
           }
-          setRestParasHtml((prev) => [
-            ...prev,
-            basicMarkdownToHtml(rest[i]),
-          ]);
+          setRestParasHtml((prev) => [...prev, basicMarkdownToHtml(rest[i])]);
           i += 1;
           pseudoStreamTimerRef.current = window.setTimeout(
             pushNext,
@@ -600,8 +672,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
         console.debug(
           "[H-8/L2] pseudo-stream TTFP(ms) ≈",
           Math.round(
-            (tFirstPaintRef.current ?? 0) -
-              (tSubmitRef.current ?? 0),
+            (tFirstPaintRef.current ?? 0) - (tSubmitRef.current ?? 0),
           ),
         );
         setIsLoading(false);
@@ -682,17 +753,15 @@ export default function ClientPage({ productId }: ClientPageProps) {
   }> = Array.isArray((productFacts as any)?.items)
     ? ((productFacts as any).items as any[])
     : [];
-  const hasReadableProductFacts =
-    hasProductFacts && productFactsItems.length > 0;
+  const hasReadableProductFacts = hasProductFacts && productFactsItems.length > 0;
 
   /* =========================
      提出UI
   ========================= */
   const submitDisabled = !isValid || isLoading || isSubmitting;
-  const submitReason =
-    !isValid
-      ? "必須項目の入力条件を満たしていません（それぞれのエラーメッセージを確認）"
-      : isLoading || isSubmitting
+  const submitReason = !isValid
+    ? "必須項目の入力条件を満たしていません（それぞれのエラーメッセージを確認）"
+    : isLoading || isSubmitting
       ? "実行中です"
       : "";
 
@@ -923,9 +992,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                   {...register("product")}
                 />
                 {errors.product && (
-                  <p className="text-xs text-red-500">
-                    {errors.product.message}
-                  </p>
+                  <p className="text-xs text-red-500">{errors.product.message}</p>
                 )}
               </div>
 
@@ -944,9 +1011,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                   {...register("purpose")}
                 />
                 {errors.purpose && (
-                  <p className="text-xs text-red-500">
-                    {errors.purpose.message}
-                  </p>
+                  <p className="text-xs text-red-500">{errors.purpose.message}</p>
                 )}
               </div>
 
@@ -971,9 +1036,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                   {...register("features")}
                 />
                 {errors.features ? (
-                  <p className="text-xs text-red-500">
-                    {errors.features.message}
-                  </p>
+                  <p className="text-xs text-red-500">{errors.features.message}</p>
                 ) : (
                   <p className="text-xs text-neutral-500">
                     ※ {MIN_FEATURES}文字以上で入力してください
@@ -1048,9 +1111,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                     <Label className="text-sm text-neutral-700 dark:text-neutral-300">
                       CTAを入れる
                     </Label>
-                    <p className="text-xs text-neutral-500">
-                      購入/申込の導線を明示
-                    </p>
+                    <p className="text-xs text-neutral-500">購入/申込の導線を明示</p>
                   </div>
                   <Controller
                     name="cta"
@@ -1195,9 +1256,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
             </AnimatePresence>
 
             {/* エラー */}
-            {error && (
-              <p className="text-xs text-red-600 mb-2">{error}</p>
-            )}
+            {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
 
             {/* 段階描画本文 */}
             <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed">
@@ -1236,9 +1295,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                   ))}
                 </div>
               ) : (
-                <p className="text-neutral-500">
-                  生成結果がここに表示されます。
-                </p>
+                <p className="text-neutral-500">生成結果がここに表示されます。</p>
               )}
             </div>
 
