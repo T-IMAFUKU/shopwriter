@@ -2,7 +2,7 @@
 // Stripe Billing UI (Phase D-7 / ステータス別UI枠組み + 価格API連携版)
 // - Webhook で同期される購読ステータスを前提にした UI
 // - 有料プラン一覧は /api/billing/plans から Stripe Price 情報を取得して表示
-// - Checkout / Billing Portal のロジックはそのまま保持
+// - Checkout / Billing Portal のロジックは保持（ただし Portal の叩き先は /api/billing/portal に統一）
 
 "use client";
 
@@ -65,6 +65,18 @@ type BillingPlanSummary = {
   quotaText: string;
 };
 
+// NextAuth session（最低限）
+type AuthSessionResponse = {
+  user?: {
+    id?: string;
+    email?: string | null;
+    name?: string | null;
+    stripeCustomerId?: string | null;
+    subscriptionStatus?: string | null;
+    stripeSubscriptionId?: string | null;
+  };
+};
+
 // ==========================
 // ステータス → 表示テキスト変換
 // ==========================
@@ -73,8 +85,7 @@ function getSubscriptionUi(status: SubscriptionStatusCode) {
     case "TRIALING":
       return {
         planLabel: "トライアルプラン（お試し中）",
-        priceText:
-          "お試し期間中です。課金開始前にいつでもキャンセルできます。",
+        priceText: "お試し期間中です。課金開始前にいつでもキャンセルできます。",
         badgeText: "お試し中",
         badgeClass: "bg-sky-50 text-sky-700 border border-sky-100",
         nextBillingText:
@@ -88,8 +99,7 @@ function getSubscriptionUi(status: SubscriptionStatusCode) {
         priceText:
           "有料プランをご利用中です。請求やお支払い状況は Stripe 側で管理されています。",
         badgeText: "有効（有料プラン）",
-        badgeClass:
-          "bg-emerald-50 text-emerald-700 border border-emerald-100",
+        badgeClass: "bg-emerald-50 text-emerald-700 border border-emerald-100",
         nextBillingText:
           "次回請求日：次回請求日の情報は取得できませんでした（テスト環境）",
         noteText:
@@ -113,8 +123,7 @@ function getSubscriptionUi(status: SubscriptionStatusCode) {
         priceText:
           "現在の請求期間終了後は、自動的に無料プランへ切り替わります。",
         badgeText: "解約済み",
-        badgeClass:
-          "bg-slate-100 text-slate-600 border border-slate-200",
+        badgeClass: "bg-slate-100 text-slate-600 border border-slate-200",
         nextBillingText:
           "次回請求日：現在の請求期間終了までは有料機能をご利用いただけます。",
         noteText:
@@ -126,8 +135,7 @@ function getSubscriptionUi(status: SubscriptionStatusCode) {
         priceText:
           "現在、有料プランはご利用いただけません。必要に応じてプランを再度ご契約ください。",
         badgeText: "利用停止中",
-        badgeClass:
-          "bg-slate-100 text-slate-600 border border-slate-200",
+        badgeClass: "bg-slate-100 text-slate-600 border border-slate-200",
         nextBillingText:
           "次回請求日：なし（利用停止中のため請求は発生しません）。",
         noteText:
@@ -140,14 +148,29 @@ function getSubscriptionUi(status: SubscriptionStatusCode) {
         priceText:
           "現在は無料枠をご利用中です。有料プランにアップグレードすると、生成回数や機能が拡張されます。",
         badgeText: "無料プラン",
-        badgeClass:
-          "bg-slate-100 text-slate-700 border border-slate-200",
+        badgeClass: "bg-slate-100 text-slate-700 border border-slate-200",
         nextBillingText:
           "次回請求日：なし（無料プランのため請求は発生しません）。",
         noteText:
           "今後、有料プランの種類や価格は検証を経て順次調整していく予定です。",
       };
   }
+}
+
+function normalizeSubscriptionStatus(value: unknown): SubscriptionStatusCode {
+  if (typeof value !== "string") return "NONE";
+  const v = value.toUpperCase();
+  if (
+    v === "NONE" ||
+    v === "TRIALING" ||
+    v === "ACTIVE" ||
+    v === "PAST_DUE" ||
+    v === "CANCELED" ||
+    v === "INACTIVE"
+  ) {
+    return v as SubscriptionStatusCode;
+  }
+  return "NONE";
 }
 
 // /api/billing/plans の情報を UI 用に整形するヘルパー
@@ -157,7 +180,6 @@ function normalizePlansForUi(
   return apiPlans.map((plan) => {
     const { unitAmount, currency, interval } = plan.price;
 
-    // 金額表示（現状は JPY 前提のシンプルな表現）
     let priceText: string;
     if (currency === "jpy") {
       const formatted = unitAmount.toLocaleString("ja-JP");
@@ -166,7 +188,6 @@ function normalizePlansForUi(
       priceText = `${interval} ${unitAmount} ${currency}`;
     }
 
-    // 利用回数の説明（limits から組み立て）
     const quotaParts: string[] = [];
     if (plan.limits.monthly != null) {
       quotaParts.push(`月${plan.limits.monthly}回`);
@@ -224,6 +245,13 @@ function BillingPageContent() {
   const [plansLoading, setPlansLoading] = useState(true);
   const [plansError, setPlansError] = useState<string | null>(null);
 
+  // セッション由来（stripeCustomerId が取れれば Portal が開ける）
+  const [stripeCustomerId, setStripeCustomerId] = useState<string | null>(null);
+  const [sessionStatus, setSessionStatus] =
+    useState<SubscriptionStatusCode>("NONE");
+  const [sessionStripeSubscriptionId, setSessionStripeSubscriptionId] =
+    useState<string | null>(null);
+
   // checkout=success|cancel フラッシュメッセージ
   useEffect(() => {
     if (checkoutStatus === "success") {
@@ -234,6 +262,40 @@ function BillingPageContent() {
       setMessage(null);
     }
   }, [checkoutStatus]);
+
+  // NextAuth session を取得（Portal の customerId を得る）
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchSession() {
+      try {
+        const res = await fetch("/api/auth/session", {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+        });
+
+        if (!res.ok) return;
+
+        const data: AuthSessionResponse = await res.json().catch(() => ({}));
+        const cid = data.user?.stripeCustomerId ?? null;
+        const subStatus = normalizeSubscriptionStatus(data.user?.subscriptionStatus);
+        const subId = data.user?.stripeSubscriptionId ?? null;
+
+        if (!cancelled) {
+          setStripeCustomerId(typeof cid === "string" ? cid : null);
+          setSessionStatus(subStatus);
+          setSessionStripeSubscriptionId(typeof subId === "string" ? subId : null);
+        }
+      } catch {
+        // 取れなくても UI は継続（Portal 押下時に案内する）
+      }
+    }
+
+    fetchSession();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // 有料プラン一覧を API から取得
   useEffect(() => {
@@ -289,15 +351,17 @@ function BillingPageContent() {
     };
   }, []);
 
-  // --- ★ 現時点ではモック値（後続ステップで DB 実データに差し替え） ---
-  // Webhook により User.subscriptionStatus が更新される前提で、
-  // UI 側はこの status をもとに表示を切り替える。
-  const subscriptionStatus: SubscriptionStatusCode = "ACTIVE";
-  const stripeSubscriptionId = "sub_xxxxxxxxxxxxxxxxxxxxx"; // ← あとで DB から実値を連携予定
+  // --- 表示は「現時点ではモック/もしくは session 由来」 ---
+  // まずは運用状態の観測が目的なので、sessionにあればそれを優先して表示する
+  const subscriptionStatus: SubscriptionStatusCode =
+    sessionStatus ?? "ACTIVE";
+
+  const stripeSubscriptionId =
+    sessionStripeSubscriptionId ?? "sub_xxxxxxxxxxxxxxxxxxxxx";
 
   const ui = getSubscriptionUi(subscriptionStatus);
 
-  // Checkout API 呼び出し（D-5 実装分を保持：UI からの利用は後続フェーズ）
+  // Checkout API 呼び出し（保持）
   async function startCheckout(planCode: PlanCode) {
     try {
       setIsCheckoutPosting(true);
@@ -318,7 +382,6 @@ function BillingPageContent() {
         return;
       }
 
-      // Stripe Checkout 画面へ遷移
       window.location.href = data.url;
     } catch (err) {
       console.error(err);
@@ -328,17 +391,27 @@ function BillingPageContent() {
     }
   }
 
-  // Billing Portal API 呼び出し
+  // Billing Portal API 呼び出し（★ここが今回の修正点）
   async function openBillingPortal() {
     try {
       setIsPortalOpening(true);
 
-      const res = await fetch("/api/stripe/portal", {
+      // customerId が無いと /api/billing/portal は 400 になるので、UIで先に案内する
+      if (!stripeCustomerId) {
+        alert(
+          "Stripe の顧客情報がまだ連携されていません（stripeCustomerId が未取得）。購読同期後にご利用いただけます。",
+        );
+        return;
+      }
+
+      const res = await fetch("/api/billing/portal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customerId: stripeCustomerId }),
       });
 
-      const data = await res.json();
+      // ルートが死んでいる/JSONでない場合に備えてガード
+      const data = await res.json().catch(() => ({} as any));
 
       if (!res.ok || !data.ok || !data.url) {
         console.error("Billing Portal error:", {
@@ -352,9 +425,8 @@ function BillingPageContent() {
         }
 
         if (res.status === 400) {
-          // D-7（Webhook）導入前は多くの場合ここに来る想定
           alert(
-            "まだ決済情報が連携されていません。プラン購入後にご利用いただけます。",
+            "請求情報を開くための情報が不足しています（customerId 未連携など）。購読同期後に再度お試しください。",
           );
           return;
         }
@@ -365,7 +437,6 @@ function BillingPageContent() {
         return;
       }
 
-      // Stripe Billing Portal 画面へ遷移
       window.location.href = data.url;
     } catch (err) {
       console.error(err);
@@ -412,7 +483,8 @@ function BillingPageContent() {
               {/* 開発メモ：あとで削除予定 */}
               <p className="mt-2 text-[11px] text-slate-400">
                 開発メモ：subscriptionStatus = {subscriptionStatus} /
-                stripeSubscriptionId = {stripeSubscriptionId}
+                stripeSubscriptionId = {stripeSubscriptionId} /
+                stripeCustomerId = {stripeCustomerId ?? "null"}
               </p>
             </div>
 
@@ -460,7 +532,6 @@ function BillingPageContent() {
             金額は Stripe の Price 情報と同期されています。
           </p>
 
-          {/* 読み込み中・エラー・成功で出し分け */}
           {plansLoading && (
             <p className="mt-2 text-xs text-slate-500">
               プラン情報を読み込み中です…
@@ -468,9 +539,7 @@ function BillingPageContent() {
           )}
 
           {!plansLoading && plansError && (
-            <p className="mt-2 text-xs text-red-600">
-              {plansError}
-            </p>
+            <p className="mt-2 text-xs text-red-600">{plansError}</p>
           )}
 
           {!plansLoading && !plansError && planSummaries && (
@@ -487,10 +556,6 @@ function BillingPageContent() {
             ※本ページでは、まず UI と情報の整備を行っています。実際のプラン申し込みフローは後続フェーズで実装予定です。
           </p>
 
-          {/* D-5 の Checkout ロジックがあるため、将来ここから startCheckout(plan.code) を呼び出す */}
-          {/* TODO: Phase1-D-B-Stripe
-              将来ここで plan.code を startCheckout(plan.code) に渡し、
-              /api/billing/plans の価格情報を用いた表示と連動した Checkout を行う */}
           {isCheckoutPosting && (
             <p className="mt-2 text-xs text-slate-500">
               プラン変更の処理中です…
