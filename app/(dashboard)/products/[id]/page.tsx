@@ -1,7 +1,7 @@
 // app/(dashboard)/products/[id]/page.tsx
 // L2-10-1: 商品詳細 → 文章作成（Writer）導線（リンクのみ）
 // - 商品詳細ページ（最小DB取得）
-// - 「この商品で文章作成する」ボタンで /writer?productId=... へ遷移
+// - 「この商品で文章を作成」ボタンで /writer?productId=... へ遷移
 // - middleware.ts のガード前提（ここでは追加制御しない）
 
 export const dynamic = "force-dynamic";
@@ -20,7 +20,6 @@ type PageProps = {
 
 export default async function ProductDetailPage({ params }: PageProps) {
   const id = params?.id ?? "";
-
   if (!id) notFound();
 
   const product = await prisma.product.findUnique({
@@ -30,7 +29,8 @@ export default async function ProductDetailPage({ params }: PageProps) {
 
   if (!product) notFound();
 
-  const writerHref = `/writer?productId=${encodeURIComponent(product.id)}`;
+  const qs = new URLSearchParams({ productId: product.id });
+  const writerHref = `/writer?${qs.toString()}`;
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-4 p-4">
@@ -42,9 +42,9 @@ export default async function ProductDetailPage({ params }: PageProps) {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <Button asChild>
-            <Link href={writerHref}>この商品で文章作成</Link>
+            <Link href={writerHref}>この商品で文章を作成</Link>
           </Button>
 
           <Button asChild variant="outline">
