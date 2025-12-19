@@ -12,14 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-  motion,
-  AnimatePresence,
-  useScroll,
-  useTransform,
-  MotionValue,
-  useReducedMotion,
-} from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import clsx from "clsx";
 
 import { Button, MotionButton } from "@/components/ui/button";
@@ -735,14 +728,6 @@ export default function ClientPage({ productId }: ClientPageProps) {
   }, [submit]);
 
   /* =========================
-     背景モーション
-  ========================= */
-  const { scrollYProgress } = useScroll();
-  const orbUp = useTransform(scrollYProgress, [0, 1], [0, -80]);
-  const orbDown = useTransform(scrollYProgress, [0, 1], [0, 120]);
-  const fadeBg = useTransform(scrollYProgress, [0, 0.3], [1, 0.8]);
-
-  /* =========================
      PRODUCT_FACTS のUI用整形
   ========================= */
   const productFactsItems: Array<{
@@ -766,41 +751,9 @@ export default function ClientPage({ productId }: ClientPageProps) {
       : "";
 
   return (
-    <div className="relative min-h-[calc(100dvh-160px)] isolate before:absolute before:inset-0 before:-z-20 before:bg-[linear-gradient(180deg,#F3F6FF_0%,#F9FBFF_50%,#FFFFFF_100%)]">
-      {/* グローバル変数（色相） */}
-      <style jsx global>{`
-        :root {
-          --brand-navy: #0B3BA7;
-          --brand-indigo: #1A56DB;
-          --brand-violet: #6A88FF;
-        }
-        @media (prefers-color-scheme: dark) {
-          :root {
-            --brand-navy: #0a2f8e;
-            --brand-indigo: #1a4fcc;
-            --brand-violet: #6a7fff;
-          }
-        }
-      `}</style>
-
-      {/* 背景オーブ */}
-      <motion.div
-        aria-hidden
-        className="pointer-events-none absolute -z-10 -top-24 -left-20 h-60 w-60 rounded-full bg-indigo-400/25 blur-3xl md:opacity-70"
-        style={{
-          y: orbUp,
-          opacity: fadeBg as MotionValue<number>,
-        }}
-      />
-      <motion.div
-        aria-hidden
-        className="pointer-events-none absolute -z-10 -bottom-28 -right-24 h-80 w-80 rounded-full bg-violet-400/25 blur-3xl md:opacity-70"
-        style={{
-          y: orbDown,
-          opacity: fadeBg as MotionValue<number>,
-        }}
-      />
-
+    // ✅ L2-15-2: Writerだけ敷いていた「全画面背景レイヤ」を撤去し、
+    //   ダッシュボードと同じ“地面”を使う（footer分離感の解消が目的）
+    <div className="relative">
       {/* Hero */}
       <div className="mx-auto max-w-7xl px-8 md:px-12 pt-8 md:pt-16 pb-6 md:pb-8">
         <motion.div
