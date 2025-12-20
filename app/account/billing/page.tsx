@@ -3,9 +3,14 @@
 // - Webhook で同期される購読ステータスを前提にした UI
 // - 有料プラン一覧は /api/billing/plans から Stripe Price 情報を取得して表示
 // - Checkout / Billing Portal のロジックは保持（ただし Portal の叩き先は /api/billing/portal に統一）
+//
+// 年内リリース最終化（Stripe完了後）:
+// - FREE（stripeCustomerId=null）で Billing Portal を押せるのはUX事故なので、UI側で無効化し /pricing へ誘導する
+// - alert ではなく、ページ内の案内に統一する
 
 "use client";
 
+import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
@@ -216,9 +221,7 @@ export default function BillingPage() {
     <Suspense
       fallback={
         <div className="mx-auto max-w-3xl px-6 py-12">
-          <p className="text-sm text-slate-600">
-            請求情報を読み込み中です…
-          </p>
+          <p className="text-sm text-slate-600">請求情報を読み込み中です…</p>
         </div>
       }
     >
@@ -278,7 +281,9 @@ function BillingPageContent() {
 
         const data: AuthSessionResponse = await res.json().catch(() => ({}));
         const cid = data.user?.stripeCustomerId ?? null;
-        const subStatus = normalizeSubscriptionStatus(data.user?.subscriptionStatus);
+        const subStatus = normalizeSubscriptionStatus(
+          data.user?.subscriptionStatus,
+        );
         const subId = data.user?.stripeSubscriptionId ?? null;
 
         if (!cancelled) {
@@ -287,7 +292,7 @@ function BillingPageContent() {
           setSessionStripeSubscriptionId(typeof subId === "string" ? subId : null);
         }
       } catch {
-        // 取れなくても UI は継続（Portal 押下時に案内する）
+        // 取れなくても UI は継続（Portal 押下時は無効化される）
       }
     }
 
@@ -351,15 +356,13 @@ function BillingPageContent() {
     };
   }, []);
 
-  // --- 表示は「現時点ではモック/もしくは session 由来」 ---
-  // まずは運用状態の観測が目的なので、sessionにあればそれを優先して表示する
-  const subscriptionStatus: SubscriptionStatusCode =
-    sessionStatus ?? "ACTIVE";
-
+  // --- 表示は「現時点では session 由来」 ---
+  const subscriptionStatus: SubscriptionStatusCode = sessionStatus ?? "ACTIVE";
   const stripeSubscriptionId =
     sessionStripeSubscriptionId ?? "sub_xxxxxxxxxxxxxxxxxxxxx";
-
   const ui = getSubscriptionUi(subscriptionStatus);
+
+  const canOpenPortal = Boolean(stripeCustomerId);
 
   // Checkout API 呼び出し（保持）
   async function startCheckout(planCode: PlanCode) {
@@ -376,7 +379,7 @@ function BillingPageContent() {
 
       if (!res.ok || !data.ok || !data.url) {
         console.error("Checkout error:", data);
-        alert(
+        setMessage(
           "決済を開始できませんでした。しばらくしてから再度お試しください。",
         );
         return;
@@ -385,21 +388,21 @@ function BillingPageContent() {
       window.location.href = data.url;
     } catch (err) {
       console.error(err);
-      alert("エラーが発生しました。時間をおいて再試行してください。");
+      setMessage("エラーが発生しました。時間をおいて再試行してください。");
     } finally {
       setIsCheckoutPosting(false);
     }
   }
 
-  // Billing Portal API 呼び出し（★ここが今回の修正点）
+  // Billing Portal API 呼び出し
   async function openBillingPortal() {
     try {
       setIsPortalOpening(true);
 
-      // customerId が無いと /api/billing/portal は 400 になるので、UIで先に案内する
+      // UI上は disabled だが、念のためガード
       if (!stripeCustomerId) {
-        alert(
-          "Stripe の顧客情報がまだ連携されていません（stripeCustomerId が未取得）。購読同期後にご利用いただけます。",
+        setMessage(
+          "請求情報の確認・変更は、有料プランのご契約後にご利用いただけます。",
         );
         return;
       }
@@ -410,7 +413,6 @@ function BillingPageContent() {
         body: JSON.stringify({ customerId: stripeCustomerId }),
       });
 
-      // ルートが死んでいる/JSONでない場合に備えてガード
       const data = await res.json().catch(() => ({} as any));
 
       if (!res.ok || !data.ok || !data.url) {
@@ -420,18 +422,18 @@ function BillingPageContent() {
         });
 
         if (res.status === 401) {
-          alert("ログインしてからお試しください。");
+          setMessage("ログインしてからお試しください。");
           return;
         }
 
         if (res.status === 400) {
-          alert(
+          setMessage(
             "請求情報を開くための情報が不足しています（customerId 未連携など）。購読同期後に再度お試しください。",
           );
           return;
         }
 
-        alert(
+        setMessage(
           "請求情報のページを開けませんでした。時間をおいて再度お試しください。",
         );
         return;
@@ -440,7 +442,7 @@ function BillingPageContent() {
       window.location.href = data.url;
     } catch (err) {
       console.error(err);
-      alert("エラーが発生しました。時間をおいて再試行してください。");
+      setMessage("エラーが発生しました。時間をおいて再試行してください。");
     } finally {
       setIsPortalOpening(false);
     }
@@ -475,17 +477,14 @@ function BillingPageContent() {
                 {ui.planLabel}
               </p>
               <p className="text-sm text-slate-700">{ui.priceText}</p>
-              <p className="mt-2 text-xs text-slate-500">
-                {ui.nextBillingText}
-              </p>
+              <p className="mt-2 text-xs text-slate-500">{ui.nextBillingText}</p>
               <p className="mt-1 text-xs text-slate-500">{ui.noteText}</p>
 
-              {/* 開発メモ：あとで削除予定 */}
-              <p className="mt-2 text-[11px] text-slate-400">
-                開発メモ：subscriptionStatus = {subscriptionStatus} /
-                stripeSubscriptionId = {stripeSubscriptionId} /
-                stripeCustomerId = {stripeCustomerId ?? "null"}
-              </p>
+              {!canOpenPortal && (
+                <p className="mt-2 text-xs text-slate-500">
+                  Stripe の顧客情報がまだ連携されていません（購読開始後に連携されます）。
+                </p>
+              )}
             </div>
 
             <span
@@ -513,20 +512,35 @@ function BillingPageContent() {
             </p>
           </div>
 
-          <button
-            onClick={openBillingPortal}
-            disabled={isPortalOpening}
-            className="inline-flex items-center justify-center rounded-md bg-indigo-600 px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50"
-          >
-            {isPortalOpening ? "読み込み中…" : "請求情報を確認・変更する"}
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <button
+              onClick={openBillingPortal}
+              disabled={!canOpenPortal || isPortalOpening}
+              className="inline-flex items-center justify-center rounded-md bg-indigo-600 px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isPortalOpening ? "読み込み中…" : "請求情報を確認・変更する"}
+            </button>
+
+            {!canOpenPortal && (
+              <Link
+                href="/pricing"
+                className="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-5 py-2 text-sm font-medium text-slate-900 shadow-sm hover:bg-slate-50"
+              >
+                プランを見る
+              </Link>
+            )}
+          </div>
+
+          {!canOpenPortal && (
+            <p className="text-xs text-slate-500">
+              有料プランのご契約後に、請求情報の確認・変更をご利用いただけます。
+            </p>
+          )}
         </div>
 
         {/* 有料プランのご案内（Stripe Price 連動） */}
         <div className="space-y-2 rounded-xl border border-dashed bg-slate-50 px-6 py-5">
-          <p className="text-sm font-semibold text-slate-900">
-            有料プランのご案内
-          </p>
+          <p className="text-sm font-semibold text-slate-900">有料プランのご案内</p>
           <p className="text-sm text-slate-700">
             ShopWriter をより快適にご利用いただくため、複数の有料プランをご用意しています。
             金額は Stripe の Price 情報と同期されています。
