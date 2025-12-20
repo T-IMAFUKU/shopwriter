@@ -1,12 +1,15 @@
 // app/account/billing/page.tsx
 // Stripe Billing UI (Phase D-7 / ステータス別UI枠組み + 価格API連携版)
-// - Webhook で同期される購読ステータスを前提にした UI
 // - 有料プラン一覧は /api/billing/plans から Stripe Price 情報を取得して表示
-// - Checkout / Billing Portal のロジックは保持（ただし Portal の叩き先は /api/billing/portal に統一）
+// - Billing Portal は /api/billing/portal に統一
 //
 // 年内リリース最終化（Stripe完了後）:
-// - FREE（stripeCustomerId=null）で Billing Portal を押せるのはUX事故なので、UI側で無効化し /pricing へ誘導する
-// - alert ではなく、ページ内の案内に統一する
+// - NextAuth session に stripeCustomerId / subscriptionStatus が載らない構成でも、Portal遷移の実動確認ができるようにする
+// - 「Portalを開けるか」の判定は、クライアントではなく /api/billing/portal（サーバ）に委ねる
+//   ※ session から user を特定し、サーバ側で customerId を解決する想定（または body の customerId を利用）
+//
+// 重要:
+// - これにより UI 側の誤判定（常にFREE扱い→ボタンdisabled）を回避し、paidユーザーのPortal動作確認を可能にする
 
 "use client";
 
@@ -21,7 +24,6 @@ type PlanCode =
   | "STANDARD_2980"
   | "PREMIUM_5980";
 
-// Prisma の enum SubscriptionStatus と対応させる想定のコード
 type SubscriptionStatusCode =
   | "NONE"
   | "TRIALING"
@@ -30,7 +32,6 @@ type SubscriptionStatusCode =
   | "CANCELED"
   | "INACTIVE";
 
-// /api/billing/plans のレスポンスのうち、UI で使う部分だけを型として定義
 type BillingPlansApiPlan = {
   code: PlanCode;
   label: string;
@@ -61,7 +62,6 @@ type BillingPlansApiResponse =
       };
     };
 
-// UI 用に整形した 1 プランぶんの情報
 type BillingPlanSummary = {
   code: PlanCode;
   label: string;
@@ -70,21 +70,18 @@ type BillingPlanSummary = {
   quotaText: string;
 };
 
-// NextAuth session（最低限）
 type AuthSessionResponse = {
   user?: {
     id?: string;
     email?: string | null;
     name?: string | null;
+    // NOTE: 現状の /api/auth/session には入っていない想定（入ってもOK）
     stripeCustomerId?: string | null;
     subscriptionStatus?: string | null;
     stripeSubscriptionId?: string | null;
   };
 };
 
-// ==========================
-// ステータス → 表示テキスト変換
-// ==========================
 function getSubscriptionUi(status: SubscriptionStatusCode) {
   switch (status) {
     case "TRIALING":
@@ -178,7 +175,6 @@ function normalizeSubscriptionStatus(value: unknown): SubscriptionStatusCode {
   return "NONE";
 }
 
-// /api/billing/plans の情報を UI 用に整形するヘルパー
 function normalizePlansForUi(
   apiPlans: BillingPlansApiPlan[],
 ): BillingPlanSummary[] {
@@ -213,9 +209,6 @@ function normalizePlansForUi(
   });
 }
 
-// ==========================
-// Suspense ラッパー
-// ==========================
 export default function BillingPage() {
   return (
     <Suspense
@@ -230,9 +223,6 @@ export default function BillingPage() {
   );
 }
 
-// ==========================
-// 実際の中身コンポーネント
-// ==========================
 function BillingPageContent() {
   const params = useSearchParams();
 
@@ -241,21 +231,20 @@ function BillingPageContent() {
   const [isCheckoutPosting, setIsCheckoutPosting] = useState(false);
   const [isPortalOpening, setIsPortalOpening] = useState(false);
 
-  // /api/billing/plans から取得したプラン一覧
   const [planSummaries, setPlanSummaries] = useState<BillingPlanSummary[] | null>(
     null,
   );
   const [plansLoading, setPlansLoading] = useState(true);
   const [plansError, setPlansError] = useState<string | null>(null);
 
-  // セッション由来（stripeCustomerId が取れれば Portal が開ける）
+  // セッション情報（最低限：ログインしているか）
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  // session に載っていれば使う（載っていないのが現状の前提）
   const [stripeCustomerId, setStripeCustomerId] = useState<string | null>(null);
   const [sessionStatus, setSessionStatus] =
     useState<SubscriptionStatusCode>("NONE");
-  const [sessionStripeSubscriptionId, setSessionStripeSubscriptionId] =
-    useState<string | null>(null);
 
-  // checkout=success|cancel フラッシュメッセージ
   useEffect(() => {
     if (checkoutStatus === "success") {
       setMessage("決済が完了しました。ありがとうございます。");
@@ -266,7 +255,7 @@ function BillingPageContent() {
     }
   }, [checkoutStatus]);
 
-  // NextAuth session を取得（Portal の customerId を得る）
+  // NextAuth session を取得（ログイン判定 + 任意でstripeCustomerId/statusも拾う）
   useEffect(() => {
     let cancelled = false;
 
@@ -277,22 +266,35 @@ function BillingPageContent() {
           headers: { "Content-Type": "application/json" },
         });
 
-        if (!res.ok) return;
+        if (!res.ok) {
+          if (!cancelled) {
+            setIsLoggedIn(false);
+            setStripeCustomerId(null);
+            setSessionStatus("NONE");
+          }
+          return;
+        }
 
         const data: AuthSessionResponse = await res.json().catch(() => ({}));
+        const email = data.user?.email ?? null;
+        const loggedIn = Boolean(email);
+
         const cid = data.user?.stripeCustomerId ?? null;
         const subStatus = normalizeSubscriptionStatus(
           data.user?.subscriptionStatus,
         );
-        const subId = data.user?.stripeSubscriptionId ?? null;
 
         if (!cancelled) {
+          setIsLoggedIn(loggedIn);
           setStripeCustomerId(typeof cid === "string" ? cid : null);
           setSessionStatus(subStatus);
-          setSessionStripeSubscriptionId(typeof subId === "string" ? subId : null);
         }
       } catch {
-        // 取れなくても UI は継続（Portal 押下時は無効化される）
+        if (!cancelled) {
+          setIsLoggedIn(false);
+          setStripeCustomerId(null);
+          setSessionStatus("NONE");
+        }
       }
     }
 
@@ -356,15 +358,15 @@ function BillingPageContent() {
     };
   }, []);
 
-  // --- 表示は「現時点では session 由来」 ---
-  const subscriptionStatus: SubscriptionStatusCode = sessionStatus ?? "ACTIVE";
-  const stripeSubscriptionId =
-    sessionStripeSubscriptionId ?? "sub_xxxxxxxxxxxxxxxxxxxxx";
+  // 表示は現状「session由来」（ただし session に課金情報が載らない場合があるため過信しない）
+  const subscriptionStatus: SubscriptionStatusCode = sessionStatus;
   const ui = getSubscriptionUi(subscriptionStatus);
 
-  const canOpenPortal = Boolean(stripeCustomerId);
+  // ★重要：Portal を開けるかの最終判定はサーバに委ねる
+  // - paidユーザー：/api/billing/portal が URL を返す
+  // - freeユーザー：/api/billing/portal が 400/403 等を返す（ここで /pricing 誘導）
+  const canAttemptOpenPortal = isLoggedIn;
 
-  // Checkout API 呼び出し（保持）
   async function startCheckout(planCode: PlanCode) {
     try {
       setIsCheckoutPosting(true);
@@ -394,23 +396,26 @@ function BillingPageContent() {
     }
   }
 
-  // Billing Portal API 呼び出し
   async function openBillingPortal() {
     try {
       setIsPortalOpening(true);
 
-      // UI上は disabled だが、念のためガード
-      if (!stripeCustomerId) {
-        setMessage(
-          "請求情報の確認・変更は、有料プランのご契約後にご利用いただけます。",
-        );
+      if (!isLoggedIn) {
+        setMessage("ログインしてからお試しください。");
         return;
       }
+
+      // customerId は「送れるなら送る」。送れない場合でもサーバ側で解決できる想定に寄せる。
+      // ※サーバ実装が customerId 必須の場合でも、ここで 400 になり、そのメッセージで /pricing 誘導できる。
+      const body =
+        stripeCustomerId && typeof stripeCustomerId === "string"
+          ? { customerId: stripeCustomerId }
+          : {};
 
       const res = await fetch("/api/billing/portal", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customerId: stripeCustomerId }),
+        body: JSON.stringify(body),
       });
 
       const data = await res.json().catch(() => ({} as any));
@@ -426,9 +431,10 @@ function BillingPageContent() {
           return;
         }
 
-        if (res.status === 400) {
+        // FREE など customer 未連携系はここに落ちる想定
+        if (res.status === 400 || res.status === 403) {
           setMessage(
-            "請求情報を開くための情報が不足しています（customerId 未連携など）。購読同期後に再度お試しください。",
+            "請求情報の確認・変更は、有料プランのご契約後にご利用いただけます。",
           );
           return;
         }
@@ -448,9 +454,12 @@ function BillingPageContent() {
     }
   }
 
+  // “session に課金情報が載らない” 場合、UIは FREE 表示になり得る。
+  // ただし Portal 可否はサーバ判定に寄せたため、paidユーザーはボタンから実動確認できる。
+  const showSessionHint = isLoggedIn && !stripeCustomerId;
+
   return (
     <div className="mx-auto max-w-3xl px-6 py-10 space-y-8">
-      {/* ページタイトル */}
       <header className="space-y-2">
         <h1 className="text-2xl font-bold tracking-tight">請求とプラン</h1>
         <p className="text-sm text-slate-600">
@@ -458,7 +467,6 @@ function BillingPageContent() {
         </p>
       </header>
 
-      {/* フラッシュメッセージ */}
       {message && (
         <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
           {message}
@@ -466,7 +474,6 @@ function BillingPageContent() {
       )}
 
       <section className="space-y-6">
-        {/* 現在のご利用プラン（ステータス別表示） */}
         <div className="rounded-xl border bg-white px-6 py-5 shadow-sm">
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-1">
@@ -480,9 +487,9 @@ function BillingPageContent() {
               <p className="mt-2 text-xs text-slate-500">{ui.nextBillingText}</p>
               <p className="mt-1 text-xs text-slate-500">{ui.noteText}</p>
 
-              {!canOpenPortal && (
+              {showSessionHint && (
                 <p className="mt-2 text-xs text-slate-500">
-                  Stripe の顧客情報がまだ連携されていません（購読開始後に連携されます）。
+                  ※現在のセッション情報では課金状態を取得できませんでした。請求情報の確認はボタンからお試しください。
                 </p>
               )}
             </div>
@@ -498,7 +505,6 @@ function BillingPageContent() {
           </div>
         </div>
 
-        {/* 請求情報・支払い管理（Billing Portal） */}
         <div className="space-y-3 rounded-xl border bg-white px-6 py-5 shadow-sm">
           <div className="space-y-1">
             <p className="text-sm font-semibold text-slate-900">
@@ -515,30 +521,27 @@ function BillingPageContent() {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <button
               onClick={openBillingPortal}
-              disabled={!canOpenPortal || isPortalOpening}
+              disabled={!canAttemptOpenPortal || isPortalOpening}
               className="inline-flex items-center justify-center rounded-md bg-indigo-600 px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isPortalOpening ? "読み込み中…" : "請求情報を確認・変更する"}
             </button>
 
-            {!canOpenPortal && (
-              <Link
-                href="/pricing"
-                className="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-5 py-2 text-sm font-medium text-slate-900 shadow-sm hover:bg-slate-50"
-              >
-                プランを見る
-              </Link>
-            )}
+            <Link
+              href="/pricing"
+              className="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-5 py-2 text-sm font-medium text-slate-900 shadow-sm hover:bg-slate-50"
+            >
+              プランを見る
+            </Link>
           </div>
 
-          {!canOpenPortal && (
+          {!isLoggedIn && (
             <p className="text-xs text-slate-500">
-              有料プランのご契約後に、請求情報の確認・変更をご利用いただけます。
+              請求情報の確認・変更を行うには、ログインが必要です。
             </p>
           )}
         </div>
 
-        {/* 有料プランのご案内（Stripe Price 連動） */}
         <div className="space-y-2 rounded-xl border border-dashed bg-slate-50 px-6 py-5">
           <p className="text-sm font-semibold text-slate-900">有料プランのご案内</p>
           <p className="text-sm text-slate-700">
