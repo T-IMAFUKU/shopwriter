@@ -140,6 +140,23 @@ export default function RootLayout({
                     </Link>
                   </Button>
 
+                  {/* ✅ md未満で表示：プラン（迷わない入口 / ghost） */}
+                  <Button
+                    asChild
+                    variant="ghost"
+                    size="sm"
+                    className="md:hidden px-2"
+                  >
+                    <Link
+                      href="/pricing"
+                      aria-label="プランを見る"
+                      className="inline-flex items-center gap-1"
+                    >
+                      <Crown className="size-4" />
+                      プラン
+                    </Link>
+                  </Button>
+
                   {/* md以上で表示：共有の使い方（ghost統一） */}
                   <Button
                     asChild
