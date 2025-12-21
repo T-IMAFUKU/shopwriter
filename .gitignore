@@ -69,3 +69,7 @@ _safety_untracked_dump/
 # local safety dump
 _safety_untracked_dump/
 
+
+# local backups
+_local_backups/
+

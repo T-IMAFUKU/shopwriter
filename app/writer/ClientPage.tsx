@@ -154,9 +154,8 @@ async function readStreamByParagraphs(
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
 
-    // 2つ以上の改行を段落区切りとして切り出す
     const parts = buffer.split(/\n{2,}/);
-    buffer = parts.pop() ?? ""; // 未確定バッファ
+    buffer = parts.pop() ?? "";
     for (const para of parts) {
       const clean = para.trim();
       if (clean) onParagraph(clean);
@@ -179,7 +178,7 @@ async function callWriterStreaming(payload: {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-shopwriter-stream": "1", // サーバ側が見ていればストリームで返すヒント
+      "x-shopwriter-stream": "1",
     },
     body: JSON.stringify(payload),
   });
@@ -192,36 +191,29 @@ async function callWriterStreaming(payload: {
 export default function ClientPage({ productId }: ClientPageProps) {
   const hasProductFacts = !!productId;
 
-  // 出力保持
-  const [result, setResult] = useState(""); // 全文（コピー/共有用）
-  const [leadHtml, setLeadHtml] = useState(""); // 先頭段落（HTML）
-  const [restParasHtml, setRestParasHtml] = useState<string[]>([]); // 2段落目以降（HTML配列・段階描画）
-  // PRODUCT_FACTS（/api/writer の meta.productFacts をそのまま保持）
+  const [result, setResult] = useState("");
+  const [leadHtml, setLeadHtml] = useState("");
+  const [restParasHtml, setRestParasHtml] = useState<string[]>([]);
   const [productFacts, setProductFacts] = useState<any | null>(null);
 
-  // 状態
   const [isLoading, setIsLoading] = useState(false);
   const [shareId, setShareId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // 演出
   const [showThinking, setShowThinking] = useState(false);
   const [showSkeleton, setShowSkeleton] = useState(false);
   const [justCompleted, setJustCompleted] = useState(false);
   const [showDoneBadge, setShowDoneBadge] = useState(false);
 
-  // タイマー
   const skeletonTimerRef = useRef<number | null>(null);
   const celebTimerRef = useRef<number | null>(null);
   const badgeTimerRef = useRef<number | null>(null);
   const pseudoStreamTimerRef = useRef<number | null>(null);
 
-  // TTFP 計測
   const tSubmitRef = useRef<number | null>(null);
   const tFirstPaintRef = useRef<number | null>(null);
 
-  // 出力カードへスクロール
   const resultRef = useRef<HTMLDivElement | null>(null);
   const prefersReduce = useReducedMotion();
   const scrollToResultSmart = useCallback(() => {
@@ -241,7 +233,6 @@ export default function ClientPage({ productId }: ClientPageProps) {
     requestAnimationFrame(() => requestAnimationFrame(run));
   }, [prefersReduce]);
 
-  // Form
   const {
     register,
     handleSubmit,
@@ -267,16 +258,12 @@ export default function ClientPage({ productId }: ClientPageProps) {
   const product = watch("product");
   const featuresLen = [...(watch("features") ?? "")].length;
 
-  /* =========================
-     L2-11: productId -> product.name 初回のみ自動セット（手入力は上書きしない）
-  ========================= */
   const prefillDoneForProductIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!productId) return;
     if (prefillDoneForProductIdRef.current === productId) return;
 
-    // すでに入力済み、またはユーザーが触っているなら何もしない
     const alreadyTyped = (product ?? "").trim().length > 0;
     const userEdited = !!(dirtyFields as any)?.product;
     if (alreadyTyped || userEdited) {
@@ -288,7 +275,6 @@ export default function ClientPage({ productId }: ClientPageProps) {
 
     (async () => {
       try {
-        // まずは一般的な形：/api/products/:id
         const res = await fetch(`/api/products/${encodeURIComponent(productId)}`, {
           method: "GET",
           headers: { "content-type": "application/json" },
@@ -296,7 +282,6 @@ export default function ClientPage({ productId }: ClientPageProps) {
         });
 
         if (!res.ok) {
-          // 失敗しても現状維持（ガード/課金/Writerを壊さない）
           prefillDoneForProductIdRef.current = productId;
           return;
         }
@@ -314,7 +299,6 @@ export default function ClientPage({ productId }: ClientPageProps) {
           return;
         }
 
-        // 直前でユーザーが入力した可能性もあるので再チェック
         const stillEmpty = (watch("product") ?? "").trim().length === 0;
         const stillNotDirty = !!(dirtyFields as any)?.product === false;
         if (!stillEmpty || !stillNotDirty) {
@@ -330,7 +314,6 @@ export default function ClientPage({ productId }: ClientPageProps) {
 
         prefillDoneForProductIdRef.current = productId;
       } catch {
-        // Abort/通信失敗などは握りつぶし（現状維持）
         prefillDoneForProductIdRef.current = productId;
       }
     })();
@@ -338,26 +321,18 @@ export default function ClientPage({ productId }: ClientPageProps) {
     return () => {
       ac.abort();
     };
-    // dirtyFields/product を依存に入れると毎回動きやすいので、最小の依存に寄せる
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productId, setValue, watch, product]);
 
-  /* =========================
-     クリーンアップ
-  ========================= */
   useEffect(() => {
     return () => {
       if (skeletonTimerRef.current) clearTimeout(skeletonTimerRef.current);
       if (celebTimerRef.current) clearTimeout(celebTimerRef.current);
       if (badgeTimerRef.current) clearTimeout(badgeTimerRef.current);
-      if (pseudoStreamTimerRef.current)
-        clearTimeout(pseudoStreamTimerRef.current);
+      if (pseudoStreamTimerRef.current) clearTimeout(pseudoStreamTimerRef.current);
     };
   }, []);
 
-  /* =========================
-     コピー / 共有
-  ========================= */
   const doCopy = useCallback(async () => {
     if (!result) return;
     try {
@@ -397,8 +372,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
     setError(null);
     setShareId(null);
     try {
-      if (!result)
-        throw new Error("共有する本文がありません。先に生成してください。");
+      if (!result) throw new Error("共有する本文がありません。先に生成してください。");
       const res = await createShare({
         title: product ? `${product} / Writer出力` : "Writer出力",
         body: result,
@@ -414,11 +388,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                 label: "開く",
                 onClick: () => {
                   try {
-                    window.open(
-                      `/share/${id}`,
-                      "_blank",
-                      "noopener,noreferrer",
-                    );
+                    window.open(`/share/${id}`, "_blank", "noopener,noreferrer");
                   } catch {}
                 },
               }
@@ -426,8 +396,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
         });
       } else {
         const j = await res.json().catch(() => ({}));
-        const msg =
-          j?.message || j?.error || `共有に失敗しました（${res.status}）`;
+        const msg = j?.message || j?.error || `共有に失敗しました（${res.status}）`;
         throw new Error(msg);
       }
     } catch (e: any) {
@@ -439,16 +408,12 @@ export default function ClientPage({ productId }: ClientPageProps) {
     }
   }, [product, result]);
 
-  /* =========================
-     送信（LEVEL 2：段階描画）
-  ========================= */
   const onSubmit = useCallback(
     async (vals: FormValues) => {
       setError(null);
       setShareId(null);
       setIsLoading(true);
 
-      // 表示系リセット
       setResult("");
       setLeadHtml("");
       setRestParasHtml([]);
@@ -456,7 +421,6 @@ export default function ClientPage({ productId }: ClientPageProps) {
       setJustCompleted(false);
       setShowDoneBadge(false);
 
-      // Thinking / Skeleton
       setShowThinking(true);
       if (skeletonTimerRef.current) clearTimeout(skeletonTimerRef.current);
       skeletonTimerRef.current = window.setTimeout(
@@ -464,7 +428,6 @@ export default function ClientPage({ productId }: ClientPageProps) {
         DUR.SKELETON_DELAY_MS,
       );
 
-      // タイマー
       if (celebTimerRef.current) {
         clearTimeout(celebTimerRef.current);
         celebTimerRef.current = null;
@@ -478,10 +441,8 @@ export default function ClientPage({ productId }: ClientPageProps) {
         pseudoStreamTimerRef.current = null;
       }
 
-      // 計測
       tSubmitRef.current = performance.now();
 
-      // Prompt 構築（既存踏襲）
       const sections: string[] = [
         `# プロダクト: ${vals.product}`,
         `# 用途: ${vals.purpose}`,
@@ -496,14 +457,10 @@ export default function ClientPage({ productId }: ClientPageProps) {
         "- 日本語",
         "- 具体的・簡潔・販売導線を意識",
       ];
-      if (vals.template === "lp")
-        sections.push("- 見出し→特長→CTA の順でセクション化");
-      if (vals.template === "email")
-        sections.push("- 件名→本文（導入/要点/CTA）");
-      if (vals.template === "sns_short")
-        sections.push("- 140字以内を目安、ハッシュタグ2つまで");
-      if (vals.template === "headline_only")
-        sections.push("- ヘッドライン案を3つ");
+      if (vals.template === "lp") sections.push("- 見出し→特長→CTA の順でセクション化");
+      if (vals.template === "email") sections.push("- 件名→本文（導入/要点/CTA）");
+      if (vals.template === "sns_short") sections.push("- 140字以内を目安、ハッシュタグ2つまで");
+      if (vals.template === "headline_only") sections.push("- ヘッドライン案を3つ");
       const prompt = sections.join("\n");
 
       const payload = {
@@ -520,13 +477,11 @@ export default function ClientPage({ productId }: ClientPageProps) {
       try {
         const res = await callWriterStreaming(payload);
 
-        // ストリーム可否判定
         const ct = res.headers.get("content-type") || "";
         const looksJson = ct.includes("application/json");
         const canStream = !!res.body && !looksJson;
 
         if (canStream && res.ok) {
-          // 真のストリーム：段落単位で描画
           setShowThinking(true);
           const parasArr: string[] = [];
           let firstPainted = false;
@@ -547,34 +502,23 @@ export default function ClientPage({ productId }: ClientPageProps) {
                   firstPainted = true;
                 }
               } else {
-                setRestParasHtml((prev) => [
-                  ...prev,
-                  basicMarkdownToHtml(para),
-                ]);
+                setRestParasHtml((prev) => [...prev, basicMarkdownToHtml(para)]);
               }
             },
             (rest) => {
               if (!firstPainted && rest) {
-                setLeadHtml(basicMarkdownToHtml(rest)); // 全文1段落
+                setLeadHtml(basicMarkdownToHtml(rest));
                 tFirstPaintRef.current = performance.now();
                 firstPainted = true;
               } else if (rest) {
-                setRestParasHtml((prev) => [
-                  ...prev,
-                  basicMarkdownToHtml(rest),
-                ]);
+                setRestParasHtml((prev) => [...prev, basicMarkdownToHtml(rest)]);
               }
             },
           );
 
-          // stream 経路では meta.productFacts は扱わず、
-          // PRODUCT_FACTS パネルは JSON レスポンス時のみ更新する方針。
-          const plain = [leadHtmlToPlain(), ...restParasToPlain()]
-            .join("\n\n")
-            .trim();
+          const plain = [leadHtmlToPlain(), ...restParasToPlain()].join("\n\n").trim();
           setResult(plain);
 
-          // 完了演出
           setShowThinking(false);
           setShowSkeleton(false);
           setJustCompleted(true);
@@ -590,22 +534,18 @@ export default function ClientPage({ productId }: ClientPageProps) {
 
           console.debug(
             "[H-8/L2] stream TTFP(ms) ≈",
-            Math.round(
-              (tFirstPaintRef.current ?? 0) - (tSubmitRef.current ?? 0),
-            ),
+            Math.round((tFirstPaintRef.current ?? 0) - (tSubmitRef.current ?? 0)),
           );
           setIsLoading(false);
           return;
         }
 
-        // フォールバック：JSON 一括
         const j = await res.json().catch(() => ({} as any));
         const text =
           (j?.data?.text as string) ??
           (j?.output as string) ??
           (typeof j === "string" ? j : "");
 
-        // PRODUCT_FACTS を meta からそのまま取得して表示
         const pf = (j as any)?.data?.meta?.productFacts ?? null;
         setProductFacts(pf ?? null);
 
@@ -620,7 +560,6 @@ export default function ClientPage({ productId }: ClientPageProps) {
           scrollToResultSmart();
         }
 
-        // 残りを段階描画
         let i = 0;
         const pushNext = () => {
           if (i >= rest.length) {
@@ -664,9 +603,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
         setResult(text);
         console.debug(
           "[H-8/L2] pseudo-stream TTFP(ms) ≈",
-          Math.round(
-            (tFirstPaintRef.current ?? 0) - (tSubmitRef.current ?? 0),
-          ),
+          Math.round((tFirstPaintRef.current ?? 0) - (tSubmitRef.current ?? 0)),
         );
         setIsLoading(false);
       } catch (e: any) {
@@ -683,7 +620,6 @@ export default function ClientPage({ productId }: ClientPageProps) {
     [scrollToResultSmart, productId],
   );
 
-  // plain text 再構成（結果整形用）
   const leadHtmlToPlain = () => {
     if (!leadHtml) return "";
     const tmp = document.createElement("div");
@@ -700,15 +636,11 @@ export default function ClientPage({ productId }: ClientPageProps) {
     return arr;
   };
 
-  // onSubmit ラッパ：宣言順を整理して安全に参照
   const submit = useCallback(() => {
     if (isLoading || isSubmitting || !isValid) return;
     void handleSubmit(onSubmit)();
   }, [handleSubmit, isLoading, isSubmitting, isValid, onSubmit]);
 
-  /* =========================
-     Ctrl/⌘ + Enter
-  ========================= */
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       // @ts-ignore
@@ -719,17 +651,12 @@ export default function ClientPage({ productId }: ClientPageProps) {
       e.preventDefault();
       submit();
     };
-    document.addEventListener("keydown", handler, {
-      passive: false,
-    });
+    document.addEventListener("keydown", handler, { passive: false });
     return () => {
       document.removeEventListener("keydown", handler);
     };
   }, [submit]);
 
-  /* =========================
-     PRODUCT_FACTS のUI用整形
-  ========================= */
   const productFactsItems: Array<{
     kind?: string;
     label?: string;
@@ -740,9 +667,6 @@ export default function ClientPage({ productId }: ClientPageProps) {
     : [];
   const hasReadableProductFacts = hasProductFacts && productFactsItems.length > 0;
 
-  /* =========================
-     提出UI
-  ========================= */
   const submitDisabled = !isValid || isLoading || isSubmitting;
   const submitReason = !isValid
     ? "必須項目の入力条件を満たしていません（それぞれのエラーメッセージを確認）"
@@ -751,10 +675,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
       : "";
 
   return (
-    // ✅ L2-15-2: Writerだけ敷いていた「全画面背景レイヤ」を撤去し、
-    //   ダッシュボードと同じ“地面”を使う（footer分離感の解消が目的）
     <div className="relative">
-      {/* Hero */}
       <div className="mx-auto max-w-7xl px-8 md:px-12 pt-8 md:pt-16 pb-6 md:pb-8">
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -798,7 +719,6 @@ export default function ClientPage({ productId }: ClientPageProps) {
         </motion.div>
       </div>
 
-      {/* ステップ表示 + PRODUCT_FACTS */}
       <div className="mx-auto max-w-7xl px-8 md:px-12 mt-2 md:mt-4">
         <div className="flex flex-wrap items-center justify-center gap-2 text-[12px] text-neutral-600 max-w-xl mx-auto text-center">
           <span className="inline-flex items-center gap-1 rounded-full border px-2 py-1 bg-white/70">
@@ -902,9 +822,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
         )}
       </div>
 
-      {/* 2カラム */}
       <div className="mx-auto max-w-7xl px-8 md:px-12 py-6 grid grid-cols-1 lg:grid-cols-[1.1fr,0.9fr] gap-8">
-        {/* 左：フォーム */}
         <motion.section
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
@@ -930,13 +848,12 @@ export default function ClientPage({ productId }: ClientPageProps) {
                 submit();
               }}
             >
-              {/* 商品名 */}
               <div>
                 <Label className="text-sm text-neutral-700 dark:text-neutral-300">
                   商品名
                 </Label>
                 <Input
-                  placeholder="例）アイン薬局（全国の調剤薬局チェーン）"
+                  placeholder="例）ShopWriter"
                   aria-invalid={!!errors.product}
                   className={clsx(
                     errors.product &&
@@ -949,13 +866,12 @@ export default function ClientPage({ productId }: ClientPageProps) {
                 )}
               </div>
 
-              {/* 用途・目的 */}
               <div>
                 <Label className="text-sm text-neutral-700 dark:text-neutral-300">
                   用途・目的
                 </Label>
                 <Input
-                  placeholder="例）ホームページ用の紹介文を作りたい"
+                  placeholder="例）EC事業者向けに、商品紹介文やLP用コピーを効率よく作成したい"
                   aria-invalid={!!errors.purpose}
                   className={clsx(
                     errors.purpose &&
@@ -968,7 +884,6 @@ export default function ClientPage({ productId }: ClientPageProps) {
                 )}
               </div>
 
-              {/* 特徴・強み */}
               <div>
                 <div className="flex items-center justify-between">
                   <Label className="text-sm text-neutral-700 dark:text-neutral-300">
@@ -980,7 +895,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                 </div>
                 <Textarea
                   rows={4}
-                  placeholder="例）全国展開の調剤薬局。薬剤師が常駐し、処方箋に合わせた丁寧な服薬サポート。待ち時間の短縮、OTC医薬品の相談対応 など。"
+                  placeholder="例）AIが商品情報と用途をもとに、すぐに使える文章を自動生成。テンプレ設計により、LP・SNS向けの構成にも対応。入力がシンプルで、誰でも迷わず文章作成ができる。"
                   aria-invalid={!!errors.features}
                   className={clsx(
                     errors.features &&
@@ -997,14 +912,13 @@ export default function ClientPage({ productId }: ClientPageProps) {
                 )}
               </div>
 
-              {/* ターゲット / トーン */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label className="text-sm text-neutral-700 dark:text-neutral-300">
                     ターゲット
                   </Label>
                   <Input
-                    placeholder="例）地域の患者さん／ご家族／高齢の方"
+                    placeholder="例）EC事業者／オンラインショップ運営者／マーケティング担当者"
                     aria-invalid={!!errors.audience}
                     {...register("audience")}
                   />
@@ -1014,51 +928,62 @@ export default function ClientPage({ productId }: ClientPageProps) {
                     </p>
                   )}
                 </div>
+
                 <div>
                   <Label className="text-sm text-neutral-700 dark:text-neutral-300">
                     トーン
                   </Label>
                   <select
-                    className="w-full border rounded-md h-9 px-2 bg-background"
+                    className="w-full border rounded-md h-9 px-2 bg-background opacity-70 cursor-not-allowed"
+                    disabled
+                    aria-disabled="true"
                     {...register("tone")}
                   >
-                    <option value="friendly">親しみやすい</option>
-                    <option value="professional">落ち着いた/専門的</option>
-                    <option value="casual">カジュアル</option>
-                    <option value="energetic">エネルギッシュ</option>
+                    <option value="friendly">Coming soon</option>
                   </select>
                 </div>
               </div>
 
-              {/* テンプレ / 長さ / CTA */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <Label className="text-sm text-neutral-700 dark:text-neutral-300">
                     テンプレ
                   </Label>
+
                   <select
                     className="w-full border rounded-md h-9 px-2 bg-background"
                     {...register("template")}
                   >
-                    <option value="lp">LP</option>
-                    <option value="email">メール</option>
-                    <option value="sns_short">SNSショート</option>
-                    <option value="headline_only">ヘッドライン</option>
+                    <option value="lp">標準（おすすめ）</option>
+                    <option value="sns_short">SNS</option>
+
+                    <option value="__sep" disabled>
+                      ──────────────
+                    </option>
+
+                    <option value="email" disabled>
+                      広告（Coming soon）
+                    </option>
+                    <option value="headline_only" disabled>
+                      プロモーション（Coming soon）
+                    </option>
                   </select>
                 </div>
+
                 <div>
                   <Label className="text-sm text-neutral-700 dark:text-neutral-300">
                     長さ
                   </Label>
                   <select
-                    className="w-full border rounded-md h-9 px-2 bg-background"
+                    className="w-full border rounded-md h-9 px-2 bg-background opacity-70 cursor-not-allowed"
+                    disabled
+                    aria-disabled="true"
                     {...register("length")}
                   >
-                    <option value="short">短め</option>
-                    <option value="medium">普通</option>
-                    <option value="long">長め</option>
+                    <option value="medium">Coming soon</option>
                   </select>
                 </div>
+
                 <div className="flex items-center justify-between border rounded-md px-3">
                   <div>
                     <Label className="text-sm text-neutral-700 dark:text-neutral-300">
@@ -1080,7 +1005,6 @@ export default function ClientPage({ productId }: ClientPageProps) {
                 </div>
               </div>
 
-              {/* アクション */}
               <div className="pt-2 flex items-center gap-2 flex-wrap">
                 <MotionButton
                   type="submit"
@@ -1137,7 +1061,6 @@ export default function ClientPage({ productId }: ClientPageProps) {
           </Card>
         </motion.section>
 
-        {/* 右：出力 */}
         <motion.section
           ref={resultRef}
           initial={{ opacity: 0, y: 6 }}
@@ -1183,7 +1106,6 @@ export default function ClientPage({ productId }: ClientPageProps) {
               </div>
             </div>
 
-            {/* Thinking strip */}
             <AnimatePresence initial={false}>
               {showThinking && (
                 <motion.div
@@ -1208,10 +1130,8 @@ export default function ClientPage({ productId }: ClientPageProps) {
               )}
             </AnimatePresence>
 
-            {/* エラー */}
             {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
 
-            {/* 段階描画本文 */}
             <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed">
               {showSkeleton ? (
                 <div
@@ -1238,11 +1158,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                       dangerouslySetInnerHTML={{ __html: h }}
                       key={idx}
                       initial={{ opacity: 0, y: 6, filter: "blur(2px)" }}
-                      animate={{
-                        opacity: 1,
-                        y: 0,
-                        filter: "blur(0px)",
-                      }}
+                      animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
                       transition={{ duration: 0.28 }}
                     />
                   ))}
@@ -1252,7 +1168,6 @@ export default function ClientPage({ productId }: ClientPageProps) {
               )}
             </div>
 
-            {/* 完了演出 */}
             <AnimatePresence initial={false}>
               {justCompleted && !isLoading && !error && (
                 <div className="pointer-events-none absolute inset-0 z-50 overflow-visible">
@@ -1267,12 +1182,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                         key={i}
                         className="absolute text-base select-none"
                         style={{ top, left }}
-                        initial={{
-                          opacity: 0,
-                          y: 0,
-                          scale: 0.6,
-                          rotate: 0,
-                        }}
+                        initial={{ opacity: 0, y: 0, scale: 0.6, rotate: 0 }}
                         animate={{
                           opacity: [0, 1, 0],
                           y: -18,
@@ -1280,11 +1190,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                           rotate: 20,
                         }}
                         exit={{ opacity: 0 }}
-                        transition={{
-                          duration: 1.2,
-                          delay,
-                          ease: "easeOut",
-                        }}
+                        transition={{ duration: 1.2, delay, ease: "easeOut" }}
                         aria-hidden="true"
                       >
                         ✨
