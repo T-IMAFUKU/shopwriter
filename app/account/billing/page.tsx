@@ -235,8 +235,6 @@ function BillingPageContent() {
   const ui = getSubscriptionUi(subscriptionStatus);
 
   // ★重要：Portal を開けるかの最終判定はサーバに委ねる
-  // - paidユーザー：/api/billing/portal が URL を返す
-  // - freeユーザー：/api/billing/portal が 400/403 等を返す（ここで /pricing 誘導）
   const canAttemptOpenPortal = isLoggedIn;
 
   async function startCheckout(planCode: PlanCode) {
@@ -277,8 +275,6 @@ function BillingPageContent() {
         return;
       }
 
-      // customerId は「送れるなら送る」。送れない場合でもサーバ側で解決できる想定に寄せる。
-      // ※サーバ実装が customerId 必須の場合でも、ここで 400 になり、そのメッセージで /pricing 誘導できる。
       const body =
         stripeCustomerId && typeof stripeCustomerId === "string"
           ? { customerId: stripeCustomerId }
@@ -303,7 +299,6 @@ function BillingPageContent() {
           return;
         }
 
-        // FREE など customer 未連携系はここに落ちる想定
         if (res.status === 400 || res.status === 403) {
           setMessage(
             "請求情報の確認・変更は、有料プランのご契約後にご利用いただけます。",
@@ -326,8 +321,6 @@ function BillingPageContent() {
     }
   }
 
-  // “session に課金情報が載らない” 場合、UIは FREE 表示になり得る。
-  // ただし Portal 可否はサーバ判定に寄せたため、paidユーザーはボタンから実動確認できる。
   const showSessionHint = isLoggedIn && !stripeCustomerId;
 
   return (
@@ -357,8 +350,19 @@ function BillingPageContent() {
 
       <section className="space-y-6">
         <div className="rounded-xl border bg-white px-6 py-5 shadow-sm">
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-1">
+          {/* ✅ モバイル：縦並び（バッジを先頭=上寄せ） / sm以上：従来どおり右側 */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+            <span
+              className={[
+                "inline-flex items-center rounded-full px-3 py-1 text-xs font-medium",
+                "self-start sm:ml-auto sm:self-start sm:order-2",
+                ui.badgeClass,
+              ].join(" ")}
+            >
+              {ui.badgeText}
+            </span>
+
+            <div className="space-y-1 sm:order-1">
               <p className="text-xs font-medium text-slate-500">
                 現在のご利用プラン
               </p>
@@ -375,15 +379,6 @@ function BillingPageContent() {
                 </p>
               )}
             </div>
-
-            <span
-              className={[
-                "inline-flex items-center rounded-full px-3 py-1 text-xs font-medium",
-                ui.badgeClass,
-              ].join(" ")}
-            >
-              {ui.badgeText}
-            </span>
           </div>
         </div>
 

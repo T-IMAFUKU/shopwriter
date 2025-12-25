@@ -111,7 +111,8 @@ export default function RootLayout({
           {/* ==== グローバルヘッダー（ブランド＋CTA＋ログイン＋ヘルプ） ==== */}
           <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
             <div className="mx-auto max-w-7xl px-4 md:px-8">
-              <div className="flex h-12 items-center justify-between gap-3">
+              {/* モバイルだけ縦積み（重なり回避）/ sm以上は従来どおり横並び */}
+              <div className="flex flex-col gap-1 py-1 sm:h-12 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:py-0">
                 {/* 左：ブランド（ホームリンク） */}
                 <Link
                   href="/"
@@ -131,28 +132,60 @@ export default function RootLayout({
                   </span>
                 </Link>
 
-                {/* 右：アクション群 */}
-                <div className="flex items-center gap-1">
-                  {/* ✅ 常時表示：ダッシュボード（低優先・戻り導線 / ghost統一） */}
-                  <Button asChild variant="ghost" size="sm" className="px-2">
+                {/* 右：アクション群
+                   - モバイル：折り返し禁止（nowrap）＋ 横スクロール
+                   - 重要：各アイテムを shrink-0 にして“潰れ”を発生させない
+                 */}
+                <div className="-mx-2 flex w-full flex-nowrap items-center gap-1 overflow-x-auto px-2 py-1 whitespace-nowrap sm:mx-0 sm:w-auto sm:overflow-visible sm:px-0 sm:py-0">
+                  {/* ✅ モバイル：ダッシュボード（短縮ラベル） */}
+                  <Button
+                    asChild
+                    variant="ghost"
+                    size="sm"
+                    className="sm:hidden px-2 shrink-0 whitespace-nowrap"
+                  >
+                    <Link href="/dashboard" aria-label="ダッシュボードへ">
+                      ダッシュ
+                    </Link>
+                  </Button>
+
+                  {/* ✅ sm以上：ダッシュボード（従来ラベル） */}
+                  <Button
+                    asChild
+                    variant="ghost"
+                    size="sm"
+                    className="hidden sm:inline-flex px-2 shrink-0 whitespace-nowrap"
+                  >
                     <Link href="/dashboard" aria-label="ダッシュボードへ">
                       ダッシュボード
                     </Link>
                   </Button>
 
-                  {/* ✅ md未満で表示：プラン（迷わない入口 / ghost） */}
+                  {/* ✅ モバイル：共有の使い方（短縮ラベル） */}
                   <Button
                     asChild
                     variant="ghost"
                     size="sm"
-                    className="md:hidden px-2"
+                    className="sm:hidden px-2 shrink-0 whitespace-nowrap"
+                  >
+                    <Link href="/share/guide" aria-label="共有の使い方">
+                      共有
+                    </Link>
+                  </Button>
+
+                  {/* ✅ sm未満で表示：プラン（迷わない入口 / ghost） */}
+                  <Button
+                    asChild
+                    variant="ghost"
+                    size="sm"
+                    className="sm:hidden px-2 shrink-0 whitespace-nowrap"
                   >
                     <Link
                       href="/pricing"
                       aria-label="プランを見る"
-                      className="inline-flex items-center gap-1"
+                      className="inline-flex items-center gap-1 whitespace-nowrap"
                     >
-                      <Crown className="size-4" />
+                      <Crown className="size-4 shrink-0" />
                       プラン
                     </Link>
                   </Button>
@@ -162,7 +195,7 @@ export default function RootLayout({
                     asChild
                     variant="ghost"
                     size="sm"
-                    className="hidden md:inline-flex px-2"
+                    className="hidden md:inline-flex px-2 shrink-0 whitespace-nowrap"
                   >
                     <Link href="/share/guide" aria-label="共有の使い方">
                       共有の使い方
@@ -173,20 +206,24 @@ export default function RootLayout({
                   <Button
                     asChild
                     size="sm"
-                    className="hidden md:inline-flex gap-1"
+                    className="hidden md:inline-flex gap-1 shrink-0 whitespace-nowrap"
                     aria-label="プランを見る"
                   >
-                    <Link href="/pricing">
-                      <Crown className="size-4" />
+                    <Link href="/pricing" className="inline-flex items-center gap-1 whitespace-nowrap">
+                      <Crown className="size-4 shrink-0" />
                       プランを見る
                     </Link>
                   </Button>
 
-                  {/* ✅ 常時表示：ログイン/ログアウト */}
-                  <AuthButton />
+                  {/* ✅ 常時表示：ログイン/ログアウト（潰れ防止で wrapper 固定） */}
+                  <div className="shrink-0 whitespace-nowrap">
+                    <AuthButton />
+                  </div>
 
-                  {/* 常時表示：ヘルプ（ドロップダウン） */}
-                  <HelpDropdown />
+                  {/* 常時表示：ヘルプ（ドロップダウン）（潰れ防止で wrapper 固定） */}
+                  <div className="shrink-0 whitespace-nowrap">
+                    <HelpDropdown />
+                  </div>
                 </div>
               </div>
             </div>
