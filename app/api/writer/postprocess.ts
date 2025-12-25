@@ -1,24 +1,15 @@
 // app/api/writer/postprocess.ts
-import type { NormalizedInput } from "./pipeline";
-import {
-  faqSeeds,
-  EC_LEXICON,
-  categoryFaqSeeds,
-  normalizeQ,
-  type QA,
-  type ECLexicon,
-} from "./faq-lexicon";
-import { COMMON_BANNED_PATTERNS } from "./prompt/category-safety";
+/**
+ * Postprocess (A案)
+ * - 純粋関数：生成物の「付与（FAQ/CTA/フッターなど）」は行わない
+ * - 役割：崩れた体裁を最低限整える / 禁止パターン由来の妄想スペックを丸める
+ * - 循環参照回避：pipeline.ts の型 import をしない（このファイルは独立）
+ */
 
-const faqBlock = "## FAQ\n";
+import { COMMON_BANNED_PATTERNS } from "./prompt/category-safety";
 
 /* =========================
    妄想スペック・固有情報サニタイズ用ヘルパー
-   - input に含まれない COMMON_BANNED_PATTERNS を
-     出力テキストからやわらかい表現に置き換える
-   - 数値＋単位やレビュー/ランキング系の語だけを丸める
-   - 「最大8人」「何週間も使用可能」「数千冊の電子書籍」など
-     製品固有スペック寄りの表現も追加ルールで丸める
 ========================= */
 
 type SpecSanitizeGroup = {
@@ -55,32 +46,13 @@ const SPEC_SANITIZE_GROUPS: SpecSanitizeGroup[] = [
   },
   {
     // レビュー・ランキング系（単語単体もそのまま丸めて良い）
-    patterns: [
-      "レビュー",
-      "口コミ",
-      "星",
-      "★",
-      "ランキング",
-      "第1位",
-      "No.1",
-      "ナンバーワン",
-    ],
+    patterns: ["レビュー", "口コミ", "星", "★", "ランキング", "第1位", "No.1", "ナンバーワン"],
     replacement: "好意的な評価が期待できる印象",
     wordLevel: true,
   },
   {
     // 型番・モデル・認証・受賞など（単語単体も丸めてOK）
-    patterns: [
-      "型番",
-      "モデル",
-      "シリーズ",
-      "Edition",
-      "エディション",
-      "認証",
-      "受賞",
-      "アワード",
-      "グランプリ",
-    ],
+    patterns: ["型番", "モデル", "シリーズ", "Edition", "エディション", "認証", "受賞", "アワード", "グランプリ"],
     replacement: "信頼感のある仕様・背景",
     wordLevel: true,
   },
@@ -97,58 +69,17 @@ type ExtraNumericSanitizeRule = {
  * より一般的な表現に丸めるための追加ルール
  */
 const EXTRA_NUMERIC_SANITIZE_RULES: ExtraNumericSanitizeRule[] = [
+  { re: /最大\s*\d+\s*人まで/g, replacement: "複数人で" },
+  { re: /\d+\s*人まで/g, replacement: "複数人で" },
+  { re: /一度の充電で何週間も使用可能/g, replacement: "一度の充電で長時間使用可能" },
+  { re: /一度の充電で数週間使用できる/g, replacement: "一度の充電で長時間使用できる" },
+  { re: /何週間も使用可能/g, replacement: "長時間使用可能" },
+  { re: /数千冊の書籍/g, replacement: "多くの書籍" },
+  { re: /数[百千万]*冊の電子書籍/g, replacement: "多くの電子書籍" },
+  { re: /\d+\s*冊の書籍/g, replacement: "多くの書籍" },
+  { re: /\d+\s*インチの高解像度ディスプレイ/g, replacement: "コンパクトな高解像度ディスプレイ" },
+  { re: /IPX8等級の防水機能/g, replacement: "高い防水性能" },
   {
-    // プレイ人数（最大8人まで→複数人で）
-    re: /最大\s*\d+\s*人まで/g,
-    replacement: "複数人で",
-  },
-  {
-    // より汎用的な「〜人まで」
-    re: /\d+\s*人まで/g,
-    replacement: "複数人で",
-  },
-  {
-    // 期間：一度の充電で何週間も使用可能 → 一度の充電で長時間使用可能
-    re: /一度の充電で何週間も使用可能/g,
-    replacement: "一度の充電で長時間使用可能",
-  },
-  {
-    // 期間：一度の充電で数週間使用できる → 一度の充電で長時間使用できる
-    re: /一度の充電で数週間使用できる/g,
-    replacement: "一度の充電で長時間使用できる",
-  },
-  {
-    // 期間：何週間も使用可能 → 長時間使用可能
-    re: /何週間も使用可能/g,
-    replacement: "長時間使用可能",
-  },
-  {
-    // 冊数：数千冊の書籍 → 多くの書籍
-    re: /数千冊の書籍/g,
-    replacement: "多くの書籍",
-  },
-  {
-    // 冊数：数○○冊の電子書籍 → 多くの電子書籍
-    re: /数[百千万]*冊の電子書籍/g,
-    replacement: "多くの電子書籍",
-  },
-  {
-    // 冊数（数値＋冊）：○冊の書籍 → 多くの書籍
-    re: /\d+\s*冊の書籍/g,
-    replacement: "多くの書籍",
-  },
-  {
-    // ディスプレイサイズ：6インチの高解像度ディスプレイ → コンパクトな高解像度ディスプレイ
-    re: /\d+\s*インチの高解像度ディスプレイ/g,
-    replacement: "コンパクトな高解像度ディスプレイ",
-  },
-  {
-    // 防水等級：IPX8等級の防水機能 → 高い防水性能
-    re: /IPX8等級の防水機能/g,
-    replacement: "高い防水性能",
-  },
-  {
-    // 防水スペック：最大2メートルの水深でも30分間耐えることができます → 一定の水深でも安心してお使いいただけます
     re: /最大\d+\s*メートルの水深でも\d+\s*分間耐えることができます/g,
     replacement: "一定の水深でも安心してお使いいただけます",
   },
@@ -158,9 +89,27 @@ function escapeRegLite(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function buildInputSpecHaystack(n: NormalizedInput): string {
-  const segments: string[] = [];
+/**
+ * postprocessが依存して良いのは「最小限のコンテキスト」だけ。
+ * pipeline.ts の型は import しない（循環参照を構造で排除）
+ */
+export type PostprocessContext = {
+  _raw?: unknown;
+  product_name?: unknown;
+  category?: unknown;
+  goal?: unknown;
+  keywords?: unknown;
+  selling_points?: unknown;
+  evidence?: unknown;
+  constraints?: unknown;
+  meta?: { template?: unknown; cta?: unknown } | unknown;
+  platform?: unknown;
+  cta_preference?: unknown;
+  [k: string]: unknown;
+};
 
+function buildInputSpecHaystack(n: PostprocessContext | undefined): string {
+  const segments: string[] = [];
   const pushSeg = (v: unknown) => {
     if (!v) return;
     if (Array.isArray(v)) {
@@ -174,7 +123,9 @@ function buildInputSpecHaystack(n: NormalizedInput): string {
     if (s) segments.push(s);
   };
 
-  // P2-3 と同様、元の依頼＋主要フィールドを対象にする
+  if (!n) return "";
+
+  // 元の依頼＋主要フィールドを対象にする
   pushSeg((n as any)._raw);
   pushSeg((n as any).product_name);
   pushSeg((n as any).category);
@@ -194,19 +145,12 @@ type MaskResult = {
 
 /**
  * 出力テキストから「入力に存在しない推測スペック」をやわらかくサニタイズする
- * - COMMON_BANNED_PATTERNS のうち、input に無くて output にだけあるパターンを対象
- * - 数値＋単位は一般表現に変換
- * - レビュー/ランキング/受賞などは単語単体も丸める
- * - さらに、「最大8人」「何週間も使用可能」「数千冊の電子書籍」などのよくある固有スペック表現も
- *   EXTRA_NUMERIC_SANITIZE_RULES で丸める
  */
-function maskHallucinatedSpecs(out: string, n: NormalizedInput): MaskResult {
+function maskHallucinatedSpecs(out: string, n: PostprocessContext | undefined): MaskResult {
   const inputLower = buildInputSpecHaystack(n);
   const outLower = (out ?? "").toString().toLowerCase();
 
-  if (!outLower) {
-    return { text: out, removedPatterns: [] };
-  }
+  if (!outLower) return { text: out, removedPatterns: [] };
 
   const suspicious: string[] = [];
 
@@ -216,9 +160,7 @@ function maskHallucinatedSpecs(out: string, n: NormalizedInput): MaskResult {
 
     const inInput = inputLower.includes(p);
     const inOut = outLower.includes(p);
-    if (!inInput && inOut) {
-      suspicious.push(rawPattern);
-    }
+    if (!inInput && inOut) suspicious.push(rawPattern);
   }
 
   let text = out;
@@ -227,9 +169,7 @@ function maskHallucinatedSpecs(out: string, n: NormalizedInput): MaskResult {
   // COMMON_BANNED_PATTERNS ベースのサニタイズ
   if (suspicious.length > 0) {
     for (const group of SPEC_SANITIZE_GROUPS) {
-      const targetPatterns = group.patterns.filter((p) =>
-        suspicious.includes(p),
-      );
+      const targetPatterns = group.patterns.filter((p) => suspicious.includes(p));
       if (targetPatterns.length === 0) continue;
 
       for (const pat of targetPatterns) {
@@ -256,9 +196,7 @@ function maskHallucinatedSpecs(out: string, n: NormalizedInput): MaskResult {
   for (const rule of EXTRA_NUMERIC_SANITIZE_RULES) {
     text = text.replace(rule.re, (m) => {
       const key = m.toLowerCase();
-      if (inputLower.includes(key)) {
-        return m;
-      }
+      if (inputLower.includes(key)) return m;
       extraRemoved.push(m);
       return rule.replacement;
     });
@@ -269,36 +207,7 @@ function maskHallucinatedSpecs(out: string, n: NormalizedInput): MaskResult {
 }
 
 /* =========================
-   EC Lexicon ピックアップ関数
-   - 実体(EC_LEXICON)は faq-lexicon.ts 側に分離済み
-========================= */
-
-function pickLexicon(category: string): ECLexicon {
-  if (
-    /家電|electronic|電動|イヤホン|ヘッドホン|掃除機|冷蔵庫/i.test(
-      category,
-    )
-  )
-    return EC_LEXICON["家電"];
-  if (
-    /コスメ|化粧|美容|スキンケア|cosme|beauty/i.test(category)
-  )
-    return EC_LEXICON["コスメ"];
-  if (
-    /食品|フード|グルメ|food|gourmet|菓子|コーヒー|茶/i.test(
-      category,
-    )
-  )
-    return EC_LEXICON["食品"];
-  if (/アパレル|衣料|ファッション|服|ウェア/i.test(category))
-    return EC_LEXICON["アパレル"];
-  return EC_LEXICON["汎用"];
-}
-
-/* =========================
-   extractMeta
-   - tone はプリセット解決結果を反映
-   - locale は "ja-JP"
+   extractMeta / analyzeText（観測用）
 ========================= */
 
 export function extractMeta(
@@ -311,12 +220,8 @@ export function extractMeta(
 } {
   const t = (text || "").trim();
   const lines = t.split(/\r?\n/);
-  const bulletCount = lines.filter((l) =>
-    /^[\-\*\u30fb・]/.test(l.trim()),
-  ).length;
-  const h2Count = lines.filter((l) =>
-    /^##\s/.test(l.trim()),
-  ).length;
+  const bulletCount = lines.filter((l) => /^[\-\*\u30fb・]/.test(l.trim())).length;
+  const h2Count = lines.filter((l) => /^##\s/.test(l.trim())).length;
   const charCount = t.length;
 
   let style = "summary";
@@ -325,10 +230,6 @@ export function extractMeta(
 
   return { style, tone: toneKey || "warm_intelligent", locale: "ja-JP" };
 }
-
-/* =========================
-   WriterMetrics / analyzeText
-========================= */
 
 export type WriterMetrics = {
   charCount: number;
@@ -342,18 +243,14 @@ export type WriterMetrics = {
 export function analyzeText(text: string): WriterMetrics {
   const t = (text || "").trim();
   const lines = t.split(/\r?\n/);
-  const bulletCount = lines.filter((l) =>
-    /^[\-\*\u30fb・]/.test(l.trim()),
-  ).length;
-  const h2Count = lines.filter((l) =>
-    /^##\s/.test(l.trim()),
-  ).length;
-  const faqCount =
-    t.match(new RegExp("^" + faqBlock.replace(/\n$/, ""), "m"))
-      ?.length ?? 0;
-  const hasFinalCTA =
-    /^一次CTA[：:]\s?.+/m.test(t) &&
-    /^代替CTA[：:]\s?.+/m.test(t);
+  const bulletCount = lines.filter((l) => /^[\-\*\u30fb・]/.test(l.trim())).length;
+  const h2Count = lines.filter((l) => /^##\s/.test(l.trim())).length;
+
+  // postprocessは付与しないが、既存出力に残っていないかの監視のためカウントだけ残す
+  const faqCount = (t.match(/^##\s*FAQ\b/gm) ?? []).length;
+
+  // 既存出力に混入していないかの監視
+  const hasFinalCTA = /^一次CTA[：:]\s?.+/m.test(t) && /^代替CTA[：:]\s?.+/m.test(t);
 
   return {
     charCount: t.length,
@@ -366,206 +263,122 @@ export function analyzeText(text: string): WriterMetrics {
 }
 
 /* =========================
-   applyPostprocess（🆕 Precision正式エントリ）
+   applyPostprocess（純粋整形）
 ========================= */
 
-export function applyPostprocess(
-  raw: string,
-  n: NormalizedInput,
-): string {
-  let out = (raw ?? "").toString().trim();
+function resolveTemplateKey(n: PostprocessContext | undefined): string {
+  const metaTemplate = (n as any)?.meta?.template;
+  const platform = (n as any)?.platform;
+  const raw = (metaTemplate ?? platform ?? "").toString().trim().toLowerCase();
+  return raw;
+}
 
-  // 記号・空行・見出しレベルの整理
-  out = out.replace(/！+/g, "。");
-  out = out.replace(/\n{3,}/g, "\n\n");
-  out = out.replace(/^#{3,}\s?/gm, "## ");
+function isSnsLikeTemplate(templateKey: string): boolean {
+  return /sns/.test(templateKey) || /sns_short/.test(templateKey);
+}
 
-  // 押し売り見出しの除去
-  out = out.replace(
-    /^##\s*(さあ|今すぐ|まずは|ぜひ|お試し|購入|申し込み).+$/gim,
-    "",
-  );
+function stripInjectedBlocks(out: string): string {
+  // 既存の疑似見出し/FAQ/CTAブロックをクリア（上流に責務移管するため、ここでは必ず除去）
+  let t = out;
 
-  // 既存の疑似見出し/FAQ/CTAブロックをクリア
-  out = out.replace(/\n\*\*CTA\*\*[\s\S]*?(?=\n##\s|$)/gi, "\n");
-  out = out.replace(/\n\*\*FAQ\*\*[\s\S]*?(?=\n##\s|$)/gi, "\n");
-  out = out.replace(/\n##\s*(よくある質問|ご質問|FAQ)[\s\S]*?(?=\n##\s|$)/gi, "\n");
-  out = out.replace(/^\s*一次CTA[：:]\s?.+$/gim, "");
-  out = out.replace(/^\s*代替CTA[：:]\s?.+$/gim, "");
+  t = t.replace(/\n\*\*CTA\*\*[\s\S]*?(?=\n##\s|$)/gi, "\n");
+  t = t.replace(/\n\*\*FAQ\*\*[\s\S]*?(?=\n##\s|$)/gi, "\n");
 
-  // Q/A抽出
+  // 見出しとしてのFAQ
+  t = t.replace(/\n##\s*(よくある質問|ご質問|FAQ)[\s\S]*?(?=\n##\s|$)/gi, "\n");
+
+  // 最終CTA（一次/代替CTA）行
+  t = t.replace(/^\s*一次CTA[：:]\s?.+$/gim, "");
+  t = t.replace(/^\s*代替CTA[：:]\s?.+$/gim, "");
+
+  return t;
+}
+
+function stripQAInline(out: string): string {
+  // 本文中にQ/Aが混ざって崩れるのを抑える（FAQ付与は上流へ）
   const lines = out.split(/\r?\n/);
   const qRe =
     /^(?:Q(?:\s*|\.)|Q\s*\d+[\.\)：:）]|Q\d+[\.\)：:）]|Q[：:．．\)]|Q[0-9]*[：:.\)])\s*(.+)$/i;
   const aRe =
     /^(?:A(?:\s*|\.)|A\s*\d+[\.\)：:）]|A\d+[\.\)：:）]|A[：:．．\)]|A[0-9]*[：:.\)])\s*(.+)$/i;
 
-  const pairs: QA[] = [];
-  let pendingQ: { text: string; idx: number } | null = null;
+  const removeIdx = new Set<number>();
+  let pendingQ: number | null = null;
 
   for (let i = 0; i < lines.length; i++) {
     const L = lines[i].trim();
     const qm = qRe.exec(L);
     if (qm) {
-      pendingQ = { text: qm[1].trim(), idx: i };
+      pendingQ = i;
+      removeIdx.add(i);
       continue;
     }
     const am = aRe.exec(L);
-    if (am && pendingQ) {
-      const ans = am[1].trim();
-      if (ans) {
-        pairs.push({ q: pendingQ.text, a: ans, idx: pendingQ.idx });
-      }
+    if (am && pendingQ !== null) {
+      removeIdx.add(i);
       pendingQ = null;
+      continue;
     }
   }
 
-  // FAQ の重複統合＋カテゴリシードマージ
-  const dedupMap = new Map<string, QA>();
+  return lines
+    .map((l, i) => (removeIdx.has(i) ? "" : l))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
 
-  for (const p of pairs) {
-    const key = normalizeQ(p.q);
-    if (!dedupMap.has(key)) dedupMap.set(key, p);
-  }
+/**
+ * 日本語の“謎スペース”を最小限だけ除去する
+ * - 例: 「専 門」「日 々」「インターフェース により」
+ * - ただし英数字(Precision Plan / AI など)の連結は壊さない
+ */
+function normalizeJapaneseWeirdSpaces(text: string): string {
+  let t = text;
 
-  for (const s of categoryFaqSeeds((n as any).category)) {
-    const key = normalizeQ(s.q);
-    if (!dedupMap.has(key)) dedupMap.set(key, s);
-  }
+  // 1) 全角スペースを半角へ
+  t = t.replace(/\u3000/g, " ");
 
-  const priority = [
-    /(返品|返金|交換|保証)/,
-    /(対応|互換|相性)/,
-    /(配送|送料|納期|到着)/,
-  ];
+  // 2) 日本語文字同士の間のスペースだけ除去
+  //    ひらがな/カタカナ/漢字/々/ー/・/長音などを広めにカバー
+  const jp = "[\\u3040-\\u309F\\u30A0-\\u30FF\\u4E00-\\u9FFF\\u3400-\\u4DBF々ー・]";
+  const reJpBetweenSpaces = new RegExp(`(${jp})\\s+(${jp})`, "g");
+  t = t.replace(reJpBetweenSpaces, "$1$2");
 
-  let list = Array.from(dedupMap.values());
-  list.sort((a, b) => {
-    const pa = priority.findIndex((re) => re.test(a.q));
-    const pb = priority.findIndex((re) => re.test(b.q));
-    return (
-      (pa === -1 ? 99 : pa) - (pb === -1 ? 99 : pb) || a.idx - b.idx
-    );
-  });
+  // 3) 句読点の前後の余計なスペースを整理
+  t = t.replace(/\s+([。．，、：:；;！？!?\)）\]】」』])/g, "$1");
+  t = t.replace(/([（\(「『【\[])\s+/g, "$1");
 
-  if (list.length > 3) list = list.slice(0, 3);
-  while (list.length < 3) {
-    for (const s of faqSeeds) {
-      const key = normalizeQ(s.q);
-      if (!list.some((x) => normalizeQ(x.q) === key)) {
-        list.push({
-          q: s.q,
-          a: s.a,
-          idx: Number.MAX_SAFE_INTEGER,
-        });
-        if (list.length >= 3) break;
-      }
-    }
-    if (list.length >= 3) break;
-  }
+  // 4) 行頭/行末のスペースを整理
+  t = t
+    .split(/\r?\n/)
+    .map((line) => line.replace(/[ \t]+$/g, "").replace(/^[ \t]+/g, ""))
+    .join("\n");
 
-  const faqMd =
-    `${faqBlock}` +
-    list
-      .map((p) => {
-        const q = p.q
-          .replace(/^[QＱ]\d*[：:.\)\]〉＞＞】】」」\s]*/i, "")
-          .trim();
-        const a = p.a
-          .replace(/^[AＡ]\d*[：:.\)\]\s]*/i, "")
-          .trim();
-        return `Q. ${q}\nA. ${a}`;
-      })
-      .join("\n\n");
+  return t;
+}
 
-  // ⚠ 数値情報の補強ブロック（lex.numericTemplates）は削除済み
+export function applyPostprocess(raw: string, n?: PostprocessContext): string {
+  let out = (raw ?? "").toString().trim();
 
-  // 共起語＆安心フレーズのフッタ追加
-  const lex = pickLexicon(((n as any).category as string) || "");
-  const COOC_MAX = Math.max(
-    0,
-    Math.min(5, Number(process.env.WRITER_COOC_MAX ?? 3)),
-  );
-  const footnoteMode = String(
-    process.env.WRITER_FOOTNOTE_MODE ?? "compact",
-  ).toLowerCase();
-  const escapeReg = (s: string) =>
-    s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const templateKey = resolveTemplateKey(n);
+  const isSNS = isSnsLikeTemplate(templateKey);
 
-  const needTerms = lex.cooccurrence.filter(
-    (kw) => !new RegExp(escapeReg(kw)).test(out),
-  );
-  const picked = needTerms.slice(
-    0,
-    Math.min(COOC_MAX, needTerms.length),
-  );
-  const safety1 = lex.safetyPhrases[0] ?? "";
+  // 記号・空行・見出しレベルの整理（崩れにくい最低限）
+  out = out.replace(/！+/g, "。");
+  out = out.replace(/\n{3,}/g, "\n\n");
+  out = out.replace(/^#{3,}\s?/gm, "## ");
 
-  if (picked.length > 0 || safety1) {
-    if (footnoteMode === "none") {
-      // 何もしない
-    } else if (footnoteMode === "inline") {
-      (globalThis as any).__WRITER_INLINE_SAFETY__ = safety1;
-    } else {
-      const topic = picked.length
-        ? `関連:${picked.join("・")}`
-        : "";
-      const peace = safety1 ? `安心:${safety1}` : "";
-      const glue = topic && peace ? "／" : "";
-      const line = `*${topic}${glue}${peace}*`;
-      out += `\n\n${line}`;
-    }
-  }
+  // 押し売り見出しの除去
+  out = out.replace(/^##\s*(さあ|今すぐ|まずは|ぜひ|お試し|購入|申し込み).+$/gim, "");
 
-  // CTA の仕上げ（具体的な日数を使わない）
-  const pref =
-    n.cta_preference && n.cta_preference.length > 0
-      ? n.cta_preference
-      : ["今すぐ購入", "カートに追加", "詳細を見る"];
+  // 上流に移した“付与”系をここでは必ず取り除く（CTA OFF事故の温床を消す）
+  out = stripInjectedBlocks(out);
 
-  const primaryAction = pref[0] || "今すぐ購入";
-  const secondaryAction = pref[1] || pref[2] || "詳細を見る";
+  // 本文のQ/A混入を抑える（FAQは上流で必要な場合のみ付与）
+  out = stripQAInline(out);
 
-  let primaryFuture = "まず試せます（返品条件あり）";
-  if (
-    footnoteMode === "inline" &&
-    (globalThis as any).__WRITER_INLINE_SAFETY__
-  ) {
-    primaryFuture = `まず試せます（${
-      (globalThis as any).__WRITER_INLINE_SAFETY__
-    }）`;
-  }
-
-  const secondaryFuture =
-    "実際の使用感を確認できます（レビューで比較）";
-
-  const primaryLine = `一次CTA：${primaryAction}—${primaryFuture}`;
-  const secondaryLine = `代替CTA：${secondaryAction}—${secondaryFuture}`;
-
-  out = out.replace(/\s+$/, "");
-  out = `${out}\n\n${faqMd}\n\n${primaryLine}\n${secondaryLine}`;
-
-  // FAQ が複数重複した場合は先頭のみ残す（保険）
-  {
-    const faqMatches = [
-      ...out.matchAll(
-        /^## FAQ[\s\S]*?(?=(?:\n## |\n一次CTA|$))/gm,
-      ),
-    ];
-    if (faqMatches.length > 1) {
-      const firstFaqText = faqMatches[0][0];
-      out = out.replace(
-        /^## FAQ[\s\S]*?(?=(?:\n## |\n一次CTA|$))/gm,
-        "",
-      );
-      out = out.replace(
-        /\n一次CTA[：:]/m,
-        `\n${firstFaqText}\n\n一次CTA：`,
-      );
-    }
-  }
-
-  // 妄想スペック・固有情報の簡易サニタイズ（修正版）
+  // 妄想スペック・固有情報の簡易サニタイズ
   {
     const masked = maskHallucinatedSpecs(out, n);
     out = masked.text;
@@ -575,17 +388,22 @@ export function applyPostprocess(
   out = out.replace(/アイコン的存在/g, "象徴的な存在");
   out = out.replace(/アイコンとして広く知られている/g, "象徴的な存在として広く知られています");
 
-  // 全体を 5000 文字で丸める（末尾の文 or 改行まで）
+  // ✅ 最後に“謎スペース”だけ整える（data.text / output の完全一致を狙う）
+  out = normalizeJapaneseWeirdSpaces(out);
+
+  // SNS向け：短文前提なので過剰な改変はしない（丸めのみ）
   const MAX = 5000;
   if (out.length > MAX) {
     const slice = out.slice(0, MAX);
-    const last = Math.max(
-      slice.lastIndexOf("。"),
-      slice.lastIndexOf("\n"),
-    );
+    const last = Math.max(slice.lastIndexOf("。"), slice.lastIndexOf("\n"));
     out = slice.slice(0, Math.max(0, last)) + "…";
   }
 
+  // 最終トリム
+  out = out.replace(/\s+$/, "");
+
+  // SNS/非SNSでの分岐は将来拡張の余地だけ残す（現時点の挙動差は最小）
+  if (isSNS) return out;
   return out;
 }
 
@@ -593,9 +411,6 @@ export function applyPostprocess(
    postProcess（レガシー別名）
 ========================= */
 
-export function postProcess(
-  raw: string,
-  n: NormalizedInput,
-): string {
+export function postProcess(raw: string, n?: PostprocessContext): string {
   return applyPostprocess(raw, n);
 }

@@ -1,44 +1,26 @@
 // app/api/writer/pipeline.ts
 import { NextResponse } from "next/server";
-import {
-  sha256Hex,
-  logEvent,
-  forceConsoleEvent,
-  emitWriterEvent,
-} from "./_shared/logger";
+import { sha256Hex, logEvent, forceConsoleEvent, emitWriterEvent } from "./_shared/logger";
 import { buildOpenAIRequestPayload, callOpenAI } from "./openai-client";
-import { writerLog } from "@/lib/metrics/writerLogger";
-import {
-  resolveTonePresetKey,
-  buildSystemPrompt,
-} from "./tone-utils";
+import { resolveTonePresetKey, buildSystemPrompt } from "./tone-utils";
 import { makeUserMessage } from "./user-message";
-import { postProcess, extractMeta, analyzeText } from "./postprocess";
-import { buildPromptLayer } from "./prompt/core";
 import type { ProductContext } from "@/server/products/repository";
 import { logProductContextStatus } from "./logger";
-import {
-  buildPrecisionProductPayload,
-  buildProductFactsDto,
-} from "@/server/products/dto";
+import { buildPrecisionProductPayload, buildProductFactsDto } from "@/server/products/dto";
 import { buildProductFactsBlock } from "./prompt/product-facts";
+import { applyPostprocess } from "./postprocess";
+
+/**
+ * 目的（新設計）:
+ * - Pipeline は 3工程（Normalize / Decide / Handoff）に縮退
+ * - 文字列整形/付与（CTA/FAQ/フッターなど）や metrics / prompt-builder はここではやらない
+ * - CTAのSSOT: ctx.flags.cta.mode ("on" | "off")
+ * - CTAブロック仕様SSOT: ctx.contracts.ctaBlock（仕様のみ。生成は他責務）
+ * - ✅ 実運用上必要なので applyPostprocess() は “返却直前” にのみ適用する（data.text / output を同一に固定）
+ */
 
 /* =========================
-   🧪 Precision Mode Flag（Phase1）
-   - Phase1 では常に false（挙動は現行維持）
-   - 後続フェーズで compose-v2 / composedSystem / composedUser を採用するスイッチに昇格予定
-========================= */
-
-const PRECISION_MODE = false;
-
-/* =========================
-   PRODUCT_FACTS 型（dto の ReturnType から推論）
-========================= */
-
-type ProductFacts = ReturnType<typeof buildProductFactsDto>;
-
-/* =========================
-   Normalized Input 型（route.ts と同形）
+   Normalized Input（route.ts と同形）
 ========================= */
 
 export type NormalizedInput = {
@@ -61,7 +43,7 @@ export type NormalizedInput = {
 };
 
 /* =========================
-   Writer Error Helper（OpenAI系専用の一部）
+   Writer Errors（pipeline内は「Response化」までやらず、route側に委譲できる形で保持）
 ========================= */
 
 export type WriterErrorReason =
@@ -75,402 +57,176 @@ export type WriterErrorReason =
   | "bad_request"
   | "internal";
 
-export type WriterErrorLogPayload = {
-  reason: string;
-  message?: string;
+export type WriterPipelineError = {
+  ok: false;
+  reason: WriterErrorReason;
+  message: string;
   code?: string;
+  meta?: Record<string, unknown>;
+};
 
-  requestId?: string;
-  provider?: string;
-  model?: string;
-  phase?: string;
-  durationMs?: number;
-
-  api?: {
+export type WriterPipelineOk = {
+  ok: true;
+  ctx: WriterPipelineCtx;
+  openai: {
+    content: string;
+    apiMs: number;
     status: number;
     statusText: string;
-    ms?: number;
   };
-
-  meta?: Record<string, unknown>;
-  rawError?: unknown;
 };
 
-export type WriterErrorResponseBody =
-  | {
-      ok: false;
-      error: {
-        reason: WriterErrorReason;
-        message: string;
-        code?: string;
-        issues?: unknown;
-      };
-      meta?: {
-        requestId?: string;
-        [key: string]: unknown;
-      };
-    }
-  | {
-      ok: false;
-      error: string;
-      [key: string]: unknown;
-    };
-
-export type WriterErrorOptions = {
-  reason: WriterErrorReason;
-  status: number;
-  message: string;
-  code?: string;
-  issues?: unknown;
-  requestId?: string;
-  provider?: string | null;
-  model?: string | null;
-  durationMs?: number;
-  logPayload?: Partial<WriterErrorLogPayload>;
-  legacyBody?: { ok: false; error: string; [key: string]: unknown };
-};
-
-export async function sendWriterError(
-  options: WriterErrorOptions,
-): Promise<Response> {
-  let body: WriterErrorResponseBody;
-
-  if (options.legacyBody) {
-    body = options.legacyBody;
-  } else {
-    body = {
-      ok: false,
-      error: {
-        reason: options.reason,
-        message: options.message,
-        ...(options.code ? { code: options.code } : {}),
-        ...(typeof options.issues !== "undefined"
-          ? { issues: options.issues }
-          : {}),
-      },
-      meta: options.requestId
-        ? { requestId: options.requestId }
-        : undefined,
-    };
-  }
-
-  if (options.logPayload) {
-    const lp = options.logPayload;
-
-    const payload: any = {
-      ok: false,
-      reason:
-        typeof lp.reason !== "undefined" ? lp.reason : options.reason,
-      provider:
-        typeof lp.provider !== "undefined"
-          ? lp.provider
-          : options.provider ?? undefined,
-      model:
-        typeof lp.model !== "undefined"
-          ? lp.model
-          : options.model ?? undefined,
-      meta:
-        typeof lp.meta !== "undefined"
-          ? lp.meta
-          : null,
-    };
-
-    if (typeof lp.api !== "undefined") {
-      payload.api = lp.api;
-    }
-    if (typeof lp.message !== "undefined") {
-      payload.message = lp.message;
-    }
-    if (typeof lp.rawError !== "undefined") {
-      payload.rawError = lp.rawError;
-    }
-
-    logEvent("error", payload);
-    forceConsoleEvent("error", payload);
-    await emitWriterEvent("error", payload);
-
-    await writerLog({
-      phase: "failure",
-      model: options.model ?? undefined,
-      durationMs: options.durationMs,
-      requestId: options.requestId,
-    });
-  }
-
-  return NextResponse.json(body, { status: options.status });
-}
-
-export async function handleOpenAIApiError(params: {
-  message: string;
-  details: string;
-  status: number;
-  statusText: string;
-  apiMs: number;
-  requestId: string;
-  provider: string | undefined;
-  model: string | undefined;
-  durationMs: number;
-}): Promise<Response> {
-  const {
-    message,
-    details,
-    status,
-    statusText,
-    apiMs,
-    requestId,
-    provider,
-    model,
-    durationMs,
-  } = params;
-
-  return sendWriterError({
-    reason: "openai_api_error",
-    status: 502,
-    message,
-    requestId,
-    provider,
-    model,
-    durationMs,
-    legacyBody: {
-      ok: false,
-      error: message,
-      details,
-    },
-    logPayload: {
-      reason: "openai_api_error",
-      provider,
-      model,
-      api: {
-        status,
-        statusText,
-        ms: apiMs,
-      },
-    },
-  });
-}
-
-export async function handleEmptyContentError(params: {
-  status: number;
-  statusText: string;
-  apiMs: number;
-  requestId: string;
-  provider: string | undefined;
-  model: string | undefined;
-  durationMs: number;
-}): Promise<Response> {
-  const { status, statusText, apiMs, requestId, provider, model, durationMs } =
-    params;
-
-  return sendWriterError({
-    reason: "openai_empty_content",
-    status: 502,
-    message: "empty content",
-    requestId,
-    provider,
-    model,
-    durationMs,
-    legacyBody: {
-      ok: false,
-      error: "empty content",
-    },
-    logPayload: {
-      reason: "openai_empty_content",
-      provider,
-      model,
-      api: {
-        status,
-        statusText,
-        ms: apiMs,
-      },
-    },
-  });
-}
+export type WriterPipelineResult = WriterPipelineOk | WriterPipelineError;
 
 /* =========================
-   C7-3 正常フロー補助
-   - postProcess〜meta/metrics〜writerLog を関数化
+   SSOT（CTA / Contracts）
 ========================= */
 
-export type WriterSuccessArgs = {
-  content: string;
-  normalized: NormalizedInput;
-  toneKey: string;
-  provider?: string;
-  model?: string;
-  temperature: number;
-  apiMs: number;
-  t0: number;
-  requestId: string;
-  elapsedMs: number;
-  productFacts?: ProductFacts | null;
+export type CtaMode = "on" | "off";
+
+export type CtaBlockContract = {
+  heading: "おすすめのアクション";
+  variants: readonly ["おすすめのアクション", "おすすめアクション", "おすすめの行動"];
+  placement: {
+    atEnd: true;
+    withinLastLines: 30;
+  };
+  bulletRules: {
+    minBulletLines: 2;
+  };
 };
 
-export async function finalizeWriterSuccess(
-  args: WriterSuccessArgs,
-): Promise<Response> {
-  const {
-    content,
-    normalized,
-    toneKey,
-    provider,
-    model,
-    temperature,
-    apiMs,
-    t0,
-    requestId,
-    elapsedMs,
-    productFacts,
-  } = args;
-
-  const text = postProcess(content, normalized);
-
-  const baseMeta = extractMeta(text, toneKey);
-  const meta = {
-    ...baseMeta,
-    ...(productFacts ? { productFacts } : {}),
+export type WriterPipelineCtx = {
+  request: {
+    requestId: string;
+    route: "/api/writer";
+    provider?: string;
+    model?: string;
+    temperature: number;
+    t0: number;
   };
-
-  const metrics = analyzeText(text);
-
-  const totalMs = Date.now() - t0;
-
-  const payloadOk = {
-    ok: true,
-    provider,
-    model,
-    temperature,
-    input: {
-      category: normalized.category,
-      goal: normalized.goal,
-      platform: normalized.platform ?? null,
-    },
-    meta,
-    metrics,
-    durations: { apiMs, totalMs },
-    hash: { text_sha256_16: sha256Hex(text).slice(0, 16) },
+  input: {
+    rawPrompt: string;
+    normalized: NormalizedInput;
+    productId?: string | null;
+    productContext?: ProductContext | null;
+    templateKey: string;
+    isSNS: boolean;
+    toneKey: string;
   };
-
-  logEvent("ok", payloadOk);
-  forceConsoleEvent("ok", payloadOk);
-  await emitWriterEvent("ok", payloadOk);
-
-  const payload = {
-    ok: true,
-    data: { text, meta },
-    output: text,
+  flags: {
+    cta: {
+      mode: CtaMode; // ✅ CTA SSOT
+    };
   };
-
-  await writerLog({
-    phase: "success",
-    model,
-    durationMs: elapsedMs,
-    requestId,
-  });
-
-  return NextResponse.json(payload, { status: 200 });
-}
+  contracts: {
+    ctaBlock: CtaBlockContract; // ✅ CTAブロック仕様 SSOT
+  };
+  prompts: {
+    system: string;
+    user: string;
+    debug?: {
+      baseSystemLength: number;
+      userLength: number;
+      systemHash8: string;
+      userHash8: string;
+      hasProductFacts: boolean;
+    };
+  };
+  product: {
+    precisionPayload: ReturnType<typeof buildPrecisionProductPayload>;
+    productFacts: ReturnType<typeof buildProductFactsDto>;
+    productFactsBlock: string | null;
+  };
+};
 
 /* =========================
-   Phase1-P1-5 Precision Prompt 観測ログ
-   - compose-v2 の人格化 system/user を比較観測
-   - 本番レスポンス shape には影響なし
-   - A案（A-1）：userPreview をログに残さず、
-     長さ・有無・匿名ハッシュのみ保持
+   Normalize（入力の揺れ吸収：template / CTA）
 ========================= */
 
-type PrecisionPromptObservationArgs = {
-  mode: "on" | "off";
-  variant: string;
-  route: string;
-  provider?: string;
-  model?: string;
-  requestId: string;
-  toneKey: string;
-  currentSystem: string;
-  currentUser: string;
-  precisionSystem?: string | null;
-  precisionUser?: string | null;
-};
-
-function previewPromptSegment(
-  value: string | null | undefined,
-  maxLength = 160,
-): string {
-  if (!value) return "";
-  return value.length <= maxLength ? value : value.slice(0, maxLength);
+function resolveTemplateKey(n: NormalizedInput): string {
+  const metaTemplate = (n as any)?.meta?.template;
+  const platform = (n as any)?.platform;
+  const raw = (metaTemplate ?? platform ?? "").toString().trim().toLowerCase();
+  return raw;
 }
 
-async function logPrecisionPromptObservation(
-  args: PrecisionPromptObservationArgs,
-): Promise<void> {
-  const {
-    mode,
-    variant,
-    route,
-    provider,
-    model,
-    requestId,
-    toneKey,
-    currentSystem,
-    currentUser,
-    precisionSystem,
-    precisionUser,
-  } = args;
+function isSnsLikeTemplate(templateKey: string): boolean {
+  return /sns/.test(templateKey) || /sns_short/.test(templateKey);
+}
 
-  const currentHasUser = currentUser.trim().length > 0;
-  const precisionHasUser =
-    typeof precisionUser === "string" && precisionUser.trim().length > 0;
+function parseBooleanLike(v: unknown): boolean | null {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") {
+    if (v === 1) return true;
+    if (v === 0) return false;
+    return null;
+  }
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    if (["true", "1", "on", "yes", "y"].includes(s)) return true;
+    if (["false", "0", "off", "no", "n"].includes(s)) return false;
+  }
+  return null;
+}
 
-  const currentUserHash8 = currentHasUser
-    ? sha256Hex(currentUser).slice(0, 8)
-    : null;
+/**
+ * CTA ON/OFF 判定（揺れ吸収）
+ * - SSOT は ctx.flags.cta.mode へ集約
+ * - 何も見つからない場合は従来互換で ON
+ */
+function resolveCtaMode(n: NormalizedInput): CtaMode {
+  const candidates = [(n as any)?.meta?.cta, (n as any)?.metaCta, (n as any)?.ctaEnabled, (n as any)?.cta];
 
-  const precisionUserHash8 =
-    precisionHasUser && typeof precisionUser === "string"
-      ? sha256Hex(precisionUser).slice(0, 8)
-      : null;
-
-  const payload = {
-    phase: "precision_prompt" as const,
-    level: "DEBUG",
-    route,
-    message: "precision prompt observation",
-    provider,
-    model,
-    requestId,
-    toneKey,
-    precisionMode: mode,
-    variant,
-    role: "system_user_pair" as const,
-    current: {
-      systemPreview: previewPromptSegment(currentSystem),
-      systemLength: currentSystem.length,
-      userLength: currentUser.length,
-      hasUser: currentHasUser,
-      userHash8: currentUserHash8,
-    },
-    precision: {
-      systemPreview: previewPromptSegment(precisionSystem),
-      systemLength: precisionSystem ? precisionSystem.length : 0,
-      userLength: precisionUser ? precisionUser.length : 0,
-      hasSystem:
-        typeof precisionSystem === "string" &&
-        precisionSystem.trim().length > 0,
-      hasUser: precisionHasUser,
-      userHash8: precisionUserHash8,
-    },
-  };
-
-  logEvent("ok", payload);
-  forceConsoleEvent("ok", payload);
-  await emitWriterEvent("ok", payload);
+  for (const c of candidates) {
+    const b = parseBooleanLike(c);
+    if (b !== null) return b ? "on" : "off";
+  }
+  return "on";
 }
 
 /* =========================
-   🆕 C7-4 Normal Flow Pipeline（A案）
-   - 正常系の「本体」（tone 解決〜OpenAI呼び出し〜成功/エラー処理）
-   - Phase1 Precision：
-     PRECISION_MODE=true のときのみ composedSystem/composedUser を採用
+   Decide（プロンプト確定：ここでは「生成」も「整形」もしない）
+========================= */
+
+function buildOutputRulesSuffix(normalized: NormalizedInput): string {
+  const templateKey = resolveTemplateKey(normalized);
+  const isSNS = isSnsLikeTemplate(templateKey);
+
+  if (isSNS) {
+    return [
+      "",
+      "---",
+      "出力ルール:",
+      "- SNS投稿として短く自然に。",
+      "- 見出し（##）は使わない。",
+      "- CTA/FAQなどの追加ブロックは書かない（後段で付与する可能性がある）。",
+      "- 具体的な数値・型番・受賞・ランキング等は、入力に無ければ書かない。",
+    ].join("\n");
+  }
+
+  return [
+    "",
+    "---",
+    "出力ルール:",
+    "- 本文のみ。FAQ/CTAなどの追加ブロックは書かない（後段で付与する可能性がある）。",
+    "- 見出しは最大2つまで（必要な場合のみ）。過剰な箇条書き・過剰な煽り見出しは避ける。",
+    "- 具体的な数値・型番・ランキング・受賞・保証条件などは、入力に無ければ断定しない。",
+    "- 不足情報を“想像で補う”のは禁止。分からない要素は触れない。",
+  ].join("\n");
+}
+
+function buildCtaBlockContract(): CtaBlockContract {
+  return {
+    heading: "おすすめのアクション",
+    variants: ["おすすめのアクション", "おすすめアクション", "おすすめの行動"],
+    placement: { atEnd: true, withinLastLines: 30 },
+    bulletRules: { minBulletLines: 2 },
+  } as const;
+}
+
+/* =========================
+   Handoff（OpenAI呼び出し：結果は raw のまま返す）
 ========================= */
 
 export type WriterPipelineArgs = {
@@ -480,8 +236,6 @@ export type WriterPipelineArgs = {
   model: string | undefined;
   temperature: number;
   systemOverride: string;
-  composedSystem?: string | null;
-  composedUser?: string | null;
   apiKey: string;
   t0: number;
   requestId: string;
@@ -490,62 +244,75 @@ export type WriterPipelineArgs = {
   productContext?: ProductContext | null;
 };
 
-export async function runWriterPipeline(
-  args: WriterPipelineArgs,
-): Promise<Response> {
-  const {
-    rawPrompt,
-    normalized,
-    provider,
-    model,
-    temperature,
-    systemOverride,
-    composedSystem,
-    composedUser,
-    apiKey,
-    t0,
-    requestId,
-    elapsed,
-    productId,
-    productContext,
-  } = args;
+/**
+ * ✅ 新pipeline（3工程）
+ * - 戻り値は「raw content + ctx」。Response化・整形・計測は他責務へ追放する前提。
+ * - 互換のため、現段階では NextResponse.json を返すヘルパも用意（routeが未改修でも動かせる逃げ道）
+ */
+export async function runWriterPipeline(args: WriterPipelineArgs): Promise<Response> {
+  const result = await runWriterPipelineCore(args);
 
+  if (!result.ok) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          reason: result.reason,
+          message: result.message,
+          ...(result.code ? { code: result.code } : {}),
+        },
+        meta: result.meta ?? undefined,
+      },
+      { status: 502 },
+    );
+  }
+
+  // ✅ 返却直前にのみ postprocess（data.text / output を同一に固定）
+  const finalText = applyPostprocess(result.openai.content, result.ctx.input.normalized as any);
+
+  return NextResponse.json(
+    {
+      ok: true,
+      data: {
+        text: finalText,
+        meta: {
+          style: (result.ctx.input.normalized.style ?? "").toString(),
+          tone: (result.ctx.input.normalized.tone ?? "").toString(),
+          locale: "ja-JP",
+          toneKey: result.ctx.input.toneKey,
+          template: result.ctx.input.templateKey || null,
+          ctaMode: result.ctx.flags.cta.mode,
+        },
+      },
+      output: finalText,
+    },
+    { status: 200 },
+  );
+}
+
+/**
+ * 本体（Response化しないコア）
+ */
+export async function runWriterPipelineCore(args: WriterPipelineArgs): Promise<WriterPipelineResult> {
+  const { rawPrompt, normalized, provider, model, temperature, systemOverride, apiKey, t0, requestId, productId, productContext } = args;
+
+  // ===== Normalize =====
+  const templateKey = resolveTemplateKey(normalized);
+  const isSNS = isSnsLikeTemplate(templateKey);
   const toneKey = resolveTonePresetKey(normalized.tone, normalized.style);
+  const ctaMode = resolveCtaMode(normalized);
 
-  // 🧪 ProductContext 観測ログ（生のコンテキスト）
   logProductContextStatus({
     productId: productId ?? null,
     context: productContext ?? null,
-    meta: {
-      source: "writer.pipeline",
-      requestId,
-      path: "/api/writer",
-    },
+    meta: { source: "writer.pipeline", requestId, path: "/api/writer" },
   });
 
-  // 🧪 ProductContext → Precision DTO 変換＆観測ログ
-  const precisionProductPayload = buildPrecisionProductPayload({
+  const precisionPayload = buildPrecisionProductPayload({
     productId: productId ?? null,
     context: productContext ?? null,
   });
 
-  const productPayloadLog = {
-    phase: "precision_product" as const,
-    level: "DEBUG",
-    route: "/api/writer",
-    message: "precision product payload",
-    provider,
-    model,
-    requestId,
-    productId: productId ?? null,
-    payload: precisionProductPayload,
-  };
-
-  logEvent("ok", productPayloadLog);
-  forceConsoleEvent("ok", productPayloadLog);
-  await emitWriterEvent("ok", productPayloadLog);
-
-  // 🧪 PRODUCT_FACTS 用 DTO（ProductContext から構築）
   const productFacts = buildProductFactsDto({
     productId: productId ?? null,
     enabled: true,
@@ -553,125 +320,135 @@ export async function runWriterPipeline(
     error: null,
   });
 
-  // Precision Product DTO + PRODUCT_FACTS DTO から PRODUCT_FACTS ブロックを生成（あれば）
-  const productFactsBlock = buildProductFactsBlock(
-    precisionProductPayload,
-    productFacts,
-  );
+  const productFactsBlock = buildProductFactsBlock(precisionPayload, productFacts);
 
-  // 🔍 Precision Prompt Layer（安全モード接続）
-  await buildPromptLayer({
-    normalized,
-    systemOverride,
-    composedSystem,
-    composedUser,
-    toneKey,
-  });
-
-  // ★ ここで system を強化：
+  // ===== Decide =====
   const baseSystemRaw = buildSystemPrompt({
     overrides: systemOverride,
     toneKey,
   });
 
-  const constraintsBlock =
-    "制約:\n" +
-    "- ユーザーからの入力情報が部分的であっても、合理的に想像して不足を補い、LPとして成立する本文から書き始めてください。\n" +
-    "- 「情報が不足しているため作成できません」「申し訳ありませんが、情報が不足しています」など、情報不足を理由にした謝罪・お断りの文章は書かないでください。\n" +
-    "- 迷った場合は、一般的なEC向け商品LPとして妥当な前提を仮定して構いません。";
+  const safetyConstraintsBlock = [
+    "制約:",
+    "- 入力に無い具体値（数値・期間・等級・型番・受賞・ランキング・保証条件など）は断定しない。",
+    "- 不足情報は“想像で補わない”。分からない要素は触れない。",
+    "- 過剰なFAQ、強引な断定、煽り見出し（今すぐ/必ず/絶対等）は避ける。",
+    "- 本文のみを出力する。追加ブロック（CTA/FAQなど）は書かない。",
+  ].join("\n");
 
   const systemParts: string[] = [baseSystemRaw];
+  if (productFactsBlock) systemParts.push(productFactsBlock);
+  systemParts.push(safetyConstraintsBlock);
 
-  if (productFactsBlock) {
-    systemParts.push(productFactsBlock);
-  }
-
-  systemParts.push(constraintsBlock);
-
-  const baseSystem = systemParts.join("\n\n");
+  const system = systemParts.join("\n\n");
 
   const baseUserMessage = makeUserMessage(normalized);
+  const user = `${baseUserMessage}\n${buildOutputRulesSuffix(normalized)}`;
 
-  const shouldUseComposedSystem =
-    PRECISION_MODE &&
-    typeof composedSystem === "string" &&
-    composedSystem.trim().length > 0;
+  const ctx: WriterPipelineCtx = {
+    request: { requestId, route: "/api/writer", provider, model, temperature, t0 },
+    input: {
+      rawPrompt,
+      normalized,
+      productId: productId ?? null,
+      productContext: productContext ?? null,
+      templateKey,
+      isSNS,
+      toneKey,
+    },
+    flags: { cta: { mode: ctaMode } },
+    contracts: { ctaBlock: buildCtaBlockContract() },
+    prompts: {
+      system,
+      user,
+      debug: {
+        baseSystemLength: system.length,
+        userLength: user.length,
+        systemHash8: sha256Hex(system).slice(0, 8),
+        userHash8: sha256Hex(user).slice(0, 8),
+        hasProductFacts: Boolean(productFactsBlock),
+      },
+    },
+    product: {
+      precisionPayload,
+      productFacts,
+      productFactsBlock: productFactsBlock ?? null,
+    },
+  };
 
-  const shouldUseComposedUser =
-    PRECISION_MODE &&
-    typeof composedUser === "string" &&
-    composedUser.trim().length > 0;
-
-  const system = shouldUseComposedSystem ? composedSystem! : baseSystem;
-  const userMessage = shouldUseComposedUser ? composedUser! : baseUserMessage;
-
-  await logPrecisionPromptObservation({
-    mode: PRECISION_MODE ? "on" : "off",
-    variant: "compose-v2",
+  const decideLog = {
+    phase: "pipeline_decide" as const,
+    level: "DEBUG",
     route: "/api/writer",
+    message: "pipeline decided prompts and flags",
     provider,
     model,
     requestId,
     toneKey,
-    currentSystem: baseSystem,
-    currentUser: baseUserMessage,
-    precisionSystem: composedSystem ?? null,
-    precisionUser: composedUser ?? null,
-  });
+    templateKey,
+    isSNS,
+    ctaMode,
+    systemHash8: ctx.prompts.debug?.systemHash8 ?? null,
+    userHash8: ctx.prompts.debug?.userHash8 ?? null,
+    hasProductFacts: ctx.prompts.debug?.hasProductFacts ?? false,
+  };
+  logEvent("ok", decideLog);
+  forceConsoleEvent("ok", decideLog);
+  await emitWriterEvent("ok", decideLog);
 
+  // ===== Handoff =====
   const openaiPayload = buildOpenAIRequestPayload({
     model,
     temperature,
-    system,
-    userMessage,
+    system: ctx.prompts.system,
+    userMessage: ctx.prompts.user,
   });
 
-  const openaiResult = await callOpenAI({
-    apiKey,
-    payload: openaiPayload,
-  });
+  const openaiResult = await callOpenAI({ apiKey, payload: openaiPayload });
 
   if (!openaiResult.ok) {
     const message = `openai api error: ${openaiResult.status} ${openaiResult.statusText}`;
-
-    return handleOpenAIApiError({
+    const errLog = {
+      phase: "pipeline_handoff" as const,
+      level: "ERROR",
+      route: "/api/writer",
       message,
-      details: openaiResult.errorText?.slice(0, 2000) ?? "",
+      provider,
+      model,
+      requestId,
       status: openaiResult.status,
       statusText: openaiResult.statusText,
       apiMs: openaiResult.apiMs,
-      requestId,
-      provider,
-      model,
-      durationMs: elapsed(),
-    });
+      errorTextPreview: openaiResult.errorText?.slice(0, 500) ?? "",
+    };
+    logEvent("error", errLog);
+    forceConsoleEvent("error", errLog);
+    await emitWriterEvent("error", errLog);
+
+    return { ok: false, reason: "openai_api_error", message, meta: { requestId } };
   }
 
   const { content, apiMs, status, statusText } = openaiResult;
 
   if (!content) {
-    return handleEmptyContentError({
+    const errLog = {
+      phase: "pipeline_handoff" as const,
+      level: "ERROR",
+      route: "/api/writer",
+      message: "empty content",
+      provider,
+      model,
+      requestId,
       status,
       statusText,
       apiMs,
-      requestId,
-      provider,
-      model,
-      durationMs: elapsed(),
-    });
+    };
+    logEvent("error", errLog);
+    forceConsoleEvent("error", errLog);
+    await emitWriterEvent("error", errLog);
+
+    return { ok: false, reason: "openai_empty_content", message: "empty content", meta: { requestId } };
   }
 
-  return finalizeWriterSuccess({
-    content,
-    normalized,
-    toneKey,
-    provider,
-    model,
-    temperature,
-    apiMs,
-    t0,
-    requestId,
-    elapsedMs: elapsed(),
-    productFacts,
-  });
+  return { ok: true, ctx, openai: { content, apiMs, status, statusText } };
 }
