@@ -258,6 +258,9 @@ export default function ClientPage({ productId }: ClientPageProps) {
   const product = watch("product");
   const featuresLen = [...(watch("features") ?? "")].length;
 
+  // ★ CTAトグル（UI側だけで差分を出す / API送信は不変）
+  const ctaEnabled = !!watch("cta");
+
   const prefillDoneForProductIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -1167,6 +1170,40 @@ export default function ClientPage({ productId }: ClientPageProps) {
                 <p className="text-neutral-500">生成結果がここに表示されます。</p>
               )}
             </div>
+
+            {/* ★ B1: 固定CTA（UIのみ / CTA=ONの時だけ表示 / API・レスポンスshapeは不変）
+                - B1方針：商品名だけ差し込んだ固定文（文型は固定、値だけUIから差し込み）
+            */}
+            {ctaEnabled && (leadHtml || restParasHtml.length > 0) && !isLoading && !error && (
+              <div className="mt-4 rounded-xl border border-indigo-200/70 bg-gradient-to-r from-indigo-50 to-violet-50 px-4 py-3">
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 inline-flex size-8 items-center justify-center rounded-full bg-indigo-600/15 text-indigo-700">
+                    <Sparkles className="size-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-neutral-900">
+                      次のアクション（CTA）
+                    </p>
+                    <p className="mt-1 text-xs leading-relaxed text-neutral-700">
+                      {(product ?? "").trim()
+                        ? `『${(product ?? "").trim()}』が気になったら、まずは価格・在庫・返品条件をチェックして、迷った点は比較してから注文へ。`
+                        : "気になったら、まずは価格・在庫・返品条件をチェックして、迷った点は比較してから注文へ。"}
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <span className="inline-flex items-center rounded-full border bg-white/70 px-2.5 py-1 text-[11px] text-neutral-700">
+                        ① 価格/在庫
+                      </span>
+                      <span className="inline-flex items-center rounded-full border bg-white/70 px-2.5 py-1 text-[11px] text-neutral-700">
+                        ② 返品条件
+                      </span>
+                      <span className="inline-flex items-center rounded-full border bg-white/70 px-2.5 py-1 text-[11px] text-neutral-700">
+                        ③ 迷ったら比較
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <AnimatePresence initial={false}>
               {justCompleted && !isLoading && !error && (
