@@ -2,6 +2,7 @@
 // Pricing Page (Minimal Placeholder)
 // - 導線破綻を防ぐための最小実装
 // - 実際の契約/請求情報の確認や変更は /account/billing に集約
+// - 年内リリース②（価格・税表記）：税抜表記の方針を明記
 
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,15 @@ export default function PricingPage() {
           <br />
           実際の契約・請求情報の確認や変更は、アカウント画面から行えます。
         </p>
+
+        <div className="rounded-md border px-4 py-3 text-sm">
+          <p className="font-medium">価格表記について</p>
+          <p className="mt-1 text-muted-foreground">
+            本サービスの料金は <span className="font-medium">税抜価格</span> で表記しています。
+            <br />
+            <span className="font-medium">※別途消費税がかかります</span>
+          </p>
+        </div>
 
         <Button asChild size="sm">
           <Link href="/account/billing">請求・プラン管理へ</Link>

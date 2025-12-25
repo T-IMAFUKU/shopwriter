@@ -10,6 +10,10 @@
 //
 // 重要:
 // - これにより UI 側の誤判定（常にFREE扱い→ボタンdisabled）を回避し、paidユーザーのPortal動作確認を可能にする
+//
+// 年内リリース②（価格・税表記）:
+// - 価格は「税抜価格」で統一し、ページ内に注意書きを表示（※別途消費税がかかります）
+// - 「有料プランのご案内」セクションは情報が薄くノイズになるため削除（/pricing へ誘導）
 
 "use client";
 
@@ -31,44 +35,6 @@ type SubscriptionStatusCode =
   | "PAST_DUE"
   | "CANCELED"
   | "INACTIVE";
-
-type BillingPlansApiPlan = {
-  code: PlanCode;
-  label: string;
-  description: string;
-  price: {
-    id: string;
-    unitAmount: number;
-    currency: string;
-    interval: string;
-  };
-  limits: {
-    monthly: number | null;
-    hourly: number | null;
-  };
-};
-
-type BillingPlansApiResponse =
-  | {
-      ok: true;
-      data: {
-        plans: BillingPlansApiPlan[];
-      };
-    }
-  | {
-      ok: false;
-      error?: {
-        message?: string;
-      };
-    };
-
-type BillingPlanSummary = {
-  code: PlanCode;
-  label: string;
-  description: string;
-  priceText: string;
-  quotaText: string;
-};
 
 type AuthSessionResponse = {
   user?: {
@@ -175,40 +141,6 @@ function normalizeSubscriptionStatus(value: unknown): SubscriptionStatusCode {
   return "NONE";
 }
 
-function normalizePlansForUi(
-  apiPlans: BillingPlansApiPlan[],
-): BillingPlanSummary[] {
-  return apiPlans.map((plan) => {
-    const { unitAmount, currency, interval } = plan.price;
-
-    let priceText: string;
-    if (currency === "jpy") {
-      const formatted = unitAmount.toLocaleString("ja-JP");
-      priceText = `月額 ${formatted}円`;
-    } else {
-      priceText = `${interval} ${unitAmount} ${currency}`;
-    }
-
-    const quotaParts: string[] = [];
-    if (plan.limits.monthly != null) {
-      quotaParts.push(`月${plan.limits.monthly}回`);
-    }
-    if (plan.limits.hourly != null) {
-      quotaParts.push(`1hあたり${plan.limits.hourly}回まで`);
-    }
-    const quotaText =
-      quotaParts.length > 0 ? quotaParts.join(" ＋ ") : "制限なし（無制限）";
-
-    return {
-      code: plan.code,
-      label: plan.label,
-      description: plan.description,
-      priceText,
-      quotaText,
-    };
-  });
-}
-
 export default function BillingPage() {
   return (
     <Suspense
@@ -230,12 +162,6 @@ function BillingPageContent() {
   const [message, setMessage] = useState<string | null>(null);
   const [isCheckoutPosting, setIsCheckoutPosting] = useState(false);
   const [isPortalOpening, setIsPortalOpening] = useState(false);
-
-  const [planSummaries, setPlanSummaries] = useState<BillingPlanSummary[] | null>(
-    null,
-  );
-  const [plansLoading, setPlansLoading] = useState(true);
-  const [plansError, setPlansError] = useState<string | null>(null);
 
   // セッション情報（最低限：ログインしているか）
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -299,60 +225,6 @@ function BillingPageContent() {
     }
 
     fetchSession();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // 有料プラン一覧を API から取得
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchPlans() {
-      try {
-        setPlansLoading(true);
-        setPlansError(null);
-
-        const res = await fetch("/api/billing/plans", {
-          method: "GET",
-          headers: { "Content-Type": "application/json" },
-        });
-
-        const data: BillingPlansApiResponse = await res.json();
-
-        if (!res.ok || !data.ok) {
-          const msg =
-            (!data.ok && data.error?.message) ||
-            "プラン情報を取得できませんでした。時間をおいて再度お試しください。";
-          if (!cancelled) {
-            setPlansError(msg);
-            setPlanSummaries(null);
-          }
-          return;
-        }
-
-        const summaries = normalizePlansForUi(data.data.plans);
-        if (!cancelled) {
-          setPlanSummaries(summaries);
-          setPlansError(null);
-        }
-      } catch (err) {
-        console.error("Failed to fetch /api/billing/plans:", err);
-        if (!cancelled) {
-          setPlansError(
-            "プラン情報を取得できませんでした。時間をおいて再度お試しください。",
-          );
-          setPlanSummaries(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setPlansLoading(false);
-        }
-      }
-    }
-
-    fetchPlans();
-
     return () => {
       cancelled = true;
     };
@@ -465,6 +337,16 @@ function BillingPageContent() {
         <p className="text-sm text-slate-600">
           現在のご利用プランと請求情報を確認できます。
         </p>
+
+        <div className="rounded-md border bg-white px-4 py-3 text-xs text-slate-700">
+          <p className="font-medium">価格表記について</p>
+          <p className="mt-1 text-slate-600">
+            本ページに表示される金額は <span className="font-medium">税抜価格</span>{" "}
+            です。
+            <br />
+            <span className="font-medium">※別途消費税がかかります</span>
+          </p>
+        </div>
       </header>
 
       {message && (
@@ -542,43 +424,9 @@ function BillingPageContent() {
           )}
         </div>
 
-        <div className="space-y-2 rounded-xl border border-dashed bg-slate-50 px-6 py-5">
-          <p className="text-sm font-semibold text-slate-900">有料プランのご案内</p>
-          <p className="text-sm text-slate-700">
-            ShopWriter をより快適にご利用いただくため、複数の有料プランをご用意しています。
-            金額は Stripe の Price 情報と同期されています。
-          </p>
-
-          {plansLoading && (
-            <p className="mt-2 text-xs text-slate-500">
-              プラン情報を読み込み中です…
-            </p>
-          )}
-
-          {!plansLoading && plansError && (
-            <p className="mt-2 text-xs text-red-600">{plansError}</p>
-          )}
-
-          {!plansLoading && !plansError && planSummaries && (
-            <ul className="mt-2 space-y-1 text-sm text-slate-700">
-              {planSummaries.map((plan) => (
-                <li key={plan.code}>
-                  ・{plan.label}（{plan.priceText}）：{plan.quotaText}
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <p className="mt-2 text-xs text-slate-500">
-            ※本ページでは、まず UI と情報の整備を行っています。実際のプラン申し込みフローは後続フェーズで実装予定です。
-          </p>
-
-          {isCheckoutPosting && (
-            <p className="mt-2 text-xs text-slate-500">
-              プラン変更の処理中です…
-            </p>
-          )}
-        </div>
+        {isCheckoutPosting && (
+          <p className="text-xs text-slate-500">プラン変更の処理中です…</p>
+        )}
       </section>
     </div>
   );
