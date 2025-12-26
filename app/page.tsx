@@ -339,6 +339,7 @@ function HowItWorks() {
 function Examples() {
   return (
     <section
+      id="examples"
       aria-labelledby="examples-title"
       className="mx-auto max-w-7xl px-4 md:px-6 py-6 md:py-10 [content-visibility:auto]"
     >
@@ -440,10 +441,11 @@ function Examples() {
             <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
           </Button>
         </Link>
+
         <Link
-          href="/shares"
+          href="#examples"
           className={linkText}
-          aria-label="他のサンプルを見る"
+          aria-label="他のサンプルを見る（このページの生成例へ）"
         >
           <Button
             size="lg"
@@ -603,15 +605,16 @@ function FinalCTA() {
                 <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
               </Button>
             </Link>
+
             <Link
-              href="/shares"
+              href="#examples"
               className={linkText}
-              aria-label="デモを見る"
+              aria-label="デモを見る（このページの生成例へ）"
             >
               <Button
-              size="lg"
-              variant="secondary"
-              className={btnOutline + " h-10 md:h-11 px-5 md:px-6"}
+                size="lg"
+                variant="secondary"
+                className={btnOutline + " h-10 md:h-11 px-5 md:px-6"}
               >
                 デモを見る
               </Button>
@@ -747,10 +750,11 @@ export default function HomePage() {
                       />
                     </Button>
                   </Link>
+
                   <Link
-                    href="/shares"
+                    href="#examples"
                     className={linkText}
-                    aria-label="仕組みを見る"
+                    aria-label="デモを見る（このページの生成例へ）"
                   >
                     <Button
                       size="lg"
@@ -759,7 +763,7 @@ export default function HomePage() {
                         btnOutline + " h-10 md:h-11 px-5 md:px-6"
                       }
                     >
-                      仕組みを見る
+                      デモを見る
                     </Button>
                   </Link>
                 </div>
