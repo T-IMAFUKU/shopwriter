@@ -4,23 +4,14 @@
  * ShopWriter — Home (Top Page, Hero + HowItWorks + Examples + Overview + Final CTA)
  * H-4-③ ブランドブロック統一＋モバイル最適化版
  *
- * 変更点（2025-10-26適用）:
- * 1. 旧バッジ "New" / β的ラベルを撤去。
- * 2. Hero冒頭にヘッダーと同じ正式ロゴブロック
- *    (<Logo variant="icon" size="md" ... /> + "ShopWriter" #0A1F61) を配置。
- * 3. H1/サブコピー/CTA/余白のタイポスケール・間隔をモバイル優先で最適化。
- * 4. CTA行: モバイル縦積み → sm以上で横並び (flex-col sm:flex-row)。
- * 5. Heroセクション余白: `px-4 sm:px-8 py-12 sm:py-20` に更新。
- *
- * それ以外の視覚要素 (HeroBackdrop, HeroMockのプレビューカード、下層セクション構成)
- * は現状維持して安全性を優先。
+ * 今回（2025-12-26）: トップページの出力プレビュー/生成例を Writer の出力UIに寄せる
+ * - 新URL/共有導線は作らない（見た目・構造のみ）
+ * - Writer側ロジックは変更しない（必要なら次チャット）
  */
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-// BadgeはHeroから削除したが他セクションでは未使用なのでimport除去
-// import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Check,
@@ -34,14 +25,11 @@ import {
   Wand2,
   List as ListIcon,
   FileText,
-  Quote,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import type { Variants } from "framer-motion";
 
 // 🔵 ヘッダーと同じ正式ロゴを想定
-// ※ パスは仮。実プロジェクトのLogoコンポーネントの場所に合わせて後で修正する。
-//   例: "@/components/Logo" or "@/components/site/Logo"
 import { Logo } from "@/components/Logo";
 
 /* ===== motion variants ===== */
@@ -61,9 +49,6 @@ const scaleIn: Variants = {
 
 /* =========================================================================
    Hero Backdrop — 軽量化版（既存維持）
-   -------------------------------------------------------------------------
-   - SSR: ベースのradialのみ
-   - CSR: マウント後に薄い光彩を追加
    ========================================================================= */
 function HeroBackdrop() {
   const [enhanced, setEnhanced] = useState(false);
@@ -123,6 +108,49 @@ function LogoWordmark() {
   );
 }
 
+/* =========================================================================
+   Writer寄せ：出力カード（トップのプレビュー/生成例で共通利用）
+   - “1枚のカード + ヘッダ行 + 本文(Markdown相当の段落)” の構造に寄せる
+   ========================================================================= */
+function WriterOutputCard({
+  title,
+  status,
+  children,
+}: {
+  title: string;
+  status?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <Card className="relative rounded-2xl border bg-white/70 shadow-sm backdrop-blur-md transition-all md:hover:shadow-2xl md:hover:-translate-y-[2px] dark:bg-white/10">
+      <CardContent className="p-4 md:p-5">
+        <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
+          <span className="inline-flex items-center gap-2">
+            <FileText className="h-4 w-4" aria-hidden />
+            {title}
+          </span>
+          {status ? <span className="inline-flex items-center gap-2">{status}</span> : null}
+        </div>
+
+        {/* Writerの“出力エリア”っぽい面 */}
+        <div className="rounded-xl border bg-white/60 p-4 md:p-5 shadow-none md:shadow-sm backdrop-blur transition-all md:hover:shadow-md dark:bg-white/10">
+          <div
+            className="
+              text-sm leading-7 md:text-base text-foreground
+              whitespace-pre-wrap break-words
+            "
+          >
+            {/* Tailwind Typography がある場合は prose でさらにWriter寄せ（無くても崩れない） */}
+            <div className="prose prose-sm md:prose-base prose-slate max-w-none dark:prose-invert">
+              {children}
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 /* ===== Typing preview（CSR専用の子） ===== */
 function HeroTyping() {
   const lines = useMemo(
@@ -151,8 +179,8 @@ function HeroTyping() {
       return;
     }
 
-    const SPEED = 32;
-    const LINE_DELAY = 650;
+    const SPEED = 28;
+    const LINE_DELAY = 520;
 
     const tick = () => {
       setDisplayed((prev) => {
@@ -183,34 +211,30 @@ function HeroTyping() {
     };
   }, [cIndex, lIndex, lines, prefersReduced]);
 
-  return (
-    <Card className="relative rounded-2xl border-white/10 bg-white/70 shadow-sm backdrop-blur-md transition-all md:hover:shadow-2xl md:hover:-translate-y-[2px] dark:bg-white/10">
-      <CardContent className="p-4 md:p-5">
-        <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
-          <span>AI出力プレビュー</span>
-          {!prefersReduced && (
-            <span aria-live="polite" className="inline-flex items-center gap-1">
-              {done ? "生成完了" : "生成中"}
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary/70" aria-hidden />
-            </span>
-          )}
-        </div>
+  // Writerの出力っぽく「1枚の文章」として見せる（行ごとのピルは廃止）
+  const text = displayed.filter(Boolean).join("\n\n");
 
-        <div className="space-y-2 font-medium leading-relaxed">
-          {displayed.map((text, i) => (
-            <div
-              key={i}
-              className="rounded-md bg-gradient-to-r from-slate-100/80 to-white/50 px-3 py-2 text-slate-800 ring-1 ring-black/5 shadow-none md:shadow-sm transition-all md:hover:shadow-md dark:from-white/5 dark:to-white/0 dark:text-slate-100"
-            >
-              <span>{text}</span>
-              {!prefersReduced && !done && i === lIndex && (
-                <span className="ml-0.5 inline-block w-3 animate-pulse select-none">|</span>
-              )}
-            </div>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
+  return (
+    <WriterOutputCard
+      title="AI出力プレビュー"
+      status={
+        !prefersReduced ? (
+          <span aria-live="polite" className="inline-flex items-center gap-1">
+            {done ? "生成完了" : "生成中"}
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary/70" aria-hidden />
+          </span>
+        ) : null
+      }
+    >
+      <p>
+        {text}
+        {!prefersReduced && !done ? (
+          <span className="ml-0.5 inline-block w-3 animate-pulse select-none" aria-hidden>
+            |
+          </span>
+        ) : null}
+      </p>
+    </WriterOutputCard>
   );
 }
 
@@ -232,16 +256,13 @@ function HeroMock() {
       {mounted ? (
         <HeroTyping />
       ) : (
-        <Card className="relative rounded-2xl border-white/10 bg-white/70 shadow-sm backdrop-blur-md dark:bg-white/10">
-          <CardContent className="p-4 md:p-5">
-            <div className="mb-3 text-xs text-muted-foreground">AI出力プレビュー</div>
-            <div className="space-y-2" aria-hidden>
-              <div className="h-3 w-28 rounded-full bg-slate-200/60" />
-              <div className="h-3 w-40 rounded-full bg-slate-200/60" />
-              <div className="h-3 w-24 rounded-full bg-slate-200/60" />
-            </div>
-          </CardContent>
-        </Card>
+        <WriterOutputCard title="AI出力プレビュー">
+          <div className="space-y-2" aria-hidden>
+            <div className="h-3 w-28 rounded-full bg-slate-200/60" />
+            <div className="h-3 w-40 rounded-full bg-slate-200/60" />
+            <div className="h-3 w-24 rounded-full bg-slate-200/60" />
+          </div>
+        </WriterOutputCard>
       )}
     </motion.div>
   );
@@ -315,10 +336,7 @@ function HowItWorks() {
                   <s.icon className="h-4 w-4 md:h-5 md:w-5 text-primary" />
                 </div>
                 <div className="flex items-baseline gap-2">
-                  <span
-                    aria-hidden
-                    className="text-xs md:text-sm font-semibold text-primary"
-                  >
+                  <span aria-hidden className="text-xs md:text-sm font-semibold text-primary">
                     Step {i + 1}
                   </span>
                   <h3 className="text-base md:text-lg font-semibold">{s.title}</h3>
@@ -344,10 +362,7 @@ function Examples() {
       className="mx-auto max-w-7xl px-4 md:px-6 py-6 md:py-10 [content-visibility:auto]"
     >
       <div className="mb-5 md:mb-8">
-        <h2
-          id="examples-title"
-          className="text-lg md:text-2xl font-semibold tracking-tight"
-        >
+        <h2 id="examples-title" className="text-lg md:text-2xl font-semibold tracking-tight">
           生成例（入力から出力まで）
         </h2>
         <p className="mt-1 text-sm text-muted-foreground md:text-base">
@@ -369,30 +384,17 @@ function Examples() {
               <ListIcon className="h-5 w-5 text-primary" aria-hidden />
               入力（要点）
             </div>
-            <ul
-              className="space-y-2 text-sm md:text-base"
-              role="list"
-              aria-label="入力の要点"
-            >
+            <ul className="space-y-2 text-sm md:text-base" role="list" aria-label="入力の要点">
               <li className="flex gap-2" role="listitem">
-                <span
-                  className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary/60"
-                  aria-hidden
-                />
+                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary/60" aria-hidden />
                 北欧デザインのマグカップ／軽量・割れにくい
               </li>
               <li className="flex gap-2" role="listitem">
-                <span
-                  className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary/60"
-                  aria-hidden
-                />
+                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary/60" aria-hidden />
                 マットな質感／電子レンジ・食洗機OK
               </li>
               <li className="flex gap-2" role="listitem">
-                <span
-                  className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary/60"
-                  aria-hidden
-                />
+                <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary/60" aria-hidden />
                 朝のコーヒーが楽しみになる一杯に
               </li>
             </ul>
@@ -402,56 +404,37 @@ function Examples() {
           </CardContent>
         </Card>
 
-        {/* 生成結果（抜粋） */}
-        <Card className={cardClass}>
-          <CardContent className={cardPadding}>
-            <div className="mb-3 md:mb-4 flex items-center gap-2 text-sm font-semibold">
-              <Wand2 className="h-5 w-5 text-primary" aria-hidden />
-              生成結果（抜粋）
-            </div>
-            <div className="rounded-xl border bg-white/60 p-4 md:p-5 shadow-none md:shadow-sm backdrop-blur transition-all md:hover:shadow-md dark:bg-white/10">
-              <div className="mb-2 md:mb-3 inline-flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                <FileText className="h-4 w-4" aria-hidden />
-                商品説明（導入文）
-              </div>
-              <blockquote className="text-sm leading-7 md:text-base">
-                北欧らしいすっきりとしたフォルムに、手になじむマットな質感。軽くて割れにくいので、毎日の相棒にぴったりです。電子レンジ・食洗機にも対応。朝のコーヒーが、少し楽しみになる一杯をどうぞ。
-              </blockquote>
-            </div>
-            <div className="mt-3 md:mt-4 flex items-center gap-2 text-xs text-muted-foreground">
-              <Quote className="h-4 w-4" aria-hidden />
-              文章の構成や言い回しは自動で整えられます。必要なら微調整してください。
-            </div>
-          </CardContent>
-        </Card>
+        {/* 生成結果（Writer寄せ） */}
+        <div className="md:pt-0">
+          <WriterOutputCard title="生成結果（抜粋）">
+            <h3>北欧デザインのマグカップ</h3>
+            <p>
+              北欧らしいすっきりとしたフォルムに、手になじむマットな質感。
+              軽くて割れにくいので、毎日の相棒にぴったりです。
+            </p>
+            <ul>
+              <li>電子レンジ・食洗機に対応</li>
+              <li>日常使いにちょうどいい軽さ</li>
+              <li>朝のコーヒーが少し楽しみになる一杯</li>
+            </ul>
+            <p className="text-muted-foreground">
+              ※ この体裁（見出し/段落/箇条書き）は、Writerの出力表示に寄せたプレビューです。
+            </p>
+          </WriterOutputCard>
+        </div>
       </motion.div>
 
-      {/* 例の下CTA */}
+      {/* 例の下CTA（既存維持） */}
       <div className="mt-5 md:mt-6 flex flex-wrap items-center gap-3">
-        <Link
-          href="/writer"
-          className={linkText}
-          aria-label="無料で文章をつくってみる（生成例を試す）"
-        >
-          <Button
-            size="lg"
-            className={btnPrimary + " h-10 md:h-11 px-5 md:px-6"}
-          >
+        <Link href="/writer" className={linkText} aria-label="無料で文章をつくってみる（生成例を試す）">
+          <Button size="lg" className={btnPrimary + " h-10 md:h-11 px-5 md:px-6"}>
             無料で文章をつくってみる
             <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
           </Button>
         </Link>
 
-        <Link
-          href="#examples"
-          className={linkText}
-          aria-label="他のサンプルを見る（このページの生成例へ）"
-        >
-          <Button
-            size="lg"
-            variant="secondary"
-            className={btnOutline + " h-10 md:h-11 px-5 md:px-6"}
-          >
+        <Link href="#examples" className={linkText} aria-label="他のサンプルを見る（このページの生成例へ）">
+          <Button size="lg" variant="secondary" className={btnOutline + " h-10 md:h-11 px-5 md:px-6"}>
             他のサンプルを見る
           </Button>
         </Link>
@@ -510,10 +493,7 @@ function Features() {
       className="mx-auto max-w-7xl px-4 md:px-6 py-8 md:py-14 [content-visibility:auto]"
     >
       <div className="mb-5 md:mb-8">
-        <h2
-          id="features-heading"
-          className="text-lg md:text-2xl font-semibold tracking-tight"
-        >
+        <h2 id="features-heading" className="text-lg md:text-2xl font-semibold tracking-tight">
           サービス概要
         </h2>
         <p className="mt-1 text-sm text-muted-foreground md:text-base">
@@ -544,10 +524,7 @@ function Features() {
                 >
                   <it.icon className="h-4 w-4 md:h-5 md:w-5 text-primary" />
                 </div>
-                <h3
-                  id={`feature-${i}-title`}
-                  className="text-base md:text-lg font-semibold"
-                >
+                <h3 id={`feature-${i}-title`} className="text-base md:text-lg font-semibold">
                   {it.title}
                 </h3>
                 <p
@@ -585,10 +562,7 @@ function FinalCTA() {
         />
         <div className="flex flex-col items-start gap-3 md:gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h3
-              id="final-cta-title"
-              className="text-lg md:text-2xl font-bold tracking-tight"
-            >
+            <h3 id="final-cta-title" className="text-lg md:text-2xl font-bold tracking-tight">
               文章づくりを、もっとやさしく。
             </h3>
             <p className="mt-1 text-sm text-muted-foreground md:text-base">
@@ -597,25 +571,14 @@ function FinalCTA() {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Link href="/writer" className={linkText} aria-label="無料で試す">
-              <Button
-                size="lg"
-                className={btnPrimary + " h-10 md:h-11 px-5 md:px-6"}
-              >
+              <Button size="lg" className={btnPrimary + " h-10 md:h-11 px-5 md:px-6"}>
                 無料で試す
                 <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
               </Button>
             </Link>
 
-            <Link
-              href="#examples"
-              className={linkText}
-              aria-label="デモを見る（このページの生成例へ）"
-            >
-              <Button
-                size="lg"
-                variant="secondary"
-                className={btnOutline + " h-10 md:h-11 px-5 md:px-6"}
-              >
+            <Link href="#examples" className={linkText} aria-label="デモを見る（このページの生成例へ）">
+              <Button size="lg" variant="secondary" className={btnOutline + " h-10 md:h-11 px-5 md:px-6"}>
                 デモを見る
               </Button>
             </Link>
@@ -631,11 +594,7 @@ export default function HomePage() {
   return (
     <main className="relative" aria-labelledby="hero-title">
       {/* ===== Hero ===== */}
-      <section
-        id="hero"
-        className="relative overflow-hidden"
-        aria-labelledby="hero-title"
-      >
+      <section id="hero" className="relative overflow-hidden" aria-labelledby="hero-title">
         <HeroBackdrop />
 
         {/* Hero内コンテナ: 余白をH-4-③仕様に合わせて更新 */}
@@ -653,12 +612,7 @@ export default function HomePage() {
                 className="inline-flex"
               >
                 <span className="inline-flex items-center gap-1">
-                  <Logo
-                    variant="icon"
-                    size="md"
-                    className="shrink-0"
-                    priority={true}
-                  />
+                  <Logo variant="icon" size="md" className="shrink-0" priority={true} />
                   <span className="text-[#0A1F61] font-semibold text-base sm:text-lg leading-none">
                     ShopWriter
                   </span>
@@ -708,15 +662,8 @@ export default function HomePage() {
                   "自然な日本語と読みやすい流れを素早く提案",
                   "レビューは共有URLでスムーズに依頼",
                 ].map((t, i) => (
-                  <li
-                    key={i}
-                    className="flex items-start gap-2"
-                    role="listitem"
-                  >
-                    <Check
-                      className="mt-0.5 h-5 w-5 text-primary"
-                      aria-hidden
-                    />
+                  <li key={i} className="flex items-start gap-2" role="listitem">
+                    <Check className="mt-0.5 h-5 w-5 text-primary" aria-hidden />
                     <span>{t}</span>
                   </li>
                 ))}
@@ -732,37 +679,15 @@ export default function HomePage() {
                 className="flex flex-col gap-2"
               >
                 <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-                  <Link
-                    href="/writer"
-                    className={linkText}
-                    aria-label="無料で文章をつくってみる"
-                  >
-                    <Button
-                      size="lg"
-                      className={
-                        btnPrimary + " h-10 md:h-11 px-5 md:px-6"
-                      }
-                    >
+                  <Link href="/writer" className={linkText} aria-label="無料で文章をつくってみる">
+                    <Button size="lg" className={btnPrimary + " h-10 md:h-11 px-5 md:px-6"}>
                       無料で文章をつくってみる
-                      <ArrowRight
-                        className="ml-2 h-4 w-4"
-                        aria-hidden
-                      />
+                      <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
                     </Button>
                   </Link>
 
-                  <Link
-                    href="#examples"
-                    className={linkText}
-                    aria-label="デモを見る（このページの生成例へ）"
-                  >
-                    <Button
-                      size="lg"
-                      variant="secondary"
-                      className={
-                        btnOutline + " h-10 md:h-11 px-5 md:px-6"
-                      }
-                    >
+                  <Link href="#examples" className={linkText} aria-label="デモを見る（このページの生成例へ）">
+                    <Button size="lg" variant="secondary" className={btnOutline + " h-10 md:h-11 px-5 md:px-6"}>
                       デモを見る
                     </Button>
                   </Link>
@@ -784,7 +709,7 @@ export default function HomePage() {
               </motion.div>
             </div>
 
-            {/* 右：タイピングプレビュー */}
+            {/* 右：タイピングプレビュー（Writer寄せ） */}
             <div className="col-span-12 md:col-span-5">
               <HeroMock />
             </div>
