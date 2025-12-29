@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -10,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { HelpCircle, BookOpen, LifeBuoy, MessageSquare, ExternalLink } from "lucide-react";
+import { HelpCircle, BookOpen, LifeBuoy, MessageSquare } from "lucide-react";
 
 type Props = {
   /** 右寄せにしたいとき true（ヘッダー右端など） */
@@ -23,7 +24,10 @@ type Props = {
 
 /**
  * グローバル共通のヘルプドロップダウン。
- * layout から配置して全ページで利用する想定。
+ * 方針（選択肢A）: /help はヘッダー導線から外し、直リンクに統一する。
+ * - 利用ガイド: /guide
+ * - よくある質問: /faq
+ * - フィードバック送信: /feedback
  */
 export default function HelpDropdown({ alignEnd = true, label = "ヘルプ", className }: Props) {
   return (
@@ -39,34 +43,32 @@ export default function HelpDropdown({ alignEnd = true, label = "ヘルプ", cla
           {label}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align={alignEnd ? "end" : "start"}
-        sideOffset={8}
-        className="w-56"
-      >
+
+      <DropdownMenuContent align={alignEnd ? "end" : "start"} sideOffset={8} className="w-56">
         <DropdownMenuLabel>サポート</DropdownMenuLabel>
         <DropdownMenuSeparator />
+
         <DropdownMenuItem asChild>
-          <a href="/share/guide" className="inline-flex w-full items-center gap-2">
+          <Link href="/guide" className="inline-flex w-full items-center gap-2">
             <BookOpen className="size-4" />
             利用ガイド
-          </a>
+          </Link>
         </DropdownMenuItem>
+
         <DropdownMenuItem asChild>
-          <a href="/help/faq" className="inline-flex w-full items-center gap-2">
+          <Link href="/faq" className="inline-flex w-full items-center gap-2">
             <LifeBuoy className="size-4" />
             よくある質問
-          </a>
+          </Link>
         </DropdownMenuItem>
+
         <DropdownMenuItem asChild>
-          <a href="/help/feedback" className="inline-flex w-full items-center gap-2">
+          <Link href="/feedback" className="inline-flex w-full items-center gap-2">
             <MessageSquare className="size-4" />
             フィードバック送信
-            <ExternalLink className="size-3 ml-auto opacity-70" />
-          </a>
+          </Link>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
-

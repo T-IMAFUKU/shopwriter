@@ -104,7 +104,7 @@ export default function GuidePage() {
       </p>
 
       <div className="mt-12 rounded-lg border p-6 text-center">
-        <p className="mb-4 font-semibold">CTA（確定）</p>
+        <p className="mb-4 font-semibold">さっそく使ってみる</p>
         <a
           href="/writer"
           className="inline-flex items-center justify-center rounded-md bg-primary px-6 py-3 font-medium text-white hover:opacity-90"
