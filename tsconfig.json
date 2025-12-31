@@ -40,6 +40,8 @@
     "**/.logs/**",
     "_collect",
     "**/_collect/**",
+    "_local_backups",
+    "**/_local_backups/**",
     "lib/notify.ts",
     "_safety_untracked_dump",
     "**/_safety_untracked_dump/**"

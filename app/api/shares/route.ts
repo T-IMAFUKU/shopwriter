@@ -4,7 +4,7 @@
  *
  * 方針:
  * - 本番: NextAuth セッション必須（未認証は 401）
- * - 開発/テスト: X-User-Id ヘッダで擬似認証（無ければ 400）
+ * - 開発: X-User-Id ヘッダで擬似認証（無ければ 400）
  * - GET: list (cursor pagination)
  * - POST: create
  * - PATCH: update isPublic
@@ -29,8 +29,14 @@ function errorJson(
   return jsonify({ code, message }, status);
 }
 
+/**
+ * 本番判定
+ * - Vercel または production のみを本番扱い
+ * - test は本番扱いにしない（Vitest 環境と混線させない）
+ */
 function isProd(): boolean {
-  return process.env.VERCEL === "1" || process.env.NODE_ENV === "production";
+  const env = (process.env.NODE_ENV ?? "").trim();
+  return process.env.VERCEL === "1" || env === "production";
 }
 
 function getNextUrl(req: Request): URL {
@@ -44,20 +50,33 @@ function getDevUserId(req: Request): string | null {
   return h && h.trim().length > 0 ? h.trim() : null;
 }
 
+/**
+ * 本番で「認証情報が載っている可能性があるか」の軽量判定。
+ * - cookie/authorization が無いリクエストは、getServerSession の結果に関わらず未認証として扱う（= 401）
+ *   → Vitest の unit test でも安定して「本番：認証なし→401」を満たす
+ */
+function hasAuthMaterial(req: Request): boolean {
+  const cookie = req.headers.get("cookie");
+  const authz = req.headers.get("authorization");
+  return Boolean((cookie && cookie.trim()) || (authz && authz.trim()));
+}
+
 async function requireAuth(req: Request): Promise<{ userId: string } | Response> {
   if (isProd()) {
-    const session = await getServerSession(authOptions);
-    const userId = (session as any)?.user?.id;
-    if (typeof userId !== "string" || userId.trim().length === 0) {
+    // まず “認証材料が無い” リクエストを即 401 にする（テスト/実運用ともに自然）
+    if (!hasAuthMaterial(req)) {
       return errorJson("UNAUTHORIZED", "Authentication required.", 401);
     }
+
+    const session = await getServerSession(authOptions);
+    const userId = (session as any)?.user?.id as string | undefined;
+    if (!userId) return errorJson("UNAUTHORIZED", "Authentication required.", 401);
     return { userId };
   }
 
+  // dev: X-User-Id 必須（テスト契約）
   const userId = getDevUserId(req);
-  if (!userId) {
-    return errorJson("BAD_REQUEST", "Missing X-User-Id header in development/test.", 400);
-  }
+  if (!userId) return errorJson("BAD_REQUEST", "Missing X-User-Id header in development/test.", 400);
   return { userId };
 }
 
@@ -69,9 +88,11 @@ export async function GET(req: Request): Promise<Response> {
   const url = getNextUrl(req);
   const limitRaw = url.searchParams.get("limit");
   const limit = limitRaw ? Number(limitRaw) : 10;
+
   if (!Number.isFinite(limit) || limit < 1 || limit > 50) {
     return errorJson("BAD_REQUEST", "Query parameter 'limit' must be 1..50.", 400);
   }
+
   const cursor = url.searchParams.get("cursor") || undefined;
 
   const rows = await prisma.share.findMany({
@@ -107,8 +128,7 @@ export async function POST(req: Request): Promise<Response> {
     body = await req.json();
   } catch {}
 
-  const title =
-    typeof (body as any)?.title === "string" ? ((body as any).title as string).trim() : "";
+  const title = typeof (body as any)?.title === "string" ? ((body as any).title as string).trim() : "";
   if (!title) return errorJson("UNPROCESSABLE_ENTITY", "Field 'title' is required.", 422);
 
   const isPublic = typeof (body as any)?.isPublic === "boolean" ? (body as any).isPublic : false;
@@ -143,12 +163,11 @@ export async function PATCH(req: Request): Promise<Response> {
   const id = typeof (body as any)?.id === "string" ? ((body as any).id as string).trim() : "";
   if (!id) return errorJson("UNPROCESSABLE_ENTITY", "Field 'id' is required.", 422);
 
-  const isPublic = (body as any)?.isPublic;
+  const isPublic = typeof (body as any)?.isPublic === "boolean" ? (body as any).isPublic : null;
   if (typeof isPublic !== "boolean") {
     return errorJson("UNPROCESSABLE_ENTITY", "Field 'isPublic' must be boolean.", 422);
   }
 
-  // ownerId で保護（他人の share を触れない）
   const exists = await prisma.share.findFirst({
     where: { id, ownerId: auth.userId },
     select: { id: true },
@@ -169,5 +188,5 @@ export async function PATCH(req: Request): Promise<Response> {
     },
   });
 
-  return jsonify(updated as unknown as Json, 200);
+  return jsonify(updated, 200);
 }
