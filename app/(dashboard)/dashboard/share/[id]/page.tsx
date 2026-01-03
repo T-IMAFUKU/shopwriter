@@ -1,5 +1,6 @@
 // app/(dashboard)/dashboard/share/[id]/page.tsx
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import ShareCard from "@/components/share/ShareCard";
 
 type ShareStatus = "public" | "draft";
@@ -14,25 +15,40 @@ type ShareDetail = {
 };
 
 export const metadata: Metadata = {
-  title: "Share Detail",
+  title: "共有詳細 | ShopWriter",
 };
 
 function mapStatusToCard(status: ShareStatus): "Public" | "Draft" {
   return status === "public" ? "Public" : "Draft";
 }
 
+function getBaseUrlFromHeaders(): string {
+  const h = headers();
+
+  // Vercel/Proxy では x-forwarded-* が基本。なければ host を使う。
+  const proto = h.get("x-forwarded-proto") ?? "https";
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+
+  if (!host) {
+    throw new Error("Failed to build base URL: missing host header");
+  }
+
+  return `${proto}://${host}`;
+}
+
 async function getShare(id: string): Promise<ShareDetail> {
-  const url =
-    (process.env.NEXT_PUBLIC_APP_URL ?? "") +
-    `/api/shares/${encodeURIComponent(id)}`;
+  const base = getBaseUrlFromHeaders();
+  const url = new URL(`/api/shares/${encodeURIComponent(id)}`, base).toString();
+
   const res = await fetch(url, {
+    // no-store で十分（revalidate との二重指定を避ける）
     cache: "no-store",
-    next: { revalidate: 0 },
   });
 
   if (!res.ok) {
-    throw new Error(`Failed to fetch /api/shares/${id}: ${res.status}`);
+    throw new Error(`Failed to fetch ${url}: ${res.status}`);
   }
+
   const data = (await res.json()) as ShareDetail;
   return data;
 }
