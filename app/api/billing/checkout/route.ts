@@ -36,6 +36,8 @@ export async function POST(req: Request) {
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       payment_method_types: ["card"],
+      // ✅ 100%OFFクーポン（プロモコード）入力欄をCheckoutに表示する
+      allow_promotion_codes: true,
       line_items: [
         {
           price: priceId,
