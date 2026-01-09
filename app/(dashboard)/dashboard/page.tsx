@@ -174,7 +174,13 @@ export default function DashboardPage({ searchParams }: DashboardPageProps) {
       ) : null}
 
       <DashboardGrid
-        quickActions={<QuickActionsCard writerHref="/writer" productsHref="/products" />}
+        quickActions={
+          <QuickActionsCard
+            writerHref="/writer"
+            productsHref="/products"
+            shareHref="/dashboard/share"
+          />
+        }
         accountStatus={
           <AccountStatusSummaryCard
             statusLabel="未取得"

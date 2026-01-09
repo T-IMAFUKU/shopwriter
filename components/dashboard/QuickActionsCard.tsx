@@ -9,18 +9,20 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { PenLine, Package } from "lucide-react";
+import { PenLine, Package, Share2 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
 export type QuickActionsCardProps = {
   writerHref: string; // 文章作成
   productsHref: string; // 商品情報管理
+  shareHref: string; // 共有（管理）
 };
 
 export function QuickActionsCard({
   writerHref,
   productsHref,
+  shareHref,
 }: QuickActionsCardProps) {
   return (
     <Card className="p-0">
@@ -57,6 +59,21 @@ export function QuickActionsCard({
             >
               <Package className="h-4 w-4" aria-hidden="true" />
               <span className="text-sm font-medium">商品情報管理</span>
+            </Link>
+          </Button>
+
+          <Button
+            asChild
+            variant="secondary"
+            className="h-9 px-4 sm:min-w-[180px]"
+          >
+            <Link
+              href={shareHref}
+              aria-label="共有（管理）へ"
+              className="inline-flex items-center gap-2"
+            >
+              <Share2 className="h-4 w-4" aria-hidden="true" />
+              <span className="text-sm font-medium">共有（管理）</span>
             </Link>
           </Button>
         </div>
