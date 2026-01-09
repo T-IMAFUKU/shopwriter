@@ -33,17 +33,23 @@ export const authOptions: NextAuthOptions = {
 
   callbacks: {
     /**
-     * session callback
-     * - token.sub -> session.user.id
-     * - session.user.email -> DB参照 -> 課金フィールドを session.user に載せる
+     * session callback（ここがSSOT）
+     *
+     * 目的:
+     * - session.user.id を「GitHubのID」ではなく「DBのUser.id（cmi...）」にする
+     *
+     * 方針:
+     * - email をキーに DB の user を引く
+     * - 見つかったら session.user.id を DBの id に上書き
+     * - 課金フィールドも同時に session.user に載せる
      */
     async session({ session, token }) {
-      // 既存互換：id を載せる
+      // まずは既存互換：token.sub があるなら一旦入れておく（※後でDB idで上書きする）
       if (token?.sub) (session.user as any).id = token.sub;
 
-      // email が無ければ DB照会できないので、そのまま返す
       const email = session.user?.email ?? null;
       if (!email || typeof email !== "string") {
+        // email が無いとDBの user を特定できない。ここでは壊さず返す。
         return session;
       }
 
@@ -51,12 +57,18 @@ export const authOptions: NextAuthOptions = {
         const u = await prisma.user.findUnique({
           where: { email },
           select: {
+            id: true, // ✅ DBの User.id（cmi...）
             stripeCustomerId: true,
             stripeSubscriptionId: true,
             subscriptionStatus: true,
             subscriptionCurrentPeriodEnd: true,
           },
         });
+
+        if (u?.id) {
+          // ✅ 最重要：session.user.id を DBの User.id に正本化
+          (session.user as any).id = u.id;
+        }
 
         const billing: BillingFields = {
           stripeCustomerId: u?.stripeCustomerId ?? null,

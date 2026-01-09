@@ -48,6 +48,8 @@ type AuthSessionResponse = {
   };
 };
 
+type UiMessageKind = "info" | "success" | "error";
+
 function getSubscriptionUi(status: SubscriptionStatusCode) {
   switch (status) {
     case "TRIALING":
@@ -141,6 +143,93 @@ function normalizeSubscriptionStatus(value: unknown): SubscriptionStatusCode {
   return "NONE";
 }
 
+function normalizeMessageKind(
+  value: UiMessageKind | null | undefined,
+): UiMessageKind {
+  if (value === "success" || value === "error" || value === "info") return value;
+  return "info";
+}
+
+function messageBoxClass(kind: UiMessageKind): string {
+  switch (kind) {
+    case "success":
+      return "rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900";
+    case "error":
+      return "rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900";
+    case "info":
+    default:
+      return "rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900";
+  }
+}
+
+type CheckoutApiResponse = {
+  ok?: boolean;
+  url?: string | null;
+  error?: string;
+  message?: string;
+  code?: string;
+};
+
+function toStringSafe(v: unknown): string | null {
+  return typeof v === "string" && v.trim().length > 0 ? v.trim() : null;
+}
+
+function formatCheckoutFailureMessage(
+  resStatus: number,
+  api: CheckoutApiResponse,
+  isProdBuild: boolean,
+): { kind: UiMessageKind; text: string } {
+  // まず status で大枠を切る
+  if (resStatus === 401) {
+    return { kind: "error", text: "ログインしてからお試しください。" };
+  }
+
+  if (resStatus === 503) {
+    return {
+      kind: "error",
+      text:
+        "決済を開始できませんでした（Stripe の設定が未完了です）。管理者にご連絡ください。",
+    };
+  }
+
+  const raw =
+    toStringSafe(api.error) ||
+    toStringSafe(api.message) ||
+    toStringSafe(api.code) ||
+    null;
+
+  // 開発中のみ、よくある“設定不足”は分かりやすく言い換える
+  if (!isProdBuild && raw) {
+    const m = raw.match(/^Missing Stripe price env:\s*(.+)$/);
+    if (m?.[1]) {
+      return {
+        kind: "error",
+        text: `決済を開始できませんでした（設定不足：${m[1]}）。.env.local / Vercel 環境変数を確認してください。`,
+      };
+    }
+
+    if (raw.toLowerCase().includes("stripe is not configured")) {
+      return {
+        kind: "error",
+        text:
+          "決済を開始できませんでした（Stripe が未設定です）。STRIPE_SECRET_KEY などの環境変数を確認してください。",
+      };
+    }
+
+    // その他は開発中は生ログも見える化（無反応対策）
+    return {
+      kind: "error",
+      text: `決済を開始できませんでした：${raw}`,
+    };
+  }
+
+  // 本番は詳細を出しすぎない（ただし“無反応”に見えないよう最低限は出す）
+  return {
+    kind: "error",
+    text: "決済を開始できませんでした。しばらくしてから再度お試しください。",
+  };
+}
+
 export default function BillingPage() {
   return (
     <Suspense
@@ -160,6 +249,7 @@ function BillingPageContent() {
 
   const checkoutStatus = params.get("checkout");
   const [message, setMessage] = useState<string | null>(null);
+  const [messageKind, setMessageKind] = useState<UiMessageKind>("info");
   const [isCheckoutPosting, setIsCheckoutPosting] = useState(false);
   const [isPortalOpening, setIsPortalOpening] = useState(false);
 
@@ -171,13 +261,27 @@ function BillingPageContent() {
   const [sessionStatus, setSessionStatus] =
     useState<SubscriptionStatusCode>("NONE");
 
+  // build時に埋め込まれる（dev=development / prod=production）
+  const isProdBuild = process.env.NODE_ENV === "production";
+
+  // ==========================================================
+  // E2E検証UI（0円決済）表示フラグ（2-B）
+  // - 開発/検証時のみ、明示フラグ "1" で表示
+  // - production では絶対に表示しない（本番事故防止）
+  // ==========================================================
+  const showE2EBillingButton =
+    !isProdBuild && process.env.NEXT_PUBLIC_SHOW_E2E_BILLING === "1";
+
   useEffect(() => {
     if (checkoutStatus === "success") {
+      setMessageKind("success");
       setMessage("決済が完了しました。ありがとうございます。");
     } else if (checkoutStatus === "cancel") {
+      setMessageKind("info");
       setMessage("決済をキャンセルしました。再度お試しください。");
     } else {
       setMessage(null);
+      setMessageKind("info");
     }
   }, [checkoutStatus]);
 
@@ -241,25 +345,37 @@ function BillingPageContent() {
     try {
       setIsCheckoutPosting(true);
 
+      // クリックしたことが伝わるよう、メッセージは一旦消す（任意）
+      // setMessage(null);
+
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ planCode }),
       });
 
-      const data = await res.json();
+      const data: CheckoutApiResponse = await res
+        .json()
+        .catch(() => ({} as CheckoutApiResponse));
 
-      if (!res.ok || !data.ok || !data.url) {
-        console.error("Checkout error:", data);
-        setMessage(
-          "決済を開始できませんでした。しばらくしてから再度お試しください。",
-        );
+      const ok = Boolean(
+        res.ok && data?.ok && typeof data?.url === "string" && data.url,
+      );
+
+      if (!ok) {
+        console.error("Checkout error:", { status: res.status, data });
+
+        const msg = formatCheckoutFailureMessage(res.status, data, isProdBuild);
+        setMessageKind(normalizeMessageKind(msg.kind));
+        setMessage(msg.text);
         return;
       }
 
-      window.location.href = data.url;
+      // 成功時は即遷移
+      window.location.href = String(data.url);
     } catch (err) {
       console.error(err);
+      setMessageKind("error");
       setMessage("エラーが発生しました。時間をおいて再試行してください。");
     } finally {
       setIsCheckoutPosting(false);
@@ -271,6 +387,7 @@ function BillingPageContent() {
       setIsPortalOpening(true);
 
       if (!isLoggedIn) {
+        setMessageKind("error");
         setMessage("ログインしてからお試しください。");
         return;
       }
@@ -294,6 +411,8 @@ function BillingPageContent() {
           data,
         });
 
+        setMessageKind("error");
+
         if (res.status === 401) {
           setMessage("ログインしてからお試しください。");
           return;
@@ -315,6 +434,7 @@ function BillingPageContent() {
       window.location.href = data.url;
     } catch (err) {
       console.error(err);
+      setMessageKind("error");
       setMessage("エラーが発生しました。時間をおいて再試行してください。");
     } finally {
       setIsPortalOpening(false);
@@ -342,11 +462,7 @@ function BillingPageContent() {
         </div>
       </header>
 
-      {message && (
-        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
-          {message}
-        </div>
-      )}
+      {message && <div className={messageBoxClass(messageKind)}>{message}</div>}
 
       <section className="space-y-6">
         <div className="rounded-xl border bg-white px-6 py-5 shadow-sm">
@@ -418,6 +534,50 @@ function BillingPageContent() {
             </p>
           )}
         </div>
+
+        {/* ==========================================================
+            E2E検証用：無料プランでも Checkout を必ず起動できる一時導線
+            - 2-B: NEXT_PUBLIC_SHOW_E2E_BILLING === "1" の時だけ表示（開発/検証用）
+            - production では絶対に表示しない（本番事故防止）
+            - /api/stripe/checkout を必ず POST
+            - ログイン必須（本番の不特定ユーザー乱用を避ける）
+            - 100%OFFクーポンは Stripe Checkout 画面で入力（想定）
+           ========================================================== */}
+        {showE2EBillingButton && (
+          <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 px-6 py-5 shadow-sm">
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-amber-900">
+                E2E検証（0円決済）一時ボタン
+              </p>
+              <p className="text-sm text-amber-900/80">
+                100%OFFクーポンによる{" "}
+                <span className="font-medium">0円購入</span>{" "}
+                の動作確認用です。クリックすると Stripe Checkout を起動します。
+              </p>
+              <p className="text-xs text-amber-900/70">
+                ※このボタンは検証用の一時導線です（将来削除前提）
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <button
+                onClick={() => startCheckout("STANDARD_2980")}
+                disabled={!isLoggedIn || isCheckoutPosting}
+                className="inline-flex items-center justify-center rounded-md bg-amber-600 px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isCheckoutPosting
+                  ? "Checkout 起動中…"
+                  : "【検証】Checkoutを起動する（0円クーポン）"}
+              </button>
+
+              {!isLoggedIn && (
+                <span className="text-xs text-amber-900/70">
+                  ログイン後に押せます（本番の乱用防止）
+                </span>
+              )}
+            </div>
+          </div>
+        )}
 
         {isCheckoutPosting && (
           <p className="text-xs text-slate-500">プラン変更の処理中です…</p>
