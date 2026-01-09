@@ -139,6 +139,10 @@ export async function POST(req: Request) {
       payment_method_types: ["card"],
       // ✅ 100%OFFクーポン（プロモコード）入力欄をCheckoutに表示する
       allow_promotion_codes: true,
+
+      // ✅ 消費税などの自動税計算を有効化（Checkoutで税表示＆請求を行う）
+      automatic_tax: { enabled: true },
+
       line_items: [
         {
           price: priceId,
