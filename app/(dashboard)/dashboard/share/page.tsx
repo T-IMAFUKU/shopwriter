@@ -9,6 +9,14 @@
 // 重要:
 // - このページは DB 直読みを禁止し、SSOT として GET /api/shares を使用する
 // - dev契約で /api/shares が X-User-Id（DB上のUser.id）を要求する場合があるため、dev時は seed の "dev-user-1" を送って吸収する
+//
+// 修正（2026-01-10）:
+// - 401/403 を「ログイン不足」「有料プラン必要」で出し分け
+//   （無料プランなのに“ログインが必要”に見えてしまう誤解を解消）
+//
+// 注意:
+// - 403 は本来「権限NG」全般（例: owner不一致等）も含む可能性がある。
+//   ただし現状のUX方針として、このページでは 403 を「プラン不足」として案内する。
 
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -77,37 +85,64 @@ async function safeReadErrorMessage(res: Response): Promise<string | null> {
   }
 }
 
+function Breadcrumb() {
+  return (
+    <nav aria-label="breadcrumb" className="text-sm text-muted-foreground">
+      <Link href="/dashboard" className="hover:text-foreground hover:underline">
+        ダッシュボード
+      </Link>
+      <span className="mx-2" aria-hidden="true">
+        ＞
+      </span>
+      <span className="text-foreground">共有</span>
+    </nav>
+  );
+}
+
+function LoginRequiredCard() {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">ログインが必要です</CardTitle>
+      </CardHeader>
+      <CardContent className="flex items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">共有一覧を見るにはログインしてください。</p>
+        <Button asChild>
+          <Link href="/api/auth/signin">ログイン</Link>
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PaidPlanRequiredCard() {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">この機能は有料プランで利用できます</CardTitle>
+      </CardHeader>
+      <CardContent className="flex items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">
+          共有（管理）機能は有料プラン限定です。プランを選んで開始できます。
+        </p>
+        <Button asChild>
+          <Link href="/pricing">プランと料金を見る</Link>
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default async function ShareListPage() {
   const session = await getServerSession(authOptions);
   const userId = (session as any)?.user?.id as string | undefined;
 
-  // ダッシュボード配下はログイン前提だが、保険として未ログインは案内
+  // 未ログイン（UI上の案内）
   if (!userId) {
     return (
       <div className="space-y-6">
-        <nav aria-label="breadcrumb" className="text-sm text-muted-foreground">
-          <Link href="/dashboard" className="hover:text-foreground hover:underline">
-            ダッシュボード
-          </Link>
-          <span className="mx-2" aria-hidden="true">
-            ＞
-          </span>
-          <span className="text-foreground">共有</span>
-        </nav>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">ログインが必要です</CardTitle>
-          </CardHeader>
-          <CardContent className="flex items-center justify-between gap-3">
-            <p className="text-sm text-muted-foreground">
-              共有一覧を見るにはログインしてください。
-            </p>
-            <Button asChild>
-              <Link href="/api/auth/signin">ログイン</Link>
-            </Button>
-          </CardContent>
-        </Card>
+        <Breadcrumb />
+        <LoginRequiredCard />
       </div>
     );
   }
@@ -133,33 +168,22 @@ export default async function ShareListPage() {
     headers: reqHeaders,
   });
 
-  // 未認証（保険）
-  if (res.status === 401 || res.status === 403) {
+  // 401: 未ログイン/セッション無し（ログイン案内）
+  if (res.status === 401) {
     return (
       <div className="space-y-6">
-        <nav aria-label="breadcrumb" className="text-sm text-muted-foreground">
-          <Link href="/dashboard" className="hover:text-foreground hover:underline">
-            ダッシュボード
-          </Link>
-          <span className="mx-2" aria-hidden="true">
-            ＞
-          </span>
-          <span className="text-foreground">共有</span>
-        </nav>
+        <Breadcrumb />
+        <LoginRequiredCard />
+      </div>
+    );
+  }
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">ログインが必要です</CardTitle>
-          </CardHeader>
-          <CardContent className="flex items-center justify-between gap-3">
-            <p className="text-sm text-muted-foreground">
-              共有一覧を見るにはログインしてください。
-            </p>
-            <Button asChild>
-              <Link href="/api/auth/signin">ログイン</Link>
-            </Button>
-          </CardContent>
-        </Card>
+  // 403: 権限NG（ここでは “プラン不足” として案内）
+  if (res.status === 403) {
+    return (
+      <div className="space-y-6">
+        <Breadcrumb />
+        <PaidPlanRequiredCard />
       </div>
     );
   }
@@ -182,15 +206,7 @@ export default async function ShareListPage() {
   return (
     <div className="space-y-6">
       {/* 現在地（breadcrumb） */}
-      <nav aria-label="breadcrumb" className="text-sm text-muted-foreground">
-        <Link href="/dashboard" className="hover:text-foreground hover:underline">
-          ダッシュボード
-        </Link>
-        <span className="mx-2" aria-hidden="true">
-          ＞
-        </span>
-        <span className="text-foreground">共有</span>
-      </nav>
+      <Breadcrumb />
 
       {/* 説明（控えめ） */}
       <header className="space-y-1">
@@ -203,9 +219,7 @@ export default async function ShareListPage() {
       <Card>
         <CardHeader className="space-y-1">
           <CardTitle className="text-base">共有一覧</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            あなたが作成した共有カードを表示します。
-          </p>
+          <p className="text-sm text-muted-foreground">あなたが作成した共有カードを表示します。</p>
         </CardHeader>
 
         <CardContent className="space-y-4">
@@ -242,9 +256,7 @@ export default async function ShareListPage() {
           ) : (
             <div className="space-y-3">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-sm text-muted-foreground">
-                  {shares.length} 件の共有カードがあります。
-                </div>
+                <div className="text-sm text-muted-foreground">{shares.length} 件の共有カードがあります。</div>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Button asChild>
                     <Link href="/writer">Writerへ</Link>
@@ -271,11 +283,7 @@ export default async function ShareListPage() {
                           {s.title}
                         </Link>
 
-                        {s.isPublic ? (
-                          <Badge>公開</Badge>
-                        ) : (
-                          <Badge variant="secondary">非公開</Badge>
-                        )}
+                        {s.isPublic ? <Badge>公開</Badge> : <Badge variant="secondary">非公開</Badge>}
                       </div>
 
                       <div className="mt-1 text-xs text-muted-foreground">
@@ -308,9 +316,7 @@ export default async function ShareListPage() {
       <Card>
         <CardHeader className="space-y-1">
           <CardTitle className="text-base">ヒント</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            公開にすると、共有URLをコピーして他の人に見せられます。
-          </p>
+          <p className="text-sm text-muted-foreground">公開にすると、共有URLをコピーして他の人に見せられます。</p>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
           公開/非公開の切替・URLコピーは、この一覧ページから行えるようにしていきます。
