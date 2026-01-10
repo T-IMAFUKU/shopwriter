@@ -4,6 +4,7 @@
  *
  * 方針:
  * - 本番: NextAuth セッション必須（未認証は 401）
+ * - 本番: ログイン済みでも、プラン不足は 403（UIで有料案内に寄せる）
  * - 開発: 基本は X-User-Id ヘッダで擬似認証（無ければ 400）
  *         ただし cookie 等の認証材料がある場合は session を優先（=ログイン中UIを壊さない）
  * - GET: list (cursor pagination)
@@ -12,7 +13,8 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { getServerSession } from "next-auth/next";
+// ✅ App Router の route handler は next-auth/next ではなく next-auth を使う（本番401の主因になりやすい）
+import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
 type Json = Record<string, unknown>;
@@ -23,7 +25,7 @@ function jsonify(data: Json, status = 200): Response {
 }
 
 function errorJson(
-  code: "BAD_REQUEST" | "UNAUTHORIZED" | "UNPROCESSABLE_ENTITY" | "NOT_FOUND",
+  code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "UNPROCESSABLE_ENTITY" | "NOT_FOUND",
   message: string,
   status: number,
 ): Response {
@@ -90,6 +92,23 @@ async function resolveOwnerIdFromSession(session: unknown): Promise<string | nul
   return null;
 }
 
+type SubscriptionStatus = "active" | "trialing" | "past_due" | "canceled" | "unpaid" | "incomplete" | "incomplete_expired";
+
+/**
+ * “有料プラン判定”
+ * - ここはプロジェクトの運用ルールに合わせて最小で判定
+ * - active / trialing を「利用可」とする（無料は403へ）
+ */
+async function isPaidUser(userId: string): Promise<boolean> {
+  const u = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { subscriptionStatus: true },
+  });
+
+  const st = (u as any)?.subscriptionStatus as SubscriptionStatus | null | undefined;
+  return st === "active" || st === "trialing";
+}
+
 /**
  * dev/test 用：X-User-Id の実在チェック
  * - Vitest では prisma.user が mock の都合で未定義になるケースがある
@@ -111,37 +130,52 @@ async function verifyDevUserExists(userId: string): Promise<boolean> {
   return Boolean(exists?.id);
 }
 
-async function requireAuth(req: Request): Promise<{ userId: string } | Response> {
+type AuthOk = { userId: string };
+type AuthResult = AuthOk | Response;
+
+async function requireAuth(req: Request): Promise<AuthResult> {
   // --- production -----------------------------------------------------------
   if (isProd()) {
+    // 認証材料が無いなら 401
     if (!hasAuthMaterial(req)) {
       return errorJson("UNAUTHORIZED", "Authentication required.", 401);
     }
 
     const session = await getServerSession(authOptions);
     const ownerId = await resolveOwnerIdFromSession(session);
-
     if (!ownerId) return errorJson("UNAUTHORIZED", "Authentication required.", 401);
+
+    // ✅ ログイン済みだが無料 → 403（UIで有料案内に寄せる）
+    const paid = await isPaidUser(ownerId);
+    if (!paid) return errorJson("FORBIDDEN", "Paid plan required.", 403);
+
     return { userId: ownerId };
   }
 
   // --- dev/test -------------------------------------------------------------
-  // ✅ 重要: cookie 等がある = ブラウザでログインしている可能性が高いので session を優先
+  // cookie等がある = ブラウザでログインしている可能性が高いので session を優先
   if (hasAuthMaterial(req)) {
     const session = await getServerSession(authOptions);
     const ownerId = await resolveOwnerIdFromSession(session);
-
-    // 認証材料があるのに ownerId が取れない場合は「ログイン扱いにできない」
     if (!ownerId) return errorJson("UNAUTHORIZED", "Authentication required.", 401);
+
+    // devでも挙動を揃える（ログイン済みだが無料 → 403）
+    const paid = await isPaidUser(ownerId);
+    if (!paid) return errorJson("FORBIDDEN", "Paid plan required.", 403);
+
     return { userId: ownerId };
   }
 
-  // ✅ それ以外（curl等）は擬似認証（契約どおり）
+  // それ以外（curl等）は擬似認証（契約どおり）
   const userId = getDevUserId(req);
   if (!userId) return errorJson("BAD_REQUEST", "Missing X-User-Id header in development/test.", 400);
 
   const ok = await verifyDevUserExists(userId);
   if (!ok) return errorJson("BAD_REQUEST", "Unknown X-User-Id (user not found).", 400);
+
+  // 擬似認証でも「無料なら403」を揃える（devでUI確認をしやすくする）
+  const paid = await isPaidUser(userId);
+  if (!paid) return errorJson("FORBIDDEN", "Paid plan required.", 403);
 
   return { userId };
 }
