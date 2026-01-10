@@ -6,23 +6,19 @@
 // - 未実装導線は原則出さない（例外のみ“準備中”をカード側で扱う）
 // - 親レイアウトが「ダッシュボード」見出しを持つため、子ページは “現在地” をパンくずで明示する
 //
-// 重要:
-// - このページは DB 直読みを禁止し、SSOT として GET /api/shares を使用する
-// - dev契約で /api/shares が X-User-Id（DB上のUser.id）を要求する場合があるため、dev時は seed の "dev-user-1" を送って吸収する
-//
-// 修正（2026-01-10）:
-// - 401/403 を「ログイン不足」「有料プラン必要」で出し分け
-//   （無料プランなのに“ログインが必要”に見えてしまう誤解を解消）
+// 重要（2026-01-10方針A）:
+// - SSR内で /api/shares を fetch しない（cookie転送/host/proto差による 401/403 ブレを根絶）
+// - DB直読みで「ログイン判定」「有料判定」「一覧取得」を完結する
+// - 無料ユーザーは 403相当の有料案内（PaidPlanRequiredCard）を安定表示する
 //
 // 注意:
-// - 403 は本来「権限NG」全般（例: owner不一致等）も含む可能性がある。
-//   ただし現状のUX方針として、このページでは 403 を「プラン不足」として案内する。
+// - 有料判定は “確実に有料と分かる場合のみ一覧表示” とし、判定できない場合は保守的に有料案内を出す（ブレ防止優先）
 
 import type { Metadata } from "next";
 import Link from "next/link";
-import { cookies, headers } from "next/headers";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { prisma } from "@/lib/prisma";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -42,11 +38,6 @@ type ShareItem = {
   updatedAt: string;
 };
 
-type SharesListResponse = {
-  items: ShareItem[];
-  nextCursor: string | null;
-};
-
 function formatYmdHmFromIso(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "-";
@@ -56,33 +47,6 @@ function formatYmdHmFromIso(iso: string): string {
   const hh = String(d.getHours()).padStart(2, "0");
   const mi = String(d.getMinutes()).padStart(2, "0");
   return `${yyyy}/${mm}/${dd} ${hh}:${mi}`;
-}
-
-function getBaseUrlFromHeaders(): string {
-  const h = headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host");
-  const proto = h.get("x-forwarded-proto") ?? "http";
-  return host ? `${proto}://${host}` : "http://localhost:3000";
-}
-
-async function safeReadErrorMessage(res: Response): Promise<string | null> {
-  try {
-    const ct = res.headers.get("content-type") ?? "";
-    if (ct.includes("application/json")) {
-      const j = (await res.json()) as any;
-      const msg =
-        typeof j?.error === "string"
-          ? j.error
-          : typeof j?.message === "string"
-            ? j.message
-            : null;
-      return msg;
-    }
-    const t = await res.text();
-    return t ? t.slice(0, 200) : null;
-  } catch {
-    return null;
-  }
 }
 
 function Breadcrumb() {
@@ -106,7 +70,9 @@ function LoginRequiredCard() {
         <CardTitle className="text-base">ログインが必要です</CardTitle>
       </CardHeader>
       <CardContent className="flex items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">共有一覧を見るにはログインしてください。</p>
+        <p className="text-sm text-muted-foreground">
+          共有一覧を見るにはログインしてください。
+        </p>
         <Button asChild>
           <Link href="/api/auth/signin">ログイン</Link>
         </Button>
@@ -133,43 +99,114 @@ function PaidPlanRequiredCard() {
   );
 }
 
-export default async function ShareListPage() {
-  const session = await getServerSession(authOptions);
-  const userId = (session as any)?.user?.id as string | undefined;
+/**
+ * “確実に有料” と言えるものだけ true。
+ * 判定できない場合は false（=有料案内へ）で SSR のブレを防ぐ。
+ */
+function isDefinitelyPaid(user: unknown): boolean {
+  const u = user as any;
+  if (!u) return false;
 
-  // 未ログイン（UI上の案内）
-  if (!userId) {
-    return (
-      <div className="space-y-6">
-        <Breadcrumb />
-        <LoginRequiredCard />
-      </div>
-    );
+  // 1) Stripe/Subscription 系のよくある状態（例: active / trialing）
+  const status = (u.subscriptionStatus ?? u.stripeSubscriptionStatus ?? u.planStatus ?? null) as
+    | string
+    | null;
+  if (typeof status === "string") {
+    const s = status.toLowerCase();
+    if (s === "active" || s === "trialing") return true;
   }
 
-  const baseUrl = getBaseUrlFromHeaders();
-  const cookie = cookies().toString();
+  // 2) planCode/planName 系（例: basic/standard/premium/pro/paid）
+  const plan = (u.planCode ?? u.plan ?? u.currentPlan ?? u.tier ?? null) as string | null;
+  if (typeof plan === "string") {
+    const p = plan.toLowerCase();
+    if (
+      p === "paid" ||
+      p === "pro" ||
+      p === "basic" ||
+      p === "standard" ||
+      p === "premium" ||
+      p === "plus"
+    ) {
+      return true;
+    }
+  }
+
+  // 3) 有料の根拠になるID（customer/subscription）だけでは “確実” とみなさない（保守）
+  return false;
+}
+
+async function resolveDbUserIdFromSession(): Promise<string | null> {
+  const session = await getServerSession(authOptions);
+  const sessionUserId = (session as any)?.user?.id as string | undefined;
+
+  // 未ログイン
+  if (!sessionUserId) return null;
+
   const isDev = process.env.NODE_ENV !== "production";
 
-  const reqHeaders: Record<string, string> = {
-    accept: "application/json",
-  };
-  if (cookie) reqHeaders.cookie = cookie;
+  // まず session.user.id を DB の User.id として引いてみる
+  const u1 = await prisma.user.findUnique({ where: { id: sessionUserId } });
+  if (u1) return u1.id;
 
-  // dev契約吸収：/api/shares が「X-User-Id（DB上のUser.id）」を要求する場合がある
-  // ※ sessionのuserIdはローカルDBのUser.idと一致しないことがあるため、seed固定値を使う
+  // dev で一致しないケースを吸収（現場運用の既知パターン）
   if (isDev) {
-    reqHeaders["x-user-id"] = process.env.DEV_X_USER_ID ?? "dev-user-1";
+    const fallback = process.env.DEV_X_USER_ID ?? "dev-user-1";
+    const u2 = await prisma.user.findUnique({ where: { id: fallback } });
+    if (u2) return u2.id;
   }
 
-  const res = await fetch(`${baseUrl}/api/shares?limit=30`, {
-    method: "GET",
-    cache: "no-store",
-    headers: reqHeaders,
-  });
+  // ここまで来たら DB 上でユーザー特定できない（=保守的に有料案内へ）
+  return sessionUserId; // “ログイン済み”の事実はあるので返す（ただし一覧は出さない）
+}
 
-  // 401: 未ログイン/セッション無し（ログイン案内）
-  if (res.status === 401) {
+async function readCurrentUser(dbUserId: string) {
+  // select を絞らず取得（ただし unknown フィールドアクセスは any で吸収）
+  return prisma.user.findUnique({ where: { id: dbUserId } });
+}
+
+async function readSharesForUser(dbUserId: string): Promise<ShareItem[]> {
+  /**
+   * Prisma Model 名に依存しないため、SQL で取得。
+   * 前提：テーブル "Share" に userId / isPublic / createdAt / updatedAt / title / id がある
+   */
+  const rows = (await prisma.$queryRaw<
+    Array<{
+      id: string;
+      title: string;
+      isPublic: boolean;
+      createdAt: Date;
+      updatedAt: Date;
+    }>
+  >`
+    SELECT
+      "id",
+      "title",
+      "isPublic",
+      "createdAt",
+      "updatedAt"
+    FROM "Share"
+    WHERE "userId" = ${dbUserId}
+    ORDER BY "updatedAt" DESC
+    LIMIT 30
+  `) as any[];
+
+  if (!Array.isArray(rows)) return [];
+  return rows.map((r) => ({
+    id: String(r.id),
+    title: String(r.title ?? ""),
+    isPublic: Boolean(r.isPublic),
+    createdAt: new Date(r.createdAt).toISOString(),
+    updatedAt: new Date(r.updatedAt).toISOString(),
+  }));
+}
+
+export default async function ShareListPage() {
+  const session = await getServerSession(authOptions);
+  const sessionUserId = (session as any)?.user?.id as string | undefined;
+
+  // 未ログイン（UI上の案内）
+  if (!sessionUserId) {
     return (
       <div className="space-y-6">
         <Breadcrumb />
@@ -178,8 +215,22 @@ export default async function ShareListPage() {
     );
   }
 
-  // 403: 権限NG（ここでは “プラン不足” として案内）
-  if (res.status === 403) {
+  // DB上の userId を解決（devフォールバック含む）
+  const dbUserId = await resolveDbUserIdFromSession();
+  if (!dbUserId) {
+    return (
+      <div className="space-y-6">
+        <Breadcrumb />
+        <LoginRequiredCard />
+      </div>
+    );
+  }
+
+  // ユーザー情報を DB から取得し、有料判定（保守的）
+  const user = await readCurrentUser(dbUserId);
+  const paid = isDefinitelyPaid(user);
+
+  if (!paid) {
     return (
       <div className="space-y-6">
         <Breadcrumb />
@@ -188,20 +239,16 @@ export default async function ShareListPage() {
     );
   }
 
-  let data: SharesListResponse | null = null;
-  let errMsg: string | null = null;
+  // 有料なら一覧取得
+  let shares: ShareItem[] = [];
+  let loadError: string | null = null;
 
-  if (!res.ok) {
-    errMsg = await safeReadErrorMessage(res);
-  } else {
-    try {
-      data = (await res.json()) as SharesListResponse;
-    } catch {
-      data = null;
-    }
+  try {
+    shares = await readSharesForUser(dbUserId);
+  } catch (e) {
+    loadError = e instanceof Error ? e.message : "unknown error";
+    shares = [];
   }
-
-  const shares = Array.isArray(data?.items) ? data!.items : [];
 
   return (
     <div className="space-y-6">
@@ -223,11 +270,11 @@ export default async function ShareListPage() {
         </CardHeader>
 
         <CardContent className="space-y-4">
-          {!res.ok ? (
+          {loadError ? (
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-sm text-muted-foreground">
-                共有一覧の読み込みに失敗しました（HTTP {res.status}）。
-                {errMsg ? <span className="block mt-1 text-xs">詳細: {errMsg}</span> : null}
+                共有一覧の読み込みに失敗しました。
+                <span className="block mt-1 text-xs">詳細: {loadError}</span>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Button asChild>

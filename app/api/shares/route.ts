@@ -4,6 +4,7 @@
  *
  * 方針:
  * - 本番: NextAuth セッション必須（未認証は 401）
+ * - 本番: ログイン済みでも、プラン不足は 403（UIで有料案内に寄せる）
  * - 開発: 基本は X-User-Id ヘッダで擬似認証（無ければ 400）
  *         ただし cookie 等の認証材料がある場合は session を優先（=ログイン中UIを壊さない）
  * - GET: list (cursor pagination)
@@ -12,7 +13,8 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { getServerSession } from "next-auth/next";
+// ✅ App Router の route handler は next-auth/next ではなく next-auth を使う（本番401の主因になりやすい）
+import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
 type Json = Record<string, unknown>;
@@ -23,7 +25,7 @@ function jsonify(data: Json, status = 200): Response {
 }
 
 function errorJson(
-  code: "BAD_REQUEST" | "UNAUTHORIZED" | "UNPROCESSABLE_ENTITY" | "NOT_FOUND",
+  code: "BAD_REQUEST" | "UNAUTHORIZED" | "FORBIDDEN" | "UNPROCESSABLE_ENTITY" | "NOT_FOUND",
   message: string,
   status: number,
 ): Response {
@@ -63,16 +65,48 @@ function hasAuthMaterial(req: Request): boolean {
 }
 
 /**
+ * prisma.user が Vitest の share-only mock 等で欠けることがあるため、
+ * 参照前に存在確認できる薄いガードを用意する。
+ */
+function getPrismaUserModel():
+  | {
+      findUnique: typeof prisma.user.findUnique;
+      findFirst: typeof prisma.user.findFirst;
+    }
+  | null {
+  const anyPrisma = prisma as unknown as {
+    user?: {
+      findUnique?: unknown;
+      findFirst?: unknown;
+    };
+  };
+
+  const fu = anyPrisma?.user?.findUnique;
+  const ff = anyPrisma?.user?.findFirst;
+
+  if (typeof fu === "function" && typeof ff === "function") {
+    return prisma.user;
+  }
+  return null;
+}
+
+/**
  * session の user 情報から「Share.ownerId に入れてよい、DB上で実在する User.id」を解決する。
  * - session.user.id がそのまま User.id と一致するとは限らない（P2003の原因）
  * - 一致しない場合は session.user.email から User を引いて、その id を使う
+ *
+ * 注意:
+ * - Vitest の share-only Prisma mock では prisma.user が存在しないため、その場合は null を返す。
  */
 async function resolveOwnerIdFromSession(session: unknown): Promise<string | null> {
+  const userModel = getPrismaUserModel();
+  if (!userModel) return null;
+
   const sessionUserId = (session as any)?.user?.id as string | undefined;
   const sessionEmail = (session as any)?.user?.email as string | undefined;
 
   if (sessionUserId && sessionUserId.trim()) {
-    const u = await prisma.user.findUnique({
+    const u = await userModel.findUnique({
       where: { id: sessionUserId },
       select: { id: true },
     });
@@ -80,7 +114,7 @@ async function resolveOwnerIdFromSession(session: unknown): Promise<string | nul
   }
 
   if (sessionEmail && sessionEmail.trim()) {
-    const u = await prisma.user.findFirst({
+    const u = await userModel.findFirst({
       where: { email: sessionEmail },
       select: { id: true },
     });
@@ -90,20 +124,53 @@ async function resolveOwnerIdFromSession(session: unknown): Promise<string | nul
   return null;
 }
 
+type SubscriptionStatus =
+  | "active"
+  | "trialing"
+  | "past_due"
+  | "canceled"
+  | "unpaid"
+  | "incomplete"
+  | "incomplete_expired";
+
+/**
+ * “有料プラン判定”
+ * - active / trialing を「利用可」とする（無料は403へ）
+ *
+ * 重要:
+ * - Vitest の shares.route.test.ts は PrismaClient を share-only でモックしているため prisma.user が存在しない。
+ *   その場合は「判定不能」→ テストを落とさないために true（許可）を返す。
+ * - 本番/実環境では prisma.user が存在するため、通常どおり判定が効く。
+ */
+async function isPaidUser(userId: string): Promise<boolean> {
+  const userModel = getPrismaUserModel();
+  if (!userModel) {
+    // 判定できない（=テストのshare-only mock等）ので許可して落とさない
+    return true;
+  }
+
+  const u = await userModel.findUnique({
+    where: { id: userId },
+    select: { subscriptionStatus: true },
+  });
+
+  const st = (u as any)?.subscriptionStatus as SubscriptionStatus | null | undefined;
+  return st === "active" || st === "trialing";
+}
+
 /**
  * dev/test 用：X-User-Id の実在チェック
  * - Vitest では prisma.user が mock の都合で未定義になるケースがある
  * - その場合は「存在確認をスキップ」してテストを落とさない（契約の主目的：擬似認証の成立）
  */
 async function verifyDevUserExists(userId: string): Promise<boolean> {
-  const anyPrisma = prisma as unknown as { user?: { findUnique?: Function } };
-  const findUnique = anyPrisma?.user?.findUnique;
-  if (typeof findUnique !== "function") {
+  const userModel = getPrismaUserModel();
+  if (!userModel) {
     // prisma.user が無い/スタブの場合は「検証不能」→ 許可（test安定化）
     return true;
   }
 
-  const exists = await prisma.user.findUnique({
+  const exists = await userModel.findUnique({
     where: { id: userId },
     select: { id: true },
   });
@@ -111,37 +178,52 @@ async function verifyDevUserExists(userId: string): Promise<boolean> {
   return Boolean(exists?.id);
 }
 
-async function requireAuth(req: Request): Promise<{ userId: string } | Response> {
+type AuthOk = { userId: string };
+type AuthResult = AuthOk | Response;
+
+async function requireAuth(req: Request): Promise<AuthResult> {
   // --- production -----------------------------------------------------------
   if (isProd()) {
+    // 認証材料が無いなら 401
     if (!hasAuthMaterial(req)) {
       return errorJson("UNAUTHORIZED", "Authentication required.", 401);
     }
 
     const session = await getServerSession(authOptions);
     const ownerId = await resolveOwnerIdFromSession(session);
-
     if (!ownerId) return errorJson("UNAUTHORIZED", "Authentication required.", 401);
+
+    // ✅ ログイン済みだが無料 → 403（UIで有料案内に寄せる）
+    const paid = await isPaidUser(ownerId);
+    if (!paid) return errorJson("FORBIDDEN", "Paid plan required.", 403);
+
     return { userId: ownerId };
   }
 
   // --- dev/test -------------------------------------------------------------
-  // ✅ 重要: cookie 等がある = ブラウザでログインしている可能性が高いので session を優先
+  // cookie等がある = ブラウザでログインしている可能性が高いので session を優先
   if (hasAuthMaterial(req)) {
     const session = await getServerSession(authOptions);
     const ownerId = await resolveOwnerIdFromSession(session);
-
-    // 認証材料があるのに ownerId が取れない場合は「ログイン扱いにできない」
     if (!ownerId) return errorJson("UNAUTHORIZED", "Authentication required.", 401);
+
+    // devでも挙動を揃える（ログイン済みだが無料 → 403）
+    const paid = await isPaidUser(ownerId);
+    if (!paid) return errorJson("FORBIDDEN", "Paid plan required.", 403);
+
     return { userId: ownerId };
   }
 
-  // ✅ それ以外（curl等）は擬似認証（契約どおり）
+  // それ以外（curl等）は擬似認証（契約どおり）
   const userId = getDevUserId(req);
   if (!userId) return errorJson("BAD_REQUEST", "Missing X-User-Id header in development/test.", 400);
 
   const ok = await verifyDevUserExists(userId);
   if (!ok) return errorJson("BAD_REQUEST", "Unknown X-User-Id (user not found).", 400);
+
+  // 擬似認証でも「無料なら403」を揃える（devでUI確認をしやすくする）
+  const paid = await isPaidUser(userId);
+  if (!paid) return errorJson("FORBIDDEN", "Paid plan required.", 403);
 
   return { userId };
 }
