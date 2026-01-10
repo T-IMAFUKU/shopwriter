@@ -1,6 +1,8 @@
 // app/api/shares/[id]/route.ts
 import { NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
 export const runtime = "nodejs"; // Prisma を Node 実行に固定（Edge差異を排除）
 
@@ -36,6 +38,17 @@ function getDevActorId(req: Request): string | null {
   return id ? id : null;
 }
 
+async function getProdActorId(): Promise<string | null> {
+  try {
+    const session = await getServerSession(authOptions);
+    const anySession = session as any;
+    const id = String(anySession?.user?.id ?? "").trim();
+    return id ? id : null;
+  } catch {
+    return null;
+  }
+}
+
 function readIsPublic(share: Record<string, unknown>): boolean | undefined {
   if (typeof share["isPublic"] === "boolean") return share["isPublic"] as boolean;
   if (typeof share["published"] === "boolean") return share["published"] as boolean;
@@ -48,9 +61,23 @@ function readOwnerId(share: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
+async function assertOwner(req: Request, ownerId: string): Promise<Response | null> {
+  if (isDev()) {
+    const actorId = getDevActorId(req);
+    if (!actorId) return errorJson(400, "bad_request");
+    if (actorId !== ownerId) return errorJson(403, "forbidden");
+    return null;
+  }
+
+  const actorId = await getProdActorId();
+  if (!actorId) return errorJson(401, "unauthorized");
+  if (actorId !== ownerId) return errorJson(403, "forbidden");
+  return null;
+}
+
 // GET /api/shares/[id]
 // - 公開: 誰でも 200
-// - 非公開: owner のみ 200（dev は X-User-Id 必須 / prod は unauthorized 扱い）
+// - 非公開: owner のみ 200（dev は X-User-Id 必須 / prod は NextAuth セッションで owner 判定）
 export async function GET(req: Request, ctx: { params: { id: string } }) {
   try {
     const id = String(ctx?.params?.id ?? "").trim();
@@ -64,8 +91,6 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
 
     // 公開なら常にOK（公開ページ/API用途）
     if (isPublic === true || isPublic === undefined) {
-      // isPublic が無いスキーマでも公開扱いにしたい場合は undefined を許容
-      // ※ ただし現状は isPublic が存在している前提なので、undefined は実質発生しない想定
       return okJson(share);
     }
 
@@ -73,24 +98,17 @@ export async function GET(req: Request, ctx: { params: { id: string } }) {
     const ownerId = readOwnerId(s);
     if (!ownerId) return errorJson(403, "forbidden");
 
-    if (isDev()) {
-      const actorId = getDevActorId(req);
-      if (!actorId) return errorJson(400, "bad_request");
-      if (actorId !== ownerId) return errorJson(403, "forbidden");
-      return okJson(share);
-    }
+    const denied = await assertOwner(req, ownerId);
+    if (denied) return denied;
 
-    // production: ここは「未ログイン=unauthorized」扱い（管理画面用途）
-    // ※ 本番は NextAuth を使って owner 判定する実装に寄せるのが理想だが、
-    //    まずは問い合わせ耐性（403/401を返して壊れない）を優先する。
-    return errorJson(401, "unauthorized");
+    return okJson(share);
   } catch {
     return errorJson(400, "bad_request");
   }
 }
 
 // PATCH /api/shares/[id]
-// - dev: X-User-Id が owner と一致する場合のみ更新OK
+// - owner のみ更新OK（dev: X-User-Id / prod: NextAuth セッション）
 export async function PATCH(req: Request, ctx: { params: { id: string } }) {
   try {
     const id = String(ctx?.params?.id ?? "").trim();
@@ -113,19 +131,15 @@ export async function PATCH(req: Request, ctx: { params: { id: string } }) {
     const ownerId = readOwnerId(s);
     if (!ownerId) return errorJson(403, "forbidden");
 
-    if (isDev()) {
-      const actorId = getDevActorId(req);
-      if (!actorId) return errorJson(400, "bad_request");
-      if (actorId !== ownerId) return errorJson(403, "forbidden");
+    const denied = await assertOwner(req, ownerId);
+    if (denied) return denied;
 
-      const updated = await prisma.share.update({
-        where: { id },
-        data: { isPublic: nextIsPublic },
-      });
-      return okJson(updated);
-    }
+    const updated = await prisma.share.update({
+      where: { id },
+      data: { isPublic: nextIsPublic },
+    });
 
-    return errorJson(401, "unauthorized");
+    return okJson(updated);
   } catch {
     return errorJson(400, "bad_request");
   }
