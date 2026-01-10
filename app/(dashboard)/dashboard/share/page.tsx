@@ -13,6 +13,10 @@
 //
 // 注意:
 // - 有料判定は “確実に有料と分かる場合のみ一覧表示” とし、判定できない場合は保守的に有料案内を出す（ブレ防止優先）
+//
+// 修正（2026-01-10 Hotfix）:
+// - Raw SQL（"userId" 列前提）を撤去し、PrismaのShareモデルに準拠（ownerId）で取得する
+//   → 本番DB列差異による 42703 を根絶
 
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -166,32 +170,20 @@ async function readCurrentUser(dbUserId: string) {
 }
 
 async function readSharesForUser(dbUserId: string): Promise<ShareItem[]> {
-  /**
-   * Prisma Model 名に依存しないため、SQL で取得。
-   * 前提：テーブル "Share" に userId / isPublic / createdAt / updatedAt / title / id がある
-   */
-  const rows = (await prisma.$queryRaw<
-    Array<{
-      id: string;
-      title: string;
-      isPublic: boolean;
-      createdAt: Date;
-      updatedAt: Date;
-    }>
-  >`
-    SELECT
-      "id",
-      "title",
-      "isPublic",
-      "createdAt",
-      "updatedAt"
-    FROM "Share"
-    WHERE "userId" = ${dbUserId}
-    ORDER BY "updatedAt" DESC
-    LIMIT 30
-  `) as any[];
+  // ✅ Raw SQL を撤去：Shareモデルに準拠して ownerId で取得する
+  const rows = await prisma.share.findMany({
+    where: { ownerId: dbUserId },
+    orderBy: { updatedAt: "desc" },
+    take: 30,
+    select: {
+      id: true,
+      title: true,
+      isPublic: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
 
-  if (!Array.isArray(rows)) return [];
   return rows.map((r) => ({
     id: String(r.id),
     title: String(r.title ?? ""),
