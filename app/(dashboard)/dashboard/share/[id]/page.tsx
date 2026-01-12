@@ -36,6 +36,10 @@ export const metadata: Metadata = {
   title: "共有の管理 | ShopWriter",
 };
 
+// ✅ 本番で session/cookies/headers 依存の挙動を安定させる（静的最適化を避ける）
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 function getBaseUrlFromHeaders(): string {
   const h = headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
