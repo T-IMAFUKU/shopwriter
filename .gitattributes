@@ -1,1 +1,48 @@
+# .gitattributes
+# 方針C-A: CRLF/LFノイズ根絶（repoルールでLF固定）
+#
+# 目的:
+# - Windows環境でも改行の揺れを抑え、"LF will be replaced by CRLF" 等の警告を再発させない
+# - テキストは原則 LF に統一（必要が出たら例外をここに追加する）
+#
+# 重要:
+# - 既存の merge=ours ルールは維持
+
+# 既存ルール（維持）
 app/api/writer/route.ts merge=ours
+
+# 既定: テキストは自動正規化 + LF
+* text=auto eol=lf
+
+# 明示: Gitが常に扱う系（念のため）
+*.ts   text eol=lf
+*.tsx  text eol=lf
+*.js   text eol=lf
+*.jsx  text eol=lf
+*.mjs  text eol=lf
+*.cjs  text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.css  text eol=lf
+*.txt  text eol=lf
+*.env  text eol=lf
+*.gitignore text eol=lf
+*.gitattributes text eol=lf
+*.editorconfig  text eol=lf
+
+# バイナリ（改行変換させない）
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz  binary
+*.mp4 binary
+*.mov binary
+*.woff  binary
+*.woff2 binary
