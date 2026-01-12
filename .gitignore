@@ -74,3 +74,10 @@ _safety_untracked_dump/
 _local_backups/
 
 tsconfig.tsbuildinfo
+
+*.bak
+
+_local_backups/
+tsconfig.tsbuildinfo
+*.bak
+
