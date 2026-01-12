@@ -73,3 +73,4 @@ _safety_untracked_dump/
 # local backups
 _local_backups/
 
+tsconfig.tsbuildinfo
