@@ -124,18 +124,10 @@ async function resolveOwnerIdFromSession(session: unknown): Promise<string | nul
   return null;
 }
 
-type SubscriptionStatus =
-  | "active"
-  | "trialing"
-  | "past_due"
-  | "canceled"
-  | "unpaid"
-  | "incomplete"
-  | "incomplete_expired";
-
 /**
- * “有料プラン判定”
- * - active / trialing を「利用可」とする（無料は403へ）
+ * subscriptionStatus は実装・DB・Webhook都合で表記ゆれが起きやすいので正規化して判定する。
+ * - "ACTIVE" / "active" / " Active " を同一扱い
+ * - 有効: ACTIVE / TRIALING
  *
  * 重要:
  * - Vitest の shares.route.test.ts は PrismaClient を share-only でモックしているため prisma.user が存在しない。
@@ -151,11 +143,21 @@ async function isPaidUser(userId: string): Promise<boolean> {
 
   const u = await userModel.findUnique({
     where: { id: userId },
-    select: { subscriptionStatus: true },
+    // 🔒 false negative を避けるため、statusに加え subscriptionId も同時に見ておく
+    select: { subscriptionStatus: true, stripeSubscriptionId: true },
   });
 
-  const st = (u as any)?.subscriptionStatus as SubscriptionStatus | null | undefined;
-  return st === "active" || st === "trialing";
+  const stRaw = (u as any)?.subscriptionStatus as unknown;
+  const st = String(stRaw ?? "").trim().toUpperCase();
+
+  // まずは status 正規化で判定（本来これが正道）
+  if (st === "ACTIVE" || st === "TRIALING") return true;
+
+  // 保険：statusが未反映でも、subscriptionId が入っているなら “有料扱い” に寄せる（誤403を防ぐ）
+  const subId = String((u as any)?.stripeSubscriptionId ?? "").trim();
+  if (!st && subId) return true;
+
+  return false;
 }
 
 /**
