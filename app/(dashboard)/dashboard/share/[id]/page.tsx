@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import Script from "next/script";
 import { notFound } from "next/navigation";
-import { cookies, headers } from "next/headers";
+import { headers } from "next/headers";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
@@ -35,10 +35,6 @@ type ShareDetailResponse = {
 export const metadata: Metadata = {
   title: "共有の管理 | ShopWriter",
 };
-
-// ✅ 本番で session/cookies/headers 依存の挙動を安定させる（静的最適化を避ける）
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
 function getBaseUrlFromHeaders(): string {
   const h = headers();
@@ -117,7 +113,9 @@ function normalizeShareDetail(raw: any): ShareDetailResponse | null {
  * ログイン中は session.user.id（= DB由来ID）を優先して使う。
  */
 function buildSharesHeaders(opts: { isDev: boolean; devUserId: string | null }): Record<string, string> {
-  const cookie = cookies().toString();
+  // ✅案2：server-side fetch には “生のCookieヘッダ” をそのまま転送する（認証伝播を堅くする）
+  const cookie = headers().get("cookie") ?? "";
+
   const reqHeaders: Record<string, string> = { accept: "application/json" };
   if (cookie) reqHeaders.cookie = cookie;
 
