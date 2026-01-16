@@ -8,6 +8,11 @@
 // 重要：subscription.updated は stripeCustomerId 未設定でも飛んでくるため、
 //       metadata.userId をフォールバックにする
 // 重要：customer.created は email が無いケースがあるため、email が取れた時だけ紐付ける（観測用途）
+//
+// 追加（2026-01）:
+// - Test/LIVE どちらの Webhook secret でも検証できるようにする
+//   (STRIPE_WEBHOOK_SECRET_TEST / STRIPE_WEBHOOK_SECRET)
+// - Stripe Dashboard の Test 送信が Invalid signature になる問題を解消
 
 import { NextRequest, NextResponse } from "next/server";
 import { headers } from "next/headers";
@@ -19,8 +24,11 @@ import { SubscriptionStatus } from "@prisma/client";
 
 export const runtime = "nodejs";
 
-// Webhook secret（@/lib/stripe に依存せず直接読む）
-const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET ?? "";
+// Webhook secrets（@/lib/stripe に依存せず直接読む）
+// - まず Test を優先（Test Dashboard の送信を通す）
+// - 次に Live
+const stripeWebhookSecretTest = process.env.STRIPE_WEBHOOK_SECRET_TEST ?? "";
+const stripeWebhookSecretLive = process.env.STRIPE_WEBHOOK_SECRET ?? "";
 
 // Stripe の Subscription.status → App の SubscriptionStatus 変換
 function mapStripeStatusToSubscriptionStatus(
@@ -329,31 +337,72 @@ async function handleInvoicePaymentFailed(event: Stripe.Event) {
   );
 }
 
+function getStripeSignatureHeader(): string | null {
+  // next/headers 経由（App Router）
+  const sig = headers().get("stripe-signature");
+  return sig ?? null;
+}
+
+function getCandidateWebhookSecrets(): string[] {
+  const secrets: string[] = [];
+  if (stripeWebhookSecretTest) secrets.push(stripeWebhookSecretTest);
+  if (stripeWebhookSecretLive) secrets.push(stripeWebhookSecretLive);
+  return secrets;
+}
+
+function constructEventWithAnySecret(
+  body: string,
+  sig: string,
+  secrets: string[],
+): { ok: true; event: Stripe.Event; used: "test" | "live" | "unknown" } | { ok: false } {
+  for (const secret of secrets) {
+    try {
+      const event = stripe.webhooks.constructEvent(body, sig, secret);
+
+      const used =
+        secret === stripeWebhookSecretTest
+          ? "test"
+          : secret === stripeWebhookSecretLive
+            ? "live"
+            : "unknown";
+
+      return { ok: true, event, used };
+    } catch {
+      // try next secret
+    }
+  }
+  return { ok: false };
+}
+
 export async function POST(req: NextRequest) {
-  if (!stripeWebhookSecret) {
-    console.error("[stripe-webhook] Missing STRIPE_WEBHOOK_SECRET");
+  const secrets = getCandidateWebhookSecrets();
+  if (secrets.length === 0) {
+    console.error("[stripe-webhook] Missing webhook secret (STRIPE_WEBHOOK_SECRET_TEST / STRIPE_WEBHOOK_SECRET)");
     return NextResponse.json({ error: "Webhook secret not configured" }, { status: 500 });
   }
 
-  const sig = headers().get("stripe-signature");
+  const sig = getStripeSignatureHeader();
   if (!sig) {
     return NextResponse.json({ error: "Missing stripe-signature" }, { status: 400 });
   }
 
   const body = await req.text();
 
-  let event: Stripe.Event;
-  try {
-    event = stripe.webhooks.constructEvent(body, sig, stripeWebhookSecret);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("[stripe-webhook] Error verifying webhook signature", { message });
+  const constructed = constructEventWithAnySecret(body, sig, secrets);
+  if (!constructed.ok) {
+    console.error("[stripe-webhook] Error verifying webhook signature", {
+      hasTest: Boolean(stripeWebhookSecretTest),
+      hasLive: Boolean(stripeWebhookSecretLive),
+    });
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
   }
+
+  const event = constructed.event;
 
   console.log("[stripe-webhook] received event", {
     id: event.id,
     type: event.type,
+    verifiedWith: constructed.used,
   });
 
   try {
@@ -377,6 +426,11 @@ export async function POST(req: NextRequest) {
 
       case "invoice.payment_failed":
         await handleInvoicePaymentFailed(event);
+        break;
+
+      // invoice.paid は「今は不要」なのでOK扱いで200返す（Stripeの赤を止める）
+      case "invoice.paid":
+        console.log("[stripe-webhook] invoice.paid received (no-op)", { id: event.id });
         break;
 
       default:
