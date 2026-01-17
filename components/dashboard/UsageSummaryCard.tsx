@@ -1,15 +1,13 @@
 // components/dashboard/UsageSummaryCard.tsx
-// 入口整備フェーズ⑤（ダッシュボード実装）
-// L2-07: UsageSummaryCard（利用状況：未計測表示）
+// 入口整備フェーズ⑥（UI Polishing）
+// 2/3: UsageSummaryCard（設計バッジ削除）
 //
 // 方針:
-// - この段階では“未計測”の統一表示だけ（データ接続は L2-08）
-// - 密度ルール：最大6行、リンク最大2、バッジ最大1
-// - 未実装導線は原則非表示
+// - （準主役）バッジは完全削除
+// - 表示構造・Props・挙動は変更しない
 
 import * as React from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 
 export type UsageSummaryCardProps = {
   // まだ計測しないので optional
@@ -25,7 +23,6 @@ export function UsageSummaryCard(_props: UsageSummaryCardProps) {
       <CardHeader className="p-5 md:p-6 pb-3">
         <div className="flex items-center justify-between gap-3">
           <CardTitle className="text-base">利用状況</CardTitle>
-          <Badge variant="secondary">準主役</Badge>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
           文章作成の利用状況を表示します。
