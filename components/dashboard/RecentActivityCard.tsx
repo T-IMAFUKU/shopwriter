@@ -1,17 +1,15 @@
 // components/dashboard/RecentActivityCard.tsx
-// 入口整備フェーズ⑤（ダッシュボード実装）
-// L2-05: RecentActivityCard（最近のアクティビティ：軽量）
+// 入口整備フェーズ⑥（UI Polishing）
+// 3/3: RecentActivityCard（設計バッジ削除）
 //
 // 方針:
-// - “今はまだ接続しない”前提で、空状態を統一ルールで表示
-// - 密度ルール：最大6行、リンク最大2、バッジ最大1
-// - レベル3要素（重い表/長文）禁止
+// - （軽量）バッジは完全削除
+// - 表示構造・Props・挙動は変更しない
 
 import * as React from "react";
 import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 
 export type RecentActivityItem = {
   id: string;
@@ -33,7 +31,6 @@ export function RecentActivityCard({ items, allHref }: RecentActivityCardProps) 
       <CardHeader className="p-5 md:p-6 pb-3">
         <div className="flex items-center justify-between gap-3">
           <CardTitle className="text-base">最近のアクティビティ</CardTitle>
-          <Badge variant="secondary">軽量</Badge>
         </div>
         <p className="mt-1 text-sm text-muted-foreground">
           直近の操作履歴を、ここに表示します。
