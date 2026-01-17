@@ -143,6 +143,31 @@ function normalizeSubscriptionStatus(value: unknown): SubscriptionStatusCode {
   return "NONE";
 }
 
+/**
+ * 表示用ステータスのSSOT（恒久）
+ * - Stripe紐付けが無い（customerId/subscriptionId が両方 null）なら「無料（NONE）」として扱う
+ * - 紐付けがある場合のみ、DBの subscriptionStatus を意味のある状態として扱う（INACTIVE も含む）
+ */
+function computeEffectiveStatus(args: {
+  sessionStatus: SubscriptionStatusCode;
+  stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
+}): SubscriptionStatusCode {
+  const { sessionStatus, stripeCustomerId, stripeSubscriptionId } = args;
+
+  const hasCustomer = typeof stripeCustomerId === "string" && stripeCustomerId.length > 0;
+  const hasSub = typeof stripeSubscriptionId === "string" && stripeSubscriptionId.length > 0;
+
+  // ✅ 本番で起きた問題の根本対策：
+  //   課金紐付けが無いのに subscriptionStatus が INACTIVE の場合でも「無料」と表示する
+  if (!hasCustomer && !hasSub) return "NONE";
+
+  // 紐付けがあるのに status が未設定っぽい場合は INACTIVE 寄せ（=停止/無効）
+  if (sessionStatus === "NONE") return "INACTIVE";
+
+  return sessionStatus;
+}
+
 function normalizeMessageKind(
   value: UiMessageKind | null | undefined,
 ): UiMessageKind {
@@ -258,6 +283,7 @@ function BillingPageContent() {
 
   // session に載っていれば使う（載っていないのが現状の前提）
   const [stripeCustomerId, setStripeCustomerId] = useState<string | null>(null);
+  const [stripeSubscriptionId, setStripeSubscriptionId] = useState<string | null>(null);
   const [sessionStatus, setSessionStatus] =
     useState<SubscriptionStatusCode>("NONE");
 
@@ -300,6 +326,7 @@ function BillingPageContent() {
           if (!cancelled) {
             setIsLoggedIn(false);
             setStripeCustomerId(null);
+            setStripeSubscriptionId(null);
             setSessionStatus("NONE");
           }
           return;
@@ -310,6 +337,7 @@ function BillingPageContent() {
         const loggedIn = Boolean(email);
 
         const cid = data.user?.stripeCustomerId ?? null;
+        const sid = data.user?.stripeSubscriptionId ?? null;
         const subStatus = normalizeSubscriptionStatus(
           data.user?.subscriptionStatus,
         );
@@ -317,12 +345,14 @@ function BillingPageContent() {
         if (!cancelled) {
           setIsLoggedIn(loggedIn);
           setStripeCustomerId(typeof cid === "string" ? cid : null);
+          setStripeSubscriptionId(typeof sid === "string" ? sid : null);
           setSessionStatus(subStatus);
         }
       } catch {
         if (!cancelled) {
           setIsLoggedIn(false);
           setStripeCustomerId(null);
+          setStripeSubscriptionId(null);
           setSessionStatus("NONE");
         }
       }
@@ -334,8 +364,12 @@ function BillingPageContent() {
     };
   }, []);
 
-  // 表示は現状「session由来」（ただし session に課金情報が載らない場合があるため過信しない）
-  const subscriptionStatus: SubscriptionStatusCode = sessionStatus;
+  // ✅ 表示SSOT（恒久）：stripe紐付けが無いなら無料（NONE）へ寄せる
+  const subscriptionStatus: SubscriptionStatusCode = computeEffectiveStatus({
+    sessionStatus,
+    stripeCustomerId,
+    stripeSubscriptionId,
+  });
   const ui = getSubscriptionUi(subscriptionStatus);
 
   // ★重要：Portal を開けるかの最終判定はサーバに委ねる
@@ -344,9 +378,6 @@ function BillingPageContent() {
   async function startCheckout(planCode: PlanCode) {
     try {
       setIsCheckoutPosting(true);
-
-      // クリックしたことが伝わるよう、メッセージは一旦消す（任意）
-      // setMessage(null);
 
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
@@ -441,7 +472,12 @@ function BillingPageContent() {
     }
   }
 
-  const showSessionHint = isLoggedIn && !stripeCustomerId;
+  // ✅ 誤解を招くため、無料（NONE）では出さない。
+  //    “課金状態があるはず”なのに紐付けが無い場合だけヒントを出す。
+  const showSessionHint =
+    isLoggedIn &&
+    subscriptionStatus !== "NONE" &&
+    (!stripeCustomerId || stripeCustomerId.length === 0);
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-10 space-y-8">
