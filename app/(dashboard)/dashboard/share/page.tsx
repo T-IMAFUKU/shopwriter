@@ -272,8 +272,10 @@ export default async function ShareListPage() {
                 <Button asChild>
                   <Link href="/writer">Writerへ</Link>
                 </Button>
-                <Button variant="outline" disabled aria-disabled="true" title="準備中">
-                  共有の使い方（準備中）
+
+                {/* ✅ 方針：準備中を廃止し、/share/guide の通常リンクに戻す */}
+                <Button variant="outline" asChild>
+                  <Link href="/share/guide">共有の使い方</Link>
                 </Button>
               </div>
             </div>
@@ -287,8 +289,10 @@ export default async function ShareListPage() {
                 <Button asChild>
                   <Link href="/writer">Writerへ</Link>
                 </Button>
-                <Button variant="outline" disabled aria-disabled="true" title="準備中">
-                  共有の使い方（準備中）
+
+                {/* ✅ 方針：準備中を廃止し、/share/guide の通常リンクに戻す */}
+                <Button variant="outline" asChild>
+                  <Link href="/share/guide">共有の使い方</Link>
                 </Button>
               </div>
             </div>
@@ -300,8 +304,10 @@ export default async function ShareListPage() {
                   <Button asChild>
                     <Link href="/writer">Writerへ</Link>
                   </Button>
-                  <Button variant="outline" disabled aria-disabled="true" title="準備中">
-                    共有の使い方（準備中）
+
+                  {/* ✅ 方針：準備中を廃止し、/share/guide の通常リンクに戻す */}
+                  <Button variant="outline" asChild>
+                    <Link href="/share/guide">共有の使い方</Link>
                   </Button>
                 </div>
               </div>
