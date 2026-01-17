@@ -5,6 +5,12 @@
 // - DB直操作運用は禁止（Stripeの事実へ収束させる）
 // - Webhook を一次同期、取りこぼしは別途「再同期」で吸収（別テーマ）
 // - 署名検証済みの想定外イベントは 200(ok:true) で返す
+//
+// A案（運用方針）:
+// - 解約は「請求期間終了までは有料」→ 期間終了後に無料へ（= Stripe の subscription を真実として表示）
+// - customer.deleted（顧客削除）は運用上は原則しないが、検証掃除では起きうるため “即FREE寄せ（INACTIVE）” に収束
+//
+// ※今回の整理：挙動は変えず「どのイベントが誰に当たったか」をログで確定できるようにする（観測性UP）
 
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
@@ -137,6 +143,12 @@ async function handleCheckoutSessionCompleted(event: Stripe.Event) {
       stripeSubscriptionId: subscriptionId,
     },
   });
+
+  console.info("[stripe-webhook] checkout.session.completed linked", {
+    userId,
+    customerId,
+    subscriptionId,
+  });
 }
 
 /**
@@ -147,12 +159,18 @@ async function handleCheckoutSessionCompleted(event: Stripe.Event) {
 async function handleCustomerSubscriptionChange(event: Stripe.Event) {
   const subscription = event.data.object as Stripe.Subscription;
   await syncSubscriptionToUsers(subscription);
+
+  console.info("[stripe-webhook] subscription event processed", {
+    type: event.type,
+    subscriptionId: subscription.id,
+    status: subscription.status,
+  });
 }
 
 /**
  * customer.deleted
  * - Stripe 側で顧客が削除された場合、DB 側の紐付けをクリアして「Stripeの事実」に収束させる
- * - 「Stripeでは顧客が無いのに利用停止が残る」問題の根本対策
+ * - 検証用の掃除で起きうるが、運用上は基本発生しない想定
  */
 async function handleCustomerDeleted(event: Stripe.Event) {
   const customer = event.data.object as Stripe.Customer;
@@ -174,7 +192,13 @@ async function handleCustomerDeleted(event: Stripe.Event) {
     console.warn("[stripe-webhook] customer.deleted: No user updated", {
       customerId,
     });
+    return;
   }
+
+  console.info("[stripe-webhook] customer.deleted: User cleared", {
+    customerId,
+    updatedUsers: result.count,
+  });
 }
 
 /**
@@ -188,11 +212,16 @@ async function handleInvoicePaymentEvent(event: Stripe.Event) {
   const { subscriptionId, customerId } = extractInvoiceRefs(invoice);
 
   if (!subscriptionId) {
-    // サブスクに紐づかない請求は対象外
     return;
   }
 
   await syncSubscriptionById(subscriptionId, customerId);
+
+  console.info("[stripe-webhook] invoice payment event processed", {
+    type: event.type,
+    subscriptionId,
+    customerId,
+  });
 }
 
 /**
@@ -246,10 +275,8 @@ async function syncSubscriptionById(
       message,
     });
 
-    // subscription が取れない = Stripe側で既に消えている可能性
-    // customerId が分かるなら、Stripe事実に収束（紐付けクリア）
     if (customerId) {
-      await prisma.user.updateMany({
+      const result = await prisma.user.updateMany({
         where: { stripeCustomerId: customerId },
         data: {
           stripeSubscriptionId: null,
@@ -257,6 +284,16 @@ async function syncSubscriptionById(
           subscriptionCurrentPeriodEnd: null,
         },
       });
+
+      if (result.count > 0) {
+        console.info(
+          "[stripe-webhook] syncSubscriptionById: cleared by customerId",
+          {
+            customerId,
+            updatedUsers: result.count,
+          },
+        );
+      }
     }
   }
 }
@@ -290,17 +327,24 @@ async function syncSubscriptionToUsers(subscription: Stripe.Subscription) {
     subscriptionCurrentPeriodEnd: currentPeriodEnd,
   };
 
-  // まず subscriptionId でユーザーを特定
   const resultBySub = await prisma.user.updateMany({
     where: { stripeSubscriptionId: subscriptionId },
     data: updateData,
   });
 
   if (resultBySub.count > 0) {
+    console.info(
+      "[stripe-webhook] syncSubscriptionToUsers: updated by subscriptionId",
+      {
+        subscriptionId,
+        customerId,
+        status: subscription.status,
+        updatedUsers: resultBySub.count,
+      },
+    );
     return;
   }
 
-  // まだ subscriptionId が紐付いていない場合は customerId で同期
   const resultByCustomer = await prisma.user.updateMany({
     where: { stripeCustomerId: customerId },
     data: updateData,
@@ -312,7 +356,15 @@ async function syncSubscriptionToUsers(subscription: Stripe.Subscription) {
       customerId,
       status: subscription.status,
     });
+    return;
   }
+
+  console.info("[stripe-webhook] syncSubscriptionToUsers: updated by customerId", {
+    subscriptionId,
+    customerId,
+    status: subscription.status,
+    updatedUsers: resultByCustomer.count,
+  });
 }
 
 /**
