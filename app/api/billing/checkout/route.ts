@@ -1,13 +1,17 @@
 // app/api/billing/checkout/route.ts
 import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth/next";
+
+import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 
 /**
- * 正本方針（Webhook前提）
- * - planCode ↔ priceId をこの route.ts で正規化する（lib側の曖昧取得に依存しない）
- * - metadata を Checkout Session / Subscription に付与し、Webhookで確実に回収できる形にする
- * - 本番/テスト判定を明示し、priceId の参照先（ENV）を切り替える
+ * 正本方針（Webhook前提・恒久対策）
+ * - 「誰の契約か」を Stripe に必ず残す（metadata.userId / client_reference_id）
+ * - userId が取れない Checkout は作らない（unknown禁止）
+ * - planCode ↔ priceId はこの route.ts で正規化する
  *
  * 正本（確定）:
  * - STRIPE_PRICE_BASIC_980_MONTHLY
@@ -15,14 +19,12 @@ export const runtime = "nodejs";
  * - STRIPE_PRICE_PREMIUM_5980_MONTHLY
  *
  * 互換:
- * - 既存の STRIPE_PRICE_ID_{BASIC|STANDARD|PREMIUM}_{TEST|PROD} が残っていても動く
+ * - STRIPE_PRICE_ID_{BASIC|STANDARD|PREMIUM}_{TEST|PROD}
  */
 
 type PlanCode = "basic" | "standard" | "premium";
 
 function getAppUrl(): string {
-  // 本番/Preview では NEXT_PUBLIC_APP_URL を推奨
-  // 未設定でも build / smoke を落とさない（fallback）
   return (
     process.env.NEXT_PUBLIC_APP_URL ??
     process.env.NEXTAUTH_URL ??
@@ -31,7 +33,6 @@ function getAppUrl(): string {
 }
 
 function isProdEnv(): boolean {
-  // Vercel本番 or NODE_ENV=production を本番扱いに寄せる
   return (
     process.env.VERCEL_ENV === "production" ||
     process.env.NODE_ENV === "production"
@@ -52,19 +53,8 @@ function getPlanCodeFromBody(body: unknown): PlanCode {
 
   if (raw === "basic" || raw === "standard" || raw === "premium") return raw;
 
-  // UI変更しないため、既定は standard（現行の「Pro/単一プラン」運用を壊さない）
+  // UI変更しないため既定は standard
   return "standard";
-}
-
-function getUserKeyFromBody(body: unknown): string {
-  const raw =
-    typeof body === "object" && body !== null
-      ? safeString((body as Record<string, unknown>).userKey)
-      : undefined;
-
-  // Webhook側で「誰のCheckoutか」を紐付けるためのキー（暫定）
-  // 未提供でも動く（UIを変えない）
-  return raw ?? "unknown";
 }
 
 function getMonthlyEnvKey(planCode: PlanCode): string {
@@ -75,18 +65,11 @@ function getMonthlyEnvKey(planCode: PlanCode): string {
       : "STRIPE_PRICE_STANDARD_2980_MONTHLY";
 }
 
-/**
- * priceId 解決ルール（迷わないための統一）
- * 1) まず正本：STRIPE_PRICE_*_MONTHLY（環境を問わず最優先）
- * 2) 無ければ互換：STRIPE_PRICE_ID_*_{PROD|TEST}（prod判定で切替）
- */
 function getPriceId(planCode: PlanCode): string {
-  // 1) 正本を最優先
   const monthlyKey = getMonthlyEnvKey(planCode);
   const monthly = process.env[monthlyKey];
   if (monthly && monthly.trim()) return monthly.trim();
 
-  // 2) 互換キーへフォールバック
   const prod = isProdEnv();
   const fallbackKey =
     planCode === "basic"
@@ -112,7 +95,7 @@ function getPriceId(planCode: PlanCode): string {
 
 export async function POST(req: Request) {
   try {
-    // smoke/CI では Stripe を触らない（env が無いときは 503）
+    // Stripe未設定は 503（smoke/CI を落とさない）
     if (!process.env.STRIPE_SECRET_KEY) {
       return NextResponse.json(
         { ok: false, error: "Stripe is not configured" },
@@ -120,11 +103,28 @@ export async function POST(req: Request) {
       );
     }
 
+    // ✅ 恒久対策：Checkoutは「必ずログイン済みユーザー」からしか作らせない
+    const session = await getServerSession(authOptions);
+    const email = session?.user?.email ?? null;
+    if (!email) {
+      return NextResponse.json(
+        { ok: false, error: "Unauthorized" },
+        { status: 401 },
+      );
+    }
+
+    // ✅ ShopWriterのDB上の User.id を正とする（GitHub id等に依存しない）
+    const appUser = await prisma.user.findUnique({ where: { email } });
+    if (!appUser) {
+      return NextResponse.json(
+        { ok: false, error: "User not found" },
+        { status: 404 },
+      );
+    }
+
     // body は optional（UI変更しない）
     const body = await req.json().catch(() => ({}));
-
     const planCode = getPlanCodeFromBody(body);
-    const userKey = getUserKeyFromBody(body);
     const envLabel = isProdEnv() ? "prod" : "test";
 
     // ✅ 遅延 import（smoke対策の要）
@@ -133,49 +133,53 @@ export async function POST(req: Request) {
     const priceId = getPriceId(planCode);
     const appUrl = getAppUrl();
 
-    // Stripe Checkout セッションを作成（Webhookで拾うため metadata を付与）
-    const session = await stripe.checkout.sessions.create({
+    // ✅ 恒久対策：Webhookが100%回収できるキー
+    const userId = appUser.id; // ← これが最重要
+    const userKey = userId; // 互換のため残す（unknownは禁止）
+
+    const sessionCreated = await stripe.checkout.sessions.create({
       mode: "subscription",
       payment_method_types: ["card"],
-      // ✅ 100%OFFクーポン（プロモコード）入力欄をCheckoutに表示する
       allow_promotion_codes: true,
-
-      // ✅ 消費税などの自動税計算を有効化（Checkoutで税表示＆請求を行う）
       automatic_tax: { enabled: true },
 
-      line_items: [
-        {
-          price: priceId,
-          quantity: 1,
-        },
-      ],
+      line_items: [{ price: priceId, quantity: 1 }],
+
       success_url: `${appUrl}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${appUrl}/billing/cancel`,
 
-      // ✅ Checkout Session に metadata（Webhookで session.completed / async_payment_succeeded 等から回収可能）
+      // ✅ ここが「壊れて見逃された」根本：必須フィールドを必ず入れる
+      client_reference_id: userId,
+
+      // （任意）Stripe側で請求書メール等にも使われる
+      customer_email: email,
+
       metadata: {
+        // Webhookが最優先で見るキー
+        userId,
+        // 互換キー（残すが unknown 禁止）
+        userKey,
         planCode,
         env: envLabel,
-        userKey,
         source: "shopwriter",
       },
 
-      // ✅ Subscription にも metadata（invoice.payment_succeeded / customer.subscription.* で確実に拾える）
       subscription_data: {
         metadata: {
+          userId,
+          userKey,
           planCode,
           env: envLabel,
-          userKey,
           source: "shopwriter",
         },
       },
     });
 
-    if (!session.url) {
+    if (!sessionCreated.url) {
       throw new Error("Stripe Checkout session.url is null");
     }
 
-    return NextResponse.json({ ok: true, url: session.url }, { status: 200 });
+    return NextResponse.json({ ok: true, url: sessionCreated.url }, { status: 200 });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error("Checkout Error:", err);
