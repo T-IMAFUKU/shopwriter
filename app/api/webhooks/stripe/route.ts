@@ -1,5 +1,10 @@
 // app/api/webhooks/stripe/route.ts
 // Stripe Webhook → User サブスクリプション状態更新ハンドラ
+//
+// 方針（恒久）:
+// - DB直操作運用は禁止（Stripeの事実へ収束させる）
+// - Webhook を一次同期、取りこぼしは別途「再同期」で吸収（別テーマ）
+// - 署名検証済みの想定外イベントは 200(ok:true) で返す
 
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
@@ -38,14 +43,29 @@ export async function POST(req: Request) {
 
   try {
     switch (event.type) {
+      // 1) Checkout 完了：User と Stripe Customer/Subscription を紐付け
       case "checkout.session.completed":
         await handleCheckoutSessionCompleted(event);
         break;
 
+      // 2) Subscription 変更：サブスク状態の真実を同期
       case "customer.subscription.created":
       case "customer.subscription.updated":
       case "customer.subscription.deleted":
         await handleCustomerSubscriptionChange(event);
+        break;
+
+      // 3) Customer 削除：DB 側の Stripe 紐付けをクリアして収束
+      case "customer.deleted":
+        await handleCustomerDeleted(event);
+        break;
+
+      // 4) Invoice（支払結果）：取りこぼし防止の保険として Subscription を再取得して同期
+      //    - payment_failed: PAST_DUE などへ遷移している可能性
+      //    - payment_succeeded: ACTIVE に戻る/維持の可能性
+      case "invoice.payment_failed":
+      case "invoice.payment_succeeded":
+        await handleInvoicePaymentEvent(event);
         break;
 
       default:
@@ -55,8 +75,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Unknown handler error";
+    const message = err instanceof Error ? err.message : "Unknown handler error";
     console.error("[stripe-webhook] Handler error", {
       type: event.type,
       message,
@@ -127,7 +146,125 @@ async function handleCheckoutSessionCompleted(event: Stripe.Event) {
  */
 async function handleCustomerSubscriptionChange(event: Stripe.Event) {
   const subscription = event.data.object as Stripe.Subscription;
+  await syncSubscriptionToUsers(subscription);
+}
 
+/**
+ * customer.deleted
+ * - Stripe 側で顧客が削除された場合、DB 側の紐付けをクリアして「Stripeの事実」に収束させる
+ * - 「Stripeでは顧客が無いのに利用停止が残る」問題の根本対策
+ */
+async function handleCustomerDeleted(event: Stripe.Event) {
+  const customer = event.data.object as Stripe.Customer;
+
+  const customerId = customer.id;
+  if (!customerId) return;
+
+  const result = await prisma.user.updateMany({
+    where: { stripeCustomerId: customerId },
+    data: {
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
+      subscriptionStatus: SubscriptionStatus.INACTIVE,
+      subscriptionCurrentPeriodEnd: null,
+    },
+  });
+
+  if (result.count === 0) {
+    console.warn("[stripe-webhook] customer.deleted: No user updated", {
+      customerId,
+    });
+  }
+}
+
+/**
+ * invoice.payment_failed / invoice.payment_succeeded
+ * - 直接DBを支払イベントで更新するのではなく、subscription を再取得して「真実」を同期する
+ * - Stripe の Invoice 型定義は環境差があるため、実行時チェックで安全に抽出する
+ */
+async function handleInvoicePaymentEvent(event: Stripe.Event) {
+  const invoice = event.data.object as Stripe.Invoice;
+
+  const { subscriptionId, customerId } = extractInvoiceRefs(invoice);
+
+  if (!subscriptionId) {
+    // サブスクに紐づかない請求は対象外
+    return;
+  }
+
+  await syncSubscriptionById(subscriptionId, customerId);
+}
+
+/**
+ * Stripe.Invoice から subscription/customer を型差異込みで安全に取り出す
+ */
+function extractInvoiceRefs(invoice: Stripe.Invoice): {
+  subscriptionId: string | null;
+  customerId: string | null;
+} {
+  const anyInvoice = invoice as unknown as {
+    subscription?: unknown;
+    customer?: unknown;
+  };
+
+  const sub = anyInvoice.subscription;
+  const cus = anyInvoice.customer;
+
+  const subscriptionId =
+    typeof sub === "string"
+      ? sub
+      : typeof (sub as any)?.id === "string"
+        ? ((sub as any).id as string)
+        : null;
+
+  const customerId =
+    typeof cus === "string"
+      ? cus
+      : typeof (cus as any)?.id === "string"
+        ? ((cus as any).id as string)
+        : null;
+
+  return { subscriptionId, customerId };
+}
+
+/**
+ * subscriptionId から Stripe へ再取得して同期する（確実性優先）
+ * - resource_missing 等で取得できない場合は、customerId があれば紐付けクリアへ寄せる
+ */
+async function syncSubscriptionById(
+  subscriptionId: string,
+  customerId: string | null,
+) {
+  try {
+    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    await syncSubscriptionToUsers(subscription);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.warn("[stripe-webhook] syncSubscriptionById failed", {
+      subscriptionId,
+      customerId,
+      message,
+    });
+
+    // subscription が取れない = Stripe側で既に消えている可能性
+    // customerId が分かるなら、Stripe事実に収束（紐付けクリア）
+    if (customerId) {
+      await prisma.user.updateMany({
+        where: { stripeCustomerId: customerId },
+        data: {
+          stripeSubscriptionId: null,
+          subscriptionStatus: SubscriptionStatus.INACTIVE,
+          subscriptionCurrentPeriodEnd: null,
+        },
+      });
+    }
+  }
+}
+
+/**
+ * Stripe.Subscription を User へ同期する（SSOT：Stripe）
+ */
+async function syncSubscriptionToUsers(subscription: Stripe.Subscription) {
   const subscriptionId = subscription.id;
 
   const customerId =
@@ -135,9 +272,10 @@ async function handleCustomerSubscriptionChange(event: Stripe.Event) {
       ? subscription.customer
       : subscription.customer.id;
 
-  // Stripe.Subscription 型には current_period_* が含まれている前提
-  const currentPeriodEndUnix =
-  (subscription as any).current_period_end as number | null | undefined;
+  const currentPeriodEndUnix = (subscription as any).current_period_end as
+    | number
+    | null
+    | undefined;
 
   const status = mapStripeStatus(subscription.status);
 
@@ -149,7 +287,7 @@ async function handleCustomerSubscriptionChange(event: Stripe.Event) {
     stripeCustomerId: customerId,
     stripeSubscriptionId: subscriptionId,
     subscriptionStatus: status,
-    subscriptionCurrentPeriodEnd: currentPeriodEnd ?? undefined,
+    subscriptionCurrentPeriodEnd: currentPeriodEnd,
   };
 
   // まず subscriptionId でユーザーを特定
@@ -162,22 +300,18 @@ async function handleCustomerSubscriptionChange(event: Stripe.Event) {
     return;
   }
 
-  // まだ subscriptionId が紐付いていない（過去データ / 初期導入直後など）の場合は
-  // customerId から推測して同期する
+  // まだ subscriptionId が紐付いていない場合は customerId で同期
   const resultByCustomer = await prisma.user.updateMany({
     where: { stripeCustomerId: customerId },
     data: updateData,
   });
 
   if (resultByCustomer.count === 0) {
-    console.warn(
-      "[stripe-webhook] No user updated for subscription event",
-      {
-        subscriptionId,
-        customerId,
-        status: subscription.status,
-      },
-    );
+    console.warn("[stripe-webhook] No user updated for subscription event", {
+      subscriptionId,
+      customerId,
+      status: subscription.status,
+    });
   }
 }
 
