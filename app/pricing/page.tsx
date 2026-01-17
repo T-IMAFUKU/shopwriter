@@ -2,7 +2,7 @@
 // Pricing Page (契約入口 / 最小で迷子にしない導線)
 // - /pricing から Stripe Checkout を起動できる（Basic / Standard / Premium）
 // - 未ログイン時は押せない（ログイン案内を明示）
-// - Checkout 起動は既存の /api/stripe/checkout を利用
+// - Checkout 起動は正本の /api/billing/checkout を利用（/api/stripe/checkout は廃止方向）
 // - 「請求・プラン管理へ」は契約後導線として残す
 // - 価格表記：税抜（※別途消費税）を維持
 
@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Crown, Sparkles, Rocket, ShieldCheck } from "lucide-react";
 
 type PlanCode = "BASIC_980" | "STANDARD_2980" | "PREMIUM_5980";
+type BillingPlanCode = "basic" | "standard" | "premium";
 
 type AuthSessionResponse = {
   user?: {
@@ -92,6 +93,18 @@ function formatCheckoutFailureMessage(
   };
 }
 
+function toBillingPlanCode(code: PlanCode): BillingPlanCode {
+  switch (code) {
+    case "BASIC_980":
+      return "basic";
+    case "PREMIUM_5980":
+      return "premium";
+    case "STANDARD_2980":
+    default:
+      return "standard";
+  }
+}
+
 const PLANS: Array<{
   code: PlanCode;
   title: string;
@@ -136,7 +149,10 @@ export default function PricingPage() {
 
   const isProdBuild = process.env.NODE_ENV === "production";
 
-  const canStartCheckout = useMemo(() => isLoggedIn && postingPlan === null, [isLoggedIn, postingPlan]);
+  const canStartCheckout = useMemo(
+    () => isLoggedIn && postingPlan === null,
+    [isLoggedIn, postingPlan],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -178,10 +194,12 @@ export default function PricingPage() {
       setPostingPlan(planCode);
       setMessage(null);
 
-      const res = await fetch("/api/stripe/checkout", {
+      const billingPlanCode = toBillingPlanCode(planCode);
+
+      const res = await fetch("/api/billing/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ planCode }),
+        body: JSON.stringify({ planCode: billingPlanCode }),
       });
 
       const data: CheckoutApiResponse = await res
@@ -249,10 +267,7 @@ export default function PricingPage() {
         {PLANS.map((p) => (
           <Card
             key={p.code}
-            className={[
-              "relative overflow-hidden",
-              p.highlight ? "border-indigo-200 shadow-md" : "",
-            ].join(" ")}
+            className={["relative overflow-hidden", p.highlight ? "border-indigo-200 shadow-md" : ""].join(" ")}
           >
             {p.highlight && (
               <div className="absolute right-3 top-3 rounded-full bg-indigo-600 px-3 py-1 text-xs font-medium text-white">
@@ -279,13 +294,9 @@ export default function PricingPage() {
                 {postingPlan === p.code ? "Checkout 起動中…" : p.cta}
               </Button>
 
-              {!isLoggedIn && (
-                <p className="text-xs text-slate-500">ログイン後に押せます。</p>
-              )}
+              {!isLoggedIn && <p className="text-xs text-slate-500">ログイン後に押せます。</p>}
 
-              <p className="text-xs text-slate-500">
-                ※決済は Stripe の Checkout 画面で行います。
-              </p>
+              <p className="text-xs text-slate-500">※決済は Stripe の Checkout 画面で行います。</p>
             </CardContent>
           </Card>
         ))}
