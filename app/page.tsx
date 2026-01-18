@@ -32,6 +32,10 @@ import type { Variants } from "framer-motion";
 // 🔵 ヘッダーと同じ正式ロゴを想定
 import { Logo } from "@/components/Logo";
 
+// ✅ お知らせ（Hero直下）
+import { UpdatesSection } from "@/components/home/UpdatesSection";
+import { updates } from "@/data/updates";
+
 /* ===== motion variants ===== */
 const fadeUp: Variants = {
   hidden: { opacity: 0, y: 12 },
@@ -387,15 +391,15 @@ function Examples() {
             <ul className="space-y-2 text-sm md:text-base" role="list" aria-label="入力の要点">
               <li className="flex gap-2" role="listitem">
                 <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary/60" aria-hidden />
-                北欧デザインのマグカップ／軽量・割れにくい
+                北欧デザインのマグカップ／軽量・割れにくい日常使い。
               </li>
               <li className="flex gap-2" role="listitem">
                 <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary/60" aria-hidden />
-                マットな質感／電子レンジ・食洗機OK
+                手になじむマットな質感。電子レンジ・食洗機に対応。
               </li>
               <li className="flex gap-2" role="listitem">
                 <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary/60" aria-hidden />
-                朝のコーヒーが楽しみになる一杯に
+                朝のコーヒーが、少し楽しみになる一杯を。
               </li>
             </ul>
             <p className="mt-3 md:mt-4 text-xs text-muted-foreground">
@@ -674,7 +678,7 @@ export default function HomePage() {
                 variants={fadeUp}
                 initial={false}
                 whileInView="show"
-                viewport={{ once: true, amount: 0.9 }}
+               viewport={{ once: true, amount: 0.9 }}
                 custom={4}
                 className="flex flex-col gap-2"
               >
@@ -716,6 +720,9 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* ✅ お知らせ（Hero直下） */}
+      <UpdatesSection items={updates} />
 
       {/* ===== 使い方3ステップ ===== */}
       <HowItWorks />
