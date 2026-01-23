@@ -60,12 +60,8 @@ const FormSchema = z.object({
     .string()
     .min(MIN_FEATURES, `特徴・強みは${MIN_FEATURES}文字以上で入力してください`),
   audience: z.string().min(2, "ターゲットは2文字以上で入力してください"),
-  tone: z
-    .enum(["friendly", "professional", "casual", "energetic"])
-    .default("friendly"),
-  template: z
-    .enum(["lp", "email", "sns_short", "headline_only"])
-    .default("lp"),
+  tone: z.enum(["friendly", "professional", "casual", "energetic"]).default("friendly"),
+  template: z.enum(["lp", "email", "sns_short", "headline_only"]).default("lp"),
   length: z.enum(["short", "medium", "long"]).default("medium"),
   cta: z.boolean().default(true),
 });
@@ -366,6 +362,9 @@ export default function ClientPage({ productId }: ClientPageProps) {
       body: JSON.stringify({
         title: params.title,
         body: params.body,
+        // 🔒 共有カードは “まず非公開で作る” を維持
+        // 公開ページ（/share/[id]）は isPublic=true が前提なので、
+        // 作成直後の導線は “管理ページ” へ誘導する（A案）
         isPublic: false,
       }),
     });
@@ -384,14 +383,17 @@ export default function ClientPage({ productId }: ClientPageProps) {
         const created = await res.json();
         const id = created.id || created?.data?.id || null;
         setShareId(id);
-        toast.success("共有が完了しました", {
-          description: "共有カードを作成しました。",
+
+        toast.success("共有カードを作成しました", {
+          description: "公開するには管理画面で「公開」をONにしてください。",
           action: id
             ? {
-                label: "開く",
+                label: "管理画面を開く",
                 onClick: () => {
                   try {
-                    window.open(`/share/${id}`, "_blank", "noopener,noreferrer");
+                    // ✅ 作成直後は非公開なので、/share/[id] 直行は404になり得る
+                    // まずは管理ページへ誘導して、公開トグルをONにしてもらう
+                    window.open(`/dashboard/share/${id}`, "_blank", "noopener,noreferrer");
                   } catch {}
                 },
               }
@@ -452,9 +454,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
         `# 特徴: ${vals.features}`,
         `# ターゲット: ${vals.audience}`,
         `# トーン: ${vals.tone}`,
-        `# テンプレ: ${vals.template} / 長さ: ${vals.length} / CTA: ${
-          vals.cta ? "あり" : "なし"
-        }`,
+        `# テンプレ: ${vals.template} / 長さ: ${vals.length} / CTA: ${vals.cta ? "あり" : "なし"}`,
         "",
         "## 出力要件",
         "- 日本語",
@@ -859,8 +859,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                   placeholder="例）ShopWriter"
                   aria-invalid={!!errors.product}
                   className={clsx(
-                    errors.product &&
-                      "border-red-300 focus-visible:ring-red-400",
+                    errors.product && "border-red-300 focus-visible:ring-red-400",
                   )}
                   {...register("product")}
                 />
@@ -877,8 +876,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                   placeholder="例）EC事業者向けに、商品紹介文やLP用コピーを効率よく作成したい"
                   aria-invalid={!!errors.purpose}
                   className={clsx(
-                    errors.purpose &&
-                      "border-red-300 focus-visible:ring-red-400",
+                    errors.purpose && "border-red-300 focus-visible:ring-red-400",
                   )}
                   {...register("purpose")}
                 />
@@ -901,8 +899,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                   placeholder="例）AIが商品情報と用途をもとに、すぐに使える文章を自動生成。テンプレ設計により、LP・SNS向けの構成にも対応。入力がシンプルで、誰でも迷わず文章作成ができる。"
                   aria-invalid={!!errors.features}
                   className={clsx(
-                    errors.features &&
-                      "border-red-300 focus-visible:ring-red-400",
+                    errors.features && "border-red-300 focus-visible:ring-red-400",
                   )}
                   {...register("features")}
                 />
@@ -1137,11 +1134,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
 
             <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed">
               {showSkeleton ? (
-                <div
-                  className="animate-pulse space-y-2"
-                  aria-live="polite"
-                  aria-busy="true"
-                >
+                <div className="animate-pulse space-y-2" aria-live="polite" aria-busy="true">
                   <div className="h-4 w-3/5 bg-neutral-200 rounded" />
                   <div className="h-4 w-4/5 bg-neutral-200 rounded" />
                   <div className="h-4 w-2/3 bg-neutral-200 rounded" />
@@ -1150,14 +1143,10 @@ export default function ClientPage({ productId }: ClientPageProps) {
               ) : leadHtml || restParasHtml.length > 0 ? (
                 <div className="whitespace-normal break-words">
                   {leadHtml && (
-                    <div
-                      // eslint-disable-next-line react/no-danger
-                      dangerouslySetInnerHTML={{ __html: leadHtml }}
-                    />
+                    <div dangerouslySetInnerHTML={{ __html: leadHtml }} />
                   )}
                   {restParasHtml.map((h, idx) => (
                     <motion.div
-                      // eslint-disable-next-line react/no-danger
                       dangerouslySetInnerHTML={{ __html: h }}
                       key={idx}
                       initial={{ opacity: 0, y: 6, filter: "blur(2px)" }}
@@ -1171,9 +1160,6 @@ export default function ClientPage({ productId }: ClientPageProps) {
               )}
             </div>
 
-            {/* ★ B1: 固定CTA（UIのみ / CTA=ONの時だけ表示 / API・レスポンスshapeは不変）
-                - B1方針：商品名だけ差し込んだ固定文（文型は固定、値だけUIから差し込み）
-            */}
             {ctaEnabled && (leadHtml || restParasHtml.length > 0) && !isLoading && !error && (
               <div className="mt-4 rounded-xl border border-indigo-200/70 bg-gradient-to-r from-indigo-50 to-violet-50 px-4 py-3">
                 <div className="flex items-start gap-3">
