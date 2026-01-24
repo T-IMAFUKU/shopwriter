@@ -22,9 +22,9 @@ import {
   MousePointerClick,
   ListChecks,
   Rocket,
-  Wand2,
   List as ListIcon,
   FileText,
+  UserPlus,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import type { Variants } from "framer-motion";
@@ -278,6 +278,8 @@ const cardClass =
 const cardPadding = "p-4 md:p-6";
 const btnPrimary =
   "rounded-xl shadow-sm md:shadow-md bg-gradient-to-r from-indigo-600 to-blue-600 text-white transition-all duration-200 hover:brightness-110 hover:-translate-y-[1px] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500";
+const btnRegister =
+  "rounded-xl shadow-sm md:shadow-md bg-primary text-primary-foreground transition-all duration-200 hover:bg-primary/90 hover:-translate-y-[1px] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500";
 const btnOutline =
   "rounded-xl border-primary/40 text-primary transition-all duration-200 hover:bg-primary/10 hover:brightness-110 hover:-translate-y-[1px] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-500";
 const linkText = "transition-colors underline-offset-4 hover:underline";
@@ -573,11 +575,20 @@ function FinalCTA() {
               まずは下書きから。あなたが話す“商品の魅力”を、AIが流れの良い文章に整えます。
             </p>
           </div>
+
+          {/* ✅ 並び順：無料 → 登録 → デモ */}
           <div className="flex flex-wrap items-center gap-3">
             <Link href="/writer" className={linkText} aria-label="無料で試す">
               <Button size="lg" className={btnPrimary + " h-10 md:h-11 px-5 md:px-6"}>
                 無料で試す
                 <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
+              </Button>
+            </Link>
+
+            <Link href="/login" className={linkText} aria-label="ユーザー登録はこちら（ログイン・アカウント登録ガイドへ）">
+              <Button size="lg" className={btnRegister + " h-10 md:h-11 px-5 md:px-6"}>
+                <UserPlus className="mr-2 h-4 w-4" aria-hidden />
+                ユーザー登録はこちら
               </Button>
             </Link>
 
@@ -673,12 +684,12 @@ export default function HomePage() {
                 ))}
               </motion.ul>
 
-              {/* CTA */}
+              {/* CTA（✅ 並び順：無料 → 登録 → デモ） */}
               <motion.div
                 variants={fadeUp}
                 initial={false}
                 whileInView="show"
-               viewport={{ once: true, amount: 0.9 }}
+                viewport={{ once: true, amount: 0.9 }}
                 custom={4}
                 className="flex flex-col gap-2"
               >
@@ -687,6 +698,17 @@ export default function HomePage() {
                     <Button size="lg" className={btnPrimary + " h-10 md:h-11 px-5 md:px-6"}>
                       無料で文章をつくってみる
                       <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
+                    </Button>
+                  </Link>
+
+                  <Link
+                    href="/login"
+                    className={linkText}
+                    aria-label="ユーザー登録はこちら（ログイン・アカウント登録ガイドへ）"
+                  >
+                    <Button size="lg" className={btnRegister + " h-10 md:h-11 px-5 md:px-6"}>
+                      <UserPlus className="mr-2 h-4 w-4" aria-hidden />
+                      ユーザー登録はこちら
                     </Button>
                   </Link>
 
