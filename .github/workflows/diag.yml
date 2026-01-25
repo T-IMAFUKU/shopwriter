@@ -3,7 +3,7 @@ name: diag
 on:
   pull_request:
   push:
-    branches: [ feat/h6-final-faq-dedupe-fix ]
+    branches: ["feat/h6-final-faq-dedupe-fix"]
 
 permissions:
   contents: read
