@@ -2,9 +2,9 @@ name: smoke
 
 on:
   push:
-    branches: [ feat/h6-final-faq-dedupe-fix ]
+    branches: ["feat/h6-final-faq-dedupe-fix"]
   pull_request:
-    branches: [ main, feat/h6-final-faq-dedupe-fix ]
+    branches: ["main", "feat/h6-final-faq-dedupe-fix"]
 
 permissions:
   contents: read
@@ -15,15 +15,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      NEXT_TELEMETRY_DISABLED: '1'
-      PRISMA_GENERATE_SKIP_ENV_CHECK: '1'
-      DATABASE_URL: file:./dev.db  # ← SQLite fallback に変更（ネオン接続不要）
+      NEXT_TELEMETRY_DISABLED: "1"
+      PRISMA_GENERATE_SKIP_ENV_CHECK: "1"
+      DATABASE_URL: file:./dev.db
 
     steps:
       - name: 🧾 Checkout
         uses: actions/checkout@v4
 
-      - name: ⚙️ Setup Node.js 20
+      - name: ⚙ Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -37,8 +37,8 @@ jobs:
       - name: 📦 Install dependencies
         run: pnpm install --no-frozen-lockfile
         env:
-          PNPM_FETCH_RETRIES: '4'
-          PNPM_FETCH_RETRY_FACTOR: '3'
+          PNPM_FETCH_RETRIES: "4"
+          PNPM_FETCH_RETRY_FACTOR: "3"
 
       - name: 🧬 Generate Prisma Client (offline safe)
         run: |
@@ -49,5 +49,5 @@ jobs:
       - name: 🔍 Typecheck
         run: pnpm typecheck
 
-      - name: 🏗️ Build
+      - name: 🏗 Build
         run: pnpm build
