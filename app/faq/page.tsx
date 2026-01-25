@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 export const metadata = {
   title: "よくある質問（FAQ） | ShopWriter",
   description:
@@ -6,7 +8,7 @@ export const metadata = {
 
 type Block = {
   q: string;
-  a: React.ReactNode;
+  a: ReactNode;
 };
 
 const GITHUB_STRIPE_FAQ: Block[] = [
@@ -55,9 +57,168 @@ const GITHUB_STRIPE_FAQ: Block[] = [
         <p className="mt-2">
           英語の文章を読んだり、入力したりする必要はありません。
         </p>
+        <p className="mt-2">
+          迷ったときは{" "}
+          <a className="underline" href="/login">
+            ログイン・アカウント登録ガイド
+          </a>{" "}
+          を参照してください。
+        </p>
       </>
     ),
   },
+  // 追加（ログイン詰まり対策）
+  {
+    q: "パスワードを忘れたときはどうすればいいですか？",
+    a: (
+      <>
+        <p className="font-medium">ShopWriter側ではパスワードを管理していません。</p>
+        <p className="mt-2">
+          ログインに使うのはGitHubのアカウントなので、パスワードを忘れた場合は
+          GitHub側で再設定します。
+        </p>
+        <ul className="mt-2 list-disc pl-5">
+          <li>GitHubのログイン画面で「Forgot password?」を選ぶ</li>
+          <li>または下のリンクからパスワード再設定へ進む</li>
+        </ul>
+        <p className="mt-2">
+          <a
+            className="underline"
+            href="https://github.com/password_reset"
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            GitHubのパスワード再設定（公式）
+          </a>
+        </p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          補足：手順に不安がある場合は{" "}
+          <a className="underline" href="/login">
+            ログイン・アカウント登録ガイド
+          </a>{" "}
+          も参照してください。
+        </p>
+      </>
+    ),
+  },
+  {
+    q: "ログインできません（よくある原因と対処）",
+    a: (
+      <>
+        <p className="font-medium">まずは落ち着いて、よくある原因を順に潰しましょう。</p>
+        <ul className="mt-2 list-disc pl-5">
+          <li>GitHubで未ログイン、または別アカウントでログインしている</li>
+          <li>GitHub側の本人確認（2段階認証/認証パズルなど）で止まっている</li>
+          <li>ブラウザ拡張（広告ブロック等）や追跡防止が強く、認証画面の遷移が止まる</li>
+          <li>ポップアップ/リダイレクトがブロックされている</li>
+        </ul>
+        <p className="mt-3">対処のおすすめ順は次の通りです。</p>
+        <ol className="mt-2 list-decimal pl-5">
+          <li>
+            {" "}
+            <a className="underline" href="/login">
+              ログイン・アカウント登録ガイド
+            </a>{" "}
+            の手順どおりに進め直す
+          </li>
+          <li>シークレット（プライベート）ウィンドウで試す</li>
+          <li>拡張機能（広告ブロック等）を一時的にOFFにして試す</li>
+          <li>別のブラウザで試す（Chrome → Edge など）</li>
+          <li>時間を少し置いて再試行する</li>
+        </ol>
+        <p className="mt-3 text-sm text-muted-foreground">
+          それでも解決しない場合は、状況（どこで止まるか/表示された文言）を添えて{" "}
+          <a className="underline" href="/feedback">
+            フィードバック
+          </a>{" "}
+          から知らせてください。
+        </p>
+      </>
+    ),
+  },
+  {
+    q: "初めてで、GitHubアカウント作成の入口が分かりません",
+    a: (
+      <>
+        <p className="font-medium">ShopWriterでは、/login に入口と手順をまとめています。</p>
+        <p className="mt-2">
+          まずは{" "}
+          <a className="underline" href="/login">
+            ログイン・アカウント登録ガイド
+          </a>{" "}
+          を開き、ガイドの順番どおりに進めてください。
+        </p>
+        <p className="mt-2">
+          GitHub側の画面は英語表記でも大丈夫です。ガイドは「どこを押すか」を日本語で説明しています。
+        </p>
+      </>
+    ),
+  },
+  {
+    q: "Chrome翻訳が出ません（右クリック翻訳など）",
+    a: (
+      <>
+        <p className="font-medium">翻訳が出ない場合は、次を試してください。</p>
+        <ul className="mt-2 list-disc pl-5">
+          <li>ページ上で右クリック → 「日本語に翻訳」</li>
+          <li>アドレスバー右側の翻訳アイコン（表示されていれば）を押す</li>
+          <li>Chromeの設定 → 言語 → 翻訳をONにする</li>
+        </ul>
+        <p className="mt-2 text-sm text-muted-foreground">
+          翻訳がなくても、ガイドは「ボタンを押す場所」中心で進められます。迷ったら{" "}
+          <a className="underline" href="/login">
+            ログイン・アカウント登録ガイド
+          </a>{" "}
+          を参照してください。
+        </p>
+      </>
+    ),
+  },
+  {
+    q: "認証パズル（Visual puzzle）で詰まりました",
+    a: (
+      <>
+        <p className="font-medium">これはGitHub側の本人確認です。</p>
+        <p className="mt-2">
+          セキュリティの都合で表示されることがあり、ShopWriter側でスキップしたり解除したりはできません。
+        </p>
+        <ul className="mt-2 list-disc pl-5">
+          <li>一度落ち着いてやり直す（失敗しても何度か再挑戦できます）</li>
+          <li>シークレットウィンドウで試す</li>
+          <li>別ブラウザで試す（Chrome → Edge など）</li>
+          <li>時間を置いて再試行する</li>
+        </ul>
+        <p className="mt-3 text-sm text-muted-foreground">
+          手順の流れが不安な場合は{" "}
+          <a className="underline" href="/login">
+            ログイン・アカウント登録ガイド
+          </a>{" "}
+          を参照してください。
+        </p>
+      </>
+    ),
+  },
+  {
+    q: "メール確認コードが届きません",
+    a: (
+      <>
+        <p className="font-medium">まずは「場所」と「時間」を確認してください。</p>
+        <ul className="mt-2 list-disc pl-5">
+          <li>迷惑メール/プロモーション/ソーシャル等のフォルダも確認する</li>
+          <li>数分待ってから再送する（少し遅れて届くことがあります）</li>
+          <li>入力したメールアドレスが正しいか見直す</li>
+        </ul>
+        <p className="mt-3 text-sm text-muted-foreground">
+          それでも解決しない場合は、どのメール（例：Gmail/Outlook等）を使っているかと状況を添えて{" "}
+          <a className="underline" href="/feedback">
+            フィードバック
+          </a>{" "}
+          から知らせてください。
+        </p>
+      </>
+    ),
+  },
+  // ここまで追加
   {
     q: "Stripeとは何ですか？海外サービスで不安です。",
     a: (
@@ -152,7 +313,11 @@ const GENERAL_FAQ: Block[] = [
     q: "プランや料金はどこで確認できますか？",
     a: (
       <>
-        最新の内容は <a className="underline" href="/pricing">料金ページ</a> を確認してください。
+        最新の内容は{" "}
+        <a className="underline" href="/pricing">
+          料金ページ
+        </a>{" "}
+        を確認してください。
       </>
     ),
   },
@@ -160,7 +325,10 @@ const GENERAL_FAQ: Block[] = [
     q: "解約やプラン変更はどこからできますか？",
     a: (
       <>
-        <a className="underline" href="/account/billing">請求とプラン</a> から変更できます。
+        <a className="underline" href="/account/billing">
+          請求とプラン
+        </a>{" "}
+        から変更できます。
       </>
     ),
   },
@@ -168,7 +336,11 @@ const GENERAL_FAQ: Block[] = [
     q: "個人情報やデータの取り扱いが気になります",
     a: (
       <>
-        取り扱い方針は <a className="underline" href="/privacy">プライバシーポリシー</a> に記載しています。
+        取り扱い方針は{" "}
+        <a className="underline" href="/privacy">
+          プライバシーポリシー
+        </a>{" "}
+        に記載しています。
         不明点があればフィードバックからご連絡ください。
       </>
     ),
@@ -232,14 +404,18 @@ export default function FaqPage() {
         </a>
 
         <p className="mt-4 text-xs text-muted-foreground">
-          さらに詳しい使い方は <a className="underline" href="/guide">利用ガイド</a> を参照してください。
+          さらに詳しい使い方は{" "}
+          <a className="underline" href="/guide">
+            利用ガイド
+          </a>{" "}
+          を参照してください。
         </p>
       </footer>
     </main>
   );
 }
 
-function FaqAccordion({ q, a }: { q: string; a: React.ReactNode }) {
+function FaqAccordion({ q, a }: { q: string; a: ReactNode }) {
   return (
     <details className="group rounded-xl border bg-background px-4 py-3 shadow-sm">
       <summary className="cursor-pointer list-none font-medium outline-none">
