@@ -15,6 +15,11 @@ export type UpdateItem = {
 
 export const updates: UpdateItem[] = [
   {
+    date: "2026/01/25",
+    title: "ログイン・請求のヘルプを整備しました",
+    note: "ユーザー登録の流れと、困ったときの確認先をまとめました。",
+  },
+  {
     date: "2026/01/18",
     title: "お知らせ欄を追加しました",
     note: "トップページで、更新情報を確認できるようになりました！",
