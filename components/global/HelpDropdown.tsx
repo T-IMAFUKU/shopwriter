@@ -11,7 +11,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { HelpCircle, BookOpen, LifeBuoy, MessageSquare } from "lucide-react";
+import {
+  HelpCircle,
+  BookOpen,
+  LifeBuoy,
+  MessageSquare,
+  LogIn,
+  CreditCard,
+} from "lucide-react";
 
 type Props = {
   /** 右寄せにしたいとき true（ヘッダー右端など） */
@@ -28,8 +35,15 @@ type Props = {
  * - 利用ガイド: /guide
  * - よくある質問: /faq
  * - フィードバック送信: /feedback
+ *
+ * 追加（案X）:
+ * - 困ったとき: /help/login, /help/billing-plan
  */
-export default function HelpDropdown({ alignEnd = true, label = "ヘルプ", className }: Props) {
+export default function HelpDropdown({
+  alignEnd = true,
+  label = "ヘルプ",
+  className,
+}: Props) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -44,7 +58,11 @@ export default function HelpDropdown({ alignEnd = true, label = "ヘルプ", cla
         </Button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align={alignEnd ? "end" : "start"} sideOffset={8} className="w-56">
+      <DropdownMenuContent
+        align={alignEnd ? "end" : "start"}
+        sideOffset={8}
+        className="w-56"
+      >
         <DropdownMenuLabel>サポート</DropdownMenuLabel>
         <DropdownMenuSeparator />
 
@@ -63,9 +81,36 @@ export default function HelpDropdown({ alignEnd = true, label = "ヘルプ", cla
         </DropdownMenuItem>
 
         <DropdownMenuItem asChild>
-          <Link href="/feedback" className="inline-flex w-full items-center gap-2">
+          <Link
+            href="/feedback"
+            className="inline-flex w-full items-center gap-2"
+          >
             <MessageSquare className="size-4" />
             フィードバック送信
+          </Link>
+        </DropdownMenuItem>
+
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel>困ったとき</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+
+        <DropdownMenuItem asChild>
+          <Link
+            href="/help/login"
+            className="inline-flex w-full items-center gap-2"
+          >
+            <LogIn className="size-4" />
+            ログインで困ったとき
+          </Link>
+        </DropdownMenuItem>
+
+        <DropdownMenuItem asChild>
+          <Link
+            href="/help/billing-plan"
+            className="inline-flex w-full items-center gap-2"
+          >
+            <CreditCard className="size-4" />
+            課金・プランで困ったとき
           </Link>
         </DropdownMenuItem>
       </DropdownMenuContent>
