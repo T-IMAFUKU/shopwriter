@@ -26,9 +26,9 @@ model User {
   /// Stripe Billing 連携用フィールド
   /// - 各ユーザーに Stripe 顧客を 1:1 で紐づける
   /// - Subscription 状態と、現在の請求期間の終了日時を保持
-  stripeCustomerId             String?             @unique
+  stripeCustomerId             String?            @unique
   stripeSubscriptionId         String?
-  subscriptionStatus           SubscriptionStatus  @default(INACTIVE)
+  subscriptionStatus           SubscriptionStatus @default(INACTIVE)
   subscriptionCurrentPeriodEnd DateTime?
 }
 
@@ -149,16 +149,22 @@ model EventLog {
 /// - 「商品そのもの」を表すマスタ
 /// - specs / attributes による拡張情報をぶら下げる
 model Product {
-  id          String             @id @default(cuid())
+  id          String  @id @default(cuid())
   name        String
-  slug        String?            @unique
+  slug        String? @unique
   category    String
   brand       String?
   description String?
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
-  attributes  ProductAttribute[]
-  specs       ProductSpec[]
+
+  /// Writer 精度向上のための補足テキスト（構造化で表現しづらい注意/背景/補足）
+  /// - Product Facts の「補足（自由入力）」置き場
+  /// - 0入力でも運用可能（任意）
+  factsNote String? @db.Text
+
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+  attributes ProductAttribute[]
+  specs      ProductSpec[]
 }
 
 /// === ProductSpec: 数値・仕様の正確な値を管理するテーブル ===
