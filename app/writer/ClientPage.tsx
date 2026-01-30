@@ -237,6 +237,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
     reset,
     control,
     setValue,
+    getValues,
   } = useForm<FormValues>({
     resolver: zodResolver(FormSchema),
     mode: "onChange",
@@ -251,24 +252,29 @@ export default function ClientPage({ productId }: ClientPageProps) {
       cta: true,
     },
   });
+
   const product = watch("product");
   const featuresLen = [...(watch("features") ?? "")].length;
 
   // ★ CTAトグル（UI側だけで差分を出す / API送信は不変）
   const ctaEnabled = !!watch("cta");
 
+  // 同一productIdでの再prefill防止（ユーザー入力の上書き防止）
   const prefillDoneForProductIdRef = useRef<string | null>(null);
 
+  /**
+   * /writer?productId=... のときに、DBの商品情報を “静かに” 初期値反映する
+   * - product.name  → product
+   * - ProductAttribute key="purpose" → purpose
+   * - ProductAttribute key="value"   → features
+   *
+   * ルール：
+   * - 既にユーザーが入力/編集しているフィールドは上書きしない
+   * - 未登録（null）の場合は触らない
+   */
   useEffect(() => {
     if (!productId) return;
     if (prefillDoneForProductIdRef.current === productId) return;
-
-    const alreadyTyped = (product ?? "").trim().length > 0;
-    const userEdited = !!(dirtyFields as any)?.product;
-    if (alreadyTyped || userEdited) {
-      prefillDoneForProductIdRef.current = productId;
-      return;
-    }
 
     const ac = new AbortController();
 
@@ -286,30 +292,68 @@ export default function ClientPage({ productId }: ClientPageProps) {
         }
 
         const j: any = await res.json().catch(() => ({}));
+
         const name =
           (typeof j?.name === "string" && j.name) ||
           (typeof j?.product?.name === "string" && j.product.name) ||
           (typeof j?.data?.name === "string" && j.data.name) ||
           "";
 
-        const clean = String(name || "").trim();
-        if (!clean) {
-          prefillDoneForProductIdRef.current = productId;
-          return;
+        const purpose =
+          (typeof j?.purpose === "string" && j.purpose) ||
+          (typeof j?.data?.purpose === "string" && j.data.purpose) ||
+          "";
+
+        const value =
+          (typeof j?.value === "string" && j.value) ||
+          (typeof j?.data?.value === "string" && j.data.value) ||
+          "";
+
+        const cleanName = String(name || "").trim();
+        const cleanPurpose = String(purpose || "").trim();
+        const cleanValue = String(value || "").trim();
+
+        // 既に入力済み/編集済みのものは上書きしない（フィールド単位）
+        const cur = getValues();
+
+        const canSetProduct =
+          cleanName &&
+          (cur.product ?? "").trim().length === 0 &&
+          !!(dirtyFields as any)?.product === false;
+
+        const canSetPurpose =
+          cleanPurpose &&
+          (cur.purpose ?? "").trim().length === 0 &&
+          !!(dirtyFields as any)?.purpose === false;
+
+        const canSetFeatures =
+          cleanValue &&
+          (cur.features ?? "").trim().length === 0 &&
+          !!(dirtyFields as any)?.features === false;
+
+        if (canSetProduct) {
+          setValue("product", cleanName, {
+            shouldDirty: false,
+            shouldTouch: false,
+            shouldValidate: true,
+          });
         }
 
-        const stillEmpty = (watch("product") ?? "").trim().length === 0;
-        const stillNotDirty = !!(dirtyFields as any)?.product === false;
-        if (!stillEmpty || !stillNotDirty) {
-          prefillDoneForProductIdRef.current = productId;
-          return;
+        if (canSetPurpose) {
+          setValue("purpose", cleanPurpose, {
+            shouldDirty: false,
+            shouldTouch: false,
+            shouldValidate: true,
+          });
         }
 
-        setValue("product", clean, {
-          shouldDirty: false,
-          shouldTouch: false,
-          shouldValidate: true,
-        });
+        if (canSetFeatures) {
+          setValue("features", cleanValue, {
+            shouldDirty: false,
+            shouldTouch: false,
+            shouldValidate: true,
+          });
+        }
 
         prefillDoneForProductIdRef.current = productId;
       } catch {
@@ -321,7 +365,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
       ac.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [productId, setValue, watch, product]);
+  }, [productId, setValue, getValues, dirtyFields]);
 
   useEffect(() => {
     return () => {
