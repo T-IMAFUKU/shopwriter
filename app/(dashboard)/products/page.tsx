@@ -8,6 +8,9 @@
 // - 有料ガード（ACTIVE/TRIALINGのみ）
 // - 無料（ログイン済みだが非有料）→ /pricing
 // - 未ログイン → /login
+//
+// 更新（2026-01-31）:
+// - 「新規作成」ボタンを /products/new に有効化（最小フロー開始）
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +22,6 @@ import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -96,11 +98,9 @@ export default async function ProductsPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* ダミー：ルートはまだ作らない（今回はボタンだけ） */}
-          <Button disabled aria-disabled="true" title="準備中（次のステップで実装）">
-            新規作成
+          <Button asChild>
+            <Link href="/products/new">新規作成</Link>
           </Button>
-          <Badge variant="secondary">準備中</Badge>
 
           <Button asChild variant="secondary">
             <Link href="/dashboard">ダッシュボードへ戻る</Link>
@@ -125,12 +125,12 @@ export default async function ProductsPage() {
               <div className="space-y-2">
                 <p className="text-sm font-medium">まだ商品が登録されていません</p>
                 <p className="text-sm text-muted-foreground">
-                  まずは商品を1つ登録できる状態を次のステップで作ります（今回はUIのみ）。
+                  まずは商品を1つ登録してみましょう。
                 </p>
               </div>
               <div className="pt-4">
-                <Button disabled aria-disabled="true">
-                  新規作成（準備中）
+                <Button asChild>
+                  <Link href="/products/new">新規作成</Link>
                 </Button>
               </div>
             </div>
