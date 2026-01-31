@@ -1,10 +1,10 @@
 // app/(dashboard)/products/[id]/page.tsx
 // L2-10-1: 商品詳細 → 文章作成（Writer）導線 + Product Facts 入力UI（保存まで）
-// - 「この商品で文章を作成」ボタンで /writer?productId=... へ遷移
-// - Product Facts（用途/特長/スペック/属性/補足メモ）をこの画面で編集・保存できる（サーバーアクション）
-// - 用途（必須）= Writer入力の「用途・目的」と同一概念（保存先は ProductAttribute key="purpose"）
-// - 特長（価値）= 必須保証B（保存先は ProductAttribute key="value"）
-// - 補足メモ（文脈）= Product.factsNote（任意）
+//
+// 追加（2026-01-31）:
+// - 有料ガード（ACTIVE/TRIALINGのみ）
+// - 無料（ログイン済みだが非有料）→ /pricing
+// - 未ログイン → /login
 //
 // 注意:
 // - 本番DBはアプリ運用専用。migrate dev は dev DB（Neon branch）でのみ実施。
@@ -15,7 +15,10 @@ export const dynamic = "force-dynamic";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, SubscriptionStatus } from "@prisma/client";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
@@ -30,6 +33,25 @@ type PageProps = {
   params: { id: string };
   searchParams?: { e?: string };
 };
+
+async function requirePaidUserOrRedirect(): Promise<void> {
+  const session = await getServerSession(authOptions);
+  const userId = (session?.user as { id?: string } | undefined)?.id;
+
+  if (!userId) redirect("/login");
+
+  const u = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { subscriptionStatus: true },
+  });
+
+  if (!u) redirect("/login");
+
+  const st = u.subscriptionStatus;
+  if (st === SubscriptionStatus.ACTIVE || st === SubscriptionStatus.TRIALING) return;
+
+  redirect("/pricing");
+}
 
 function pickAttrValue(
   attributes: { id: string; key: string; value: string }[],
@@ -65,6 +87,8 @@ function ErrorBanner({ code }: { code?: string }) {
 async function updateCore(formData: FormData) {
   "use server";
 
+  await requirePaidUserOrRedirect();
+
   const productId = String(formData.get("productId") ?? "").trim();
   const purpose = String(formData.get("purpose") ?? "").trim();
   const value = String(formData.get("value") ?? "").trim();
@@ -74,13 +98,11 @@ async function updateCore(formData: FormData) {
   if (!purpose) redirect(`/products/${productId}?e=purpose_required`);
   if (!value) redirect(`/products/${productId}?e=value_required`);
 
-  // factsNote（任意）
   await prisma.product.update({
     where: { id: productId },
     data: { factsNote: factsNote.length ? factsNote : null },
   });
 
-  // purpose/value を Attribute（key固定）として upsert
   const existing = await prisma.productAttribute.findMany({
     where: { productId, key: { in: ["purpose", "value"] } },
     select: { id: true, key: true },
@@ -118,6 +140,8 @@ async function updateCore(formData: FormData) {
 async function addSpec(formData: FormData) {
   "use server";
 
+  await requirePaidUserOrRedirect();
+
   const productId = String(formData.get("productId") ?? "").trim();
   const key = String(formData.get("specKey") ?? "").trim();
   const value = String(formData.get("specValue") ?? "").trim();
@@ -138,6 +162,8 @@ async function addSpec(formData: FormData) {
 async function deleteSpec(formData: FormData) {
   "use server";
 
+  await requirePaidUserOrRedirect();
+
   const productId = String(formData.get("productId") ?? "").trim();
   const specId = String(formData.get("specId") ?? "").trim();
 
@@ -153,6 +179,8 @@ async function deleteSpec(formData: FormData) {
 async function addAttr(formData: FormData) {
   "use server";
 
+  await requirePaidUserOrRedirect();
+
   const productId = String(formData.get("productId") ?? "").trim();
   const key = String(formData.get("attrKey") ?? "").trim();
   const value = String(formData.get("attrValue") ?? "").trim();
@@ -161,8 +189,9 @@ async function addAttr(formData: FormData) {
   if (!key) redirect(`/products/${productId}?e=attr_key_required`);
   if (!value) redirect(`/products/${productId}?e=attr_value_required`);
 
-  // purpose/value は専用欄で管理する（ここからは作らせない）
-  if (isReservedKey(key)) redirect(`/products/${productId}?e=attr_key_required`);
+  if (key === "purpose" || key === "value") {
+    redirect(`/products/${productId}?e=attr_key_required`);
+  }
 
   await prisma.productAttribute.create({
     data: { productId, key, value },
@@ -174,6 +203,8 @@ async function addAttr(formData: FormData) {
 
 async function deleteAttr(formData: FormData) {
   "use server";
+
+  await requirePaidUserOrRedirect();
 
   const productId = String(formData.get("productId") ?? "").trim();
   const attrId = String(formData.get("attrId") ?? "").trim();
@@ -193,6 +224,8 @@ export default async function ProductDetailPage({
   params,
   searchParams,
 }: PageProps) {
+  await requirePaidUserOrRedirect();
+
   const id = params?.id ?? "";
   if (!id) notFound();
 
@@ -265,7 +298,6 @@ export default async function ProductDetailPage({
             </div>
           </div>
 
-          {/* Core: purpose/value/factsNote */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">文章作成に使う基本情報</CardTitle>
@@ -322,7 +354,6 @@ export default async function ProductDetailPage({
             </CardContent>
           </Card>
 
-          {/* Specs */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">スペック（事実）</CardTitle>
@@ -390,7 +421,6 @@ export default async function ProductDetailPage({
             </CardContent>
           </Card>
 
-          {/* Attributes */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">属性（事実/価値の補助）</CardTitle>
@@ -409,9 +439,7 @@ export default async function ProductDetailPage({
                     >
                       <div className="min-w-0">
                         <div className="text-sm font-medium">{a.key}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {a.value}
-                        </div>
+                        <div className="text-sm text-muted-foreground">{a.value}</div>
                       </div>
 
                       <form action={deleteAttr} className="shrink-0">
