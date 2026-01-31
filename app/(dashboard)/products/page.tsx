@@ -3,22 +3,55 @@
 // - DB接続（最新10件）は維持
 // - 一覧行クリックで /products/[id] へ遷移（L2-09A-2）
 // - まずは「管理画面らしさ」だけ最低限（作り込みは後回し）
+//
+// 追加（2026-01-31）:
+// - 有料ガード（ACTIVE/TRIALINGのみ）
+// - 無料（ログイン済みだが非有料）→ /pricing
+// - 未ログイン → /login
 
 export const dynamic = "force-dynamic";
 
 import Link from "next/link";
-import { PrismaClient } from "@prisma/client";
+import { redirect } from "next/navigation";
+import { PrismaClient, SubscriptionStatus } from "@prisma/client";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
-const prisma = new PrismaClient();
+declare global {
+  // eslint-disable-next-line no-var
+  var __shopwriter_prisma: PrismaClient | undefined;
+}
+const prisma = global.__shopwriter_prisma ?? new PrismaClient();
+if (process.env.NODE_ENV !== "production") global.__shopwriter_prisma = prisma;
 
 type ProductRow = {
   id: string;
   name: string;
   updatedAt: Date;
 };
+
+async function requirePaidUserOrRedirect(): Promise<void> {
+  const session = await getServerSession(authOptions);
+  const userId = (session?.user as { id?: string } | undefined)?.id;
+
+  if (!userId) redirect("/login");
+
+  const u = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { subscriptionStatus: true },
+  });
+
+  if (!u) redirect("/login");
+
+  const st = u.subscriptionStatus;
+  if (st === SubscriptionStatus.ACTIVE || st === SubscriptionStatus.TRIALING) return;
+
+  redirect("/pricing");
+}
 
 async function getLatestProducts(): Promise<ProductRow[]> {
   return prisma.product.findMany({
@@ -41,6 +74,8 @@ function fmtDate(d: Date) {
 }
 
 export default async function ProductsPage() {
+  await requirePaidUserOrRedirect();
+
   let products: ProductRow[] = [];
   let error: string | null = null;
 
