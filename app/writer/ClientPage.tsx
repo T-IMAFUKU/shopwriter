@@ -1,4 +1,4 @@
-﻿// app/writer/ClientPage.tsx
+// app/writer/ClientPage.tsx
 // H-8 LEVEL 2：段階描画（ストリーム対応 + 擬似ストリームFallback）
 // - 送信直後：Thinkingストリップ
 // - 300ms後：Skeleton
@@ -8,7 +8,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -44,6 +44,118 @@ const DUR = {
   SKELETON_DELAY_MS: 300,
   PSEUDO_STREAM_INTERVAL_MS: 220, // フォールバック：段落ごと追加の間隔
 };
+
+/* =========================
+   A1: "薄い" 判定（事故耐性優先 / 誤検知を避ける軽め実装）
+   - 3指標のうち2つ以上NG → isThin=true
+   - 判定対象：生成本文テキスト（result相当）
+========================= */
+const THIN = {
+  SCENE_WORDS: [
+    "自宅",
+    "在宅",
+    "オフィス",
+    "デスク",
+    "仕事",
+    "休憩",
+    "通勤",
+    "朝",
+    "昼",
+    "夜",
+    "休日",
+    "外出",
+    "会議",
+    "作業",
+  ],
+  ABSTRACT_WORDS: ["快適", "便利", "使いやすい", "高品質", "安心", "おすすめ"],
+  CONCRETE_VERBS: ["減る", "保つ", "防ぐ", "守る", "抑える", "支える", "整える"],
+  MATERIAL_WORDS: [
+    "ステンレス",
+    "アルミ",
+    "チタン",
+    "セラミック",
+    "ガラス",
+    "木",
+    "竹",
+    "綿",
+    "コットン",
+    "シルク",
+    "ナイロン",
+    "ポリエステル",
+    "レザー",
+    "革",
+  ],
+};
+
+function normalizeForThin(s: string) {
+  return (s ?? "")
+    .replace(/\u3000/g, " ")
+    .replace(/[\r\n]+/g, "\n")
+    .trim();
+}
+
+function countDistinctHits(text: string, words: string[]) {
+  const t = normalizeForThin(text);
+  if (!t) return 0;
+  let n = 0;
+  for (const w of words) {
+    if (!w) continue;
+    if (t.includes(w)) n += 1;
+  }
+  return n;
+}
+
+function buildProductTokens(productName: string) {
+  const tokens = new Set<string>();
+
+  const p = (productName ?? "").trim();
+  if (p) {
+    tokens.add(p);
+    const parts = p
+      .split(/[\s\-_/()（）【】\[\]「」『』・、。]+/g)
+      .map((x) => x.trim())
+      .filter(Boolean);
+    for (const part of parts.slice(0, 4)) {
+      if (part.length >= 2) tokens.add(part);
+    }
+  }
+
+  for (const w of THIN.MATERIAL_WORDS) tokens.add(w);
+
+  return Array.from(tokens)
+    .map((x) => x.trim())
+    .filter((x) => x.length >= 2)
+    .slice(0, 14);
+}
+
+function getThinSignals(text: string, productName: string) {
+  const t = normalizeForThin(text);
+
+  const sceneHits = countDistinctHits(t, THIN.SCENE_WORDS);
+  const abstractHits = countDistinctHits(t, THIN.ABSTRACT_WORDS);
+  const verbHits = countDistinctHits(t, THIN.CONCRETE_VERBS);
+
+  const tokens = buildProductTokens(productName);
+  const specificHits = countDistinctHits(t, tokens);
+
+  const ng1 = sceneHits <= 1; // 利用シーン語 <=1
+  const ng2 = abstractHits >= 2 && verbHits === 0; // 抽象語が多い & 具体動詞0
+  const ng3 = specificHits <= 1; // 商品固有語の出現 <=1
+
+  const ngCount = [ng1, ng2, ng3].filter(Boolean).length;
+  const isThin = ngCount >= 2;
+
+  const points: string[] = [];
+  if (ng1) points.push("① 利用シーン：・使われる場面が、やや抽象的なようです");
+  if (ng2) points.push("② 強み一般化：・商品の強みが、一般的な表現に寄っています");
+  if (ng3) points.push("③ 具体性：・商品の特徴を、もう一段具体的にできそうです");
+
+  return {
+    isThin,
+    points: points.slice(0, 2),
+    debug: { ng1, ng2, ng3, sceneHits, abstractHits, verbHits, specificHits },
+  };
+}
 
 /* =========================
    Form schema
@@ -202,6 +314,11 @@ export default function ClientPage({ productId }: ClientPageProps) {
   const [justCompleted, setJustCompleted] = useState(false);
   const [showDoneBadge, setShowDoneBadge] = useState(false);
 
+  // A2: パネル開閉 + 補足入力（元フォームは「適用」まで触らない）
+  const [a2Open, setA2Open] = useState(false); // A2: open/close
+  const [a2Scene, setA2Scene] = useState(""); // A2: 利用シーン（補足）
+  const [a2Feature, setA2Feature] = useState(""); // A2: 具体特徴（補足）
+
   const skeletonTimerRef = useRef<number | null>(null);
   const celebTimerRef = useRef<number | null>(null);
   const badgeTimerRef = useRef<number | null>(null);
@@ -211,6 +328,10 @@ export default function ClientPage({ productId }: ClientPageProps) {
   const tFirstPaintRef = useRef<number | null>(null);
 
   const resultRef = useRef<HTMLDivElement | null>(null);
+
+  // A1: 入力フォーム先頭へのスクロール（事故防止：入力自体は書き換えない）
+  const formTopRef = useRef<HTMLDivElement | null>(null);
+
   const prefersReduce = useReducedMotion();
   const scrollToResultSmart = useCallback(() => {
     const el = resultRef.current;
@@ -258,6 +379,99 @@ export default function ClientPage({ productId }: ClientPageProps) {
 
   // ★ CTAトグル（UI側だけで差分を出す / API送信は不変）
   const ctaEnabled = !!watch("cta");
+
+  // A1: 判定対象は本文テキストのみ（result相当）
+  const thin = useMemo(() => {
+    if (!result || typeof result !== "string") {
+      return { isThin: false, points: [] as string[], debug: {} as any };
+    }
+    return getThinSignals(result, product ?? "");
+  }, [result, product]);
+
+  // A2: 表示条件（A1と同じ安全条件 + isThin=true）
+  const a2CanShow =
+    !isLoading &&
+    !error &&
+    (leadHtml || restParasHtml.length > 0) &&
+    thin.isThin &&
+    thin.points.length > 0; // A2: A1表示中のみ
+
+  // A2: A1ボタン押下を捕捉してパネルを開く（既存A1ボタンのonClickは変更しない）
+  useEffect(() => {
+    // A2: A1と同じ安全条件
+    if (!a2CanShow) return;
+
+    const onDocClick = (ev: MouseEvent) => {
+      if (!a2CanShow) return; // A2: safety
+      const t = ev.target as HTMLElement | null;
+      if (!t) return;
+      const btn = t.closest("button");
+      if (!btn) return;
+
+      const label = (btn.textContent || "").trim();
+      if (!label.includes("商品情報を1分で補足する")) return;
+
+      // A2: 明示操作で開く（自動はしない）
+      setA2Open(true);
+    };
+
+    document.addEventListener("click", onDocClick, true);
+    return () => {
+      document.removeEventListener("click", onDocClick, true);
+    };
+  }, [a2CanShow]);
+
+  // A2: 「適用」＝ここで初めて元フォームへ反映（明示操作のみ）
+  const a2Apply = useCallback(() => {
+    // A2: 明示適用（自動上書き禁止）
+    const scene = a2Scene.trim();
+    const feat = a2Feature.trim();
+
+    if (!scene && !feat) {
+      toast("補足内容が空です");
+      return false;
+    }
+
+    let changed = false;
+
+    if (scene) {
+      const cur = (getValues("purpose") || "").trim();
+      const next = cur ? `${cur}\n${scene}` : scene;
+      if (next !== (getValues("purpose") || "")) {
+        setValue("purpose", next, { shouldDirty: true, shouldValidate: true });
+        changed = true;
+      }
+    }
+
+    if (feat) {
+      const cur = (getValues("features") || "").trim();
+      const next = cur ? `${cur}\n${feat}` : feat;
+      if (next !== (getValues("features") || "")) {
+        setValue("features", next, { shouldDirty: true, shouldValidate: true });
+        changed = true;
+      }
+    }
+
+    if (!changed) {
+      toast("変更がありません");
+      return false;
+    }
+
+    toast.success("補足内容を適用しました（再生成はまだです）");
+    return true;
+  }, [a2Scene, a2Feature, getValues, setValue]);
+
+  // A2: 「適用して再生成」＝明示操作のみ（既存submit/onSubmitを流用）
+  const a2ApplyAndRegenerate = useCallback(() => {
+    // A2: 明示操作のみ
+    const ok = a2Apply();
+    if (!ok) return;
+
+    // A2: 既存の生成処理を流用（submitと同じ）
+    window.setTimeout(() => {
+      void handleSubmit(onSubmit)();
+    }, 0);
+  }, [a2Apply, handleSubmit]);
 
   // 同一productIdでの再prefill防止（ユーザー入力の上書き防止）
   const prefillDoneForProductIdRef = useRef<string | null>(null);
@@ -895,6 +1109,9 @@ export default function ClientPage({ productId }: ClientPageProps) {
                 submit();
               }}
             >
+              {/* A1: 入力欄への安全なスクロール用（入力の自動書き換えはしない） */}
+              <div ref={formTopRef} />
+
               <div>
                 <Label className="text-sm text-neutral-700 dark:text-neutral-300">
                   商品名
@@ -1203,6 +1420,118 @@ export default function ClientPage({ productId }: ClientPageProps) {
                 <p className="text-neutral-500">生成結果がここに表示されます。</p>
               )}
             </div>
+
+            {/* A1: 改善導線（出力直下 / 既存CTAの直前 / CTAトグルと独立） */}
+            {!isLoading &&
+              !error &&
+              (leadHtml || restParasHtml.length > 0) &&
+              thin.isThin &&
+              thin.points.length > 0 && (
+                <div
+                  className="mt-4 rounded-xl border border-amber-200/70 bg-amber-50/60 px-4 py-3 select-none"
+                  data-nosnippet
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 inline-flex size-8 items-center justify-center rounded-full bg-amber-500/15 text-amber-700">
+                      <Zap className="size-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-neutral-900">
+                        🟡 この文章は、もう少し良くできます
+                      </p>
+                      <div className="mt-1 space-y-1">
+                        {thin.points.map((line) => (
+                          <p key={line} className="text-xs leading-relaxed text-neutral-700">
+                            {line}
+                          </p>
+                        ))}
+                      </div>
+
+                      <div className="mt-3">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="h-9 rounded-lg border border-amber-200 bg-white/80 text-xs font-semibold text-amber-900 hover:bg-white"
+                          onClick={() => {
+                            const el = formTopRef.current;
+                            if (!el) return;
+                            el.scrollIntoView({
+                              behavior: prefersReduce ? "auto" : "smooth",
+                              block: "start",
+                            });
+                          }}
+                        >
+                          商品情報を1分で補足する
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+            {/* A2: 簡易入力UI（A1表示中のみ / 出力直下 / CTAの直前） */}
+            {a2CanShow && a2Open && (
+              <div className="mt-3 rounded-xl border border-amber-200/70 bg-white/80 px-4 py-3" data-nosnippet>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-neutral-900">補足入力（1分）</p>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-neutral-600">
+                      ここで入力した内容は「適用」まで元の入力フォームへ反映されません。
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="inline-flex size-7 items-center justify-center rounded-md border border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50"
+                    onClick={() => setA2Open(false)}
+                    aria-label="閉じる"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="mt-3 grid gap-3">
+                  <div className="grid gap-1.5">
+                    <Label className="text-[11px] font-semibold text-neutral-700">利用シーン（短文）</Label>
+                    <Textarea
+                      value={a2Scene}
+                      onChange={(e) => setA2Scene(e.target.value)}
+                      placeholder="例：在宅ワークのデスクで、午前中に淹れたコーヒーをゆっくり飲みたい"
+                      className="min-h-[72px] resize-y rounded-lg text-xs leading-relaxed"
+                    />
+                  </div>
+
+                  <div className="grid gap-1.5">
+                    <Label className="text-[11px] font-semibold text-neutral-700">具体特徴（短文）</Label>
+                    <Textarea
+                      value={a2Feature}
+                      onChange={(e) => setA2Feature(e.target.value)}
+                      placeholder="例：氷を入れても飲み口が冷たすぎず、外側が結露しにくい"
+                      className="min-h-[72px] resize-y rounded-lg text-xs leading-relaxed"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <Button type="button" size="sm" className="h-9 rounded-lg text-xs" onClick={a2Apply}>
+                    適用
+                  </Button>
+
+                  <Button type="button" size="sm" className="h-9 rounded-lg text-xs" onClick={a2ApplyAndRegenerate}>
+                    適用して再生成
+                  </Button>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-9 rounded-lg text-xs"
+                    onClick={() => setA2Open(false)}
+                  >
+                    閉じる
+                  </Button>
+                </div>
+              </div>
+            )}
 
             {ctaEnabled && (leadHtml || restParasHtml.length > 0) && !isLoading && !error && (
               <div className="mt-4 rounded-xl border border-indigo-200/70 bg-gradient-to-r from-indigo-50 to-violet-50 px-4 py-3">
