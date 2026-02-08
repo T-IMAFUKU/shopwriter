@@ -358,6 +358,37 @@ function normalizeJapaneseWeirdSpaces(text: string): string {
   return t;
 }
 
+/**
+ * 1行に複数「・」が含まれる箇条書きを
+ * 1行1点に分解する（意味は変えない）
+ */
+function fixCollapsedBullets(text: string): string {
+  const lines = text.split(/\r?\n/);
+  const fixed: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    // 「・」が2つ以上ある行のみ対象
+    const bulletCount = (trimmed.match(/・/g) ?? []).length;
+    if (bulletCount >= 2) {
+      const parts = trimmed
+        .split("・")
+        .map((p) => p.trim())
+        .filter(Boolean);
+
+      for (const p of parts) {
+        fixed.push(`・${p}`);
+      }
+      continue;
+    }
+
+    fixed.push(line);
+  }
+
+  return fixed.join("\n");
+}
+
 export function applyPostprocess(raw: string, n?: PostprocessContext): string {
   let out = (raw ?? "").toString().trim();
 
@@ -383,6 +414,9 @@ export function applyPostprocess(raw: string, n?: PostprocessContext): string {
     const masked = maskHallucinatedSpecs(out, n);
     out = masked.text;
   }
+
+  // ✅ 1行詰め込み箇条書きだけ最小補正（②の再現性を上げる）
+  out = fixCollapsedBullets(out);
 
   // 表現トーンの最終微調整（日本語ネイティブ寄り）
   out = out.replace(/アイコン的存在/g, "象徴的な存在");

@@ -4,13 +4,11 @@ import type { NormalizedInput } from "./pipeline";
 import { COMMON_BANNED_PATTERNS } from "./prompt/category-safety";
 
 /* =========================
-   makeUserMessage (P2-3 修正版)
+   makeUserMessage (憲章 v1.0 整合版)
    - NormalizedInput → userMessage
-   - ドメイン固定の強化（Phase1仕様維持）
-   - 謝罪・情報不足系の完全排除
-   - LP本文から自然に開始させる
-   - 推測禁止・固有情報制御のガイドラインを追加
-   - COMMON_BANNED_PATTERNS を用いた固有情報リスク検知
+   - 目的：L3 編集ルール（出力構成・禁止事項）を user 側でも矛盾なく固定する
+   - UI/DB/テンプレには触れない（生成品質のみ）
+   - 見出し/FAQ/CTA固定構成は指示しない（憲章と衝突するため）
 ========================= */
 
 type SpecRisk = {
@@ -21,8 +19,8 @@ type SpecRisk = {
 /**
  * 固有情報リスク検知
  * - 依頼文やキーワード群から、COMMON_BANNED_PATTERNS に含まれるパターンを検出
- * - 結果は metaBlock の spec_risk_flags としてヒント提供に使う
- *   （APIレスポンス shape は変えず、プロンプト内の情報だけ強化）
+ * - 結果は userMessage 内の補助情報（spec_risk_flags）として渡す
+ *   （APIレスポンス shape は変えない）
  */
 function detectSpecRisk(n: NormalizedInput): SpecRisk {
   const segments: string[] = [];
@@ -40,7 +38,7 @@ function detectSpecRisk(n: NormalizedInput): SpecRisk {
     if (s) segments.push(s);
   };
 
-  // 元の依頼文 + 主要フィールドをざっくり対象にする
+  // 元の依頼文 + 主要フィールド
   pushSeg((n as any)._raw);
   pushSeg(n.product_name);
   pushSeg(n.category);
@@ -62,7 +60,7 @@ function detectSpecRisk(n: NormalizedInput): SpecRisk {
     if (!p) continue;
     if (haystack.includes(p)) {
       hits.push(rawPattern);
-      if (hits.length >= 16) break; // プロンプトが冗長になりすぎないように上限
+      if (hits.length >= 16) break; // 冗長化防止
     }
   }
 
@@ -91,26 +89,14 @@ export function makeUserMessage(n: NormalizedInput): string {
   push("length_hint", n.length_hint ?? null);
 
   // 配列系
-  if (n.keywords?.length) {
-    push("keywords", n.keywords.join(", "));
-  }
-  if (n.constraints?.length) {
-    push("constraints", n.constraints.join(" / "));
-  }
-  if (n.selling_points?.length) {
-    push("selling_points", n.selling_points.join(" / "));
-  }
-  if (n.objections?.length) {
-    push("objections", n.objections.join(" / "));
-  }
-  if (n.evidence?.length) {
-    push("evidence", n.evidence.join(" / "));
-  }
-  if (n.cta_preference?.length) {
-    push("cta_preference", n.cta_preference.join(" / "));
-  }
+  if (n.keywords?.length) push("keywords", n.keywords.join(", "));
+  if (n.constraints?.length) push("constraints", n.constraints.join(" / "));
+  if (n.selling_points?.length) push("selling_points", n.selling_points.join(" / "));
+  if (n.objections?.length) push("objections", n.objections.join(" / "));
+  if (n.evidence?.length) push("evidence", n.evidence.join(" / "));
+  if (n.cta_preference?.length) push("cta_preference", n.cta_preference.join(" / "));
 
-  // 固有情報リスク検知 → meta にヒントとして埋め込む
+  // 固有情報リスク検知 → ヒントとして埋め込む
   const specRisk = detectSpecRisk(n);
   if (specRisk.hits.length) {
     push("spec_risk_flags", specRisk.hits.join(" / "));
@@ -118,30 +104,47 @@ export function makeUserMessage(n: NormalizedInput): string {
 
   const metaBlock = kv.length ? kv.join("\n") : "";
 
-  const guide =
-    "あなたは日本語のECライティングに特化したプロのライターです。" +
-    "以下の入力情報（特に product_name・category・keywords）は、この文章全体の前提となる“固定された事実”です。これらと矛盾する情報や、別カテゴリの商品例（例: コーヒー、サプリ、家電、調味料など）は、たとえ元の依頼文に含まれていても無視してください。" +
-    "本文は、指定された product_name と category のドメインに完全に従って書いてください。" +
-    "また、条件が不足している場合でも、category の範囲を越えない形で合理的かつ一般的なレベルにとどめて補完し、本文の導入コピーから自然に書き始めてください。" +
-    "「情報が不足しています」「可能な範囲で」などの保険的・謝罪的な導入文は禁止です。" +
-    "本文の構成は、導入 → ベネフィット → 特徴箇条書き → FAQ（2〜3問） → 最後に一次CTAと代替CTA、という順序で自然に記述してください。" +
-    "感嘆符は使わず、押し売りの見出し表現（例:「さあ、〜してください」）は避けてください。" +
-    "容量・成分・原材料・寸法・重量・バッテリー持続時間・ストレージ容量・解像度・型番・発売日・価格・割引率・ポイント還元率・レビュー件数・星評価・ランキングなどの具体的な数値やスペックは、入力情報に明示されている場合のみ使用し、新たに推測して書かないでください。" +
-    "ml・g・cm・時間・％ などの具体的な数値や単位、または特定の型番・カラー名・シリーズ名・キャンペーン名・受賞歴・認証マークなどの固有情報を、依頼文にない形ででっち上げないでください。" +
-    "具体的な数値が与えられていない場合は、「たっぷり」「持ち運びしやすいサイズ」「長時間快適に使えるよう設計」など、一般的で曖昧な表現にとどめてください。";
+  const guide = [
+    // 役割
+    "あなたは日本語のEC商品説明を作るプロのライターです。",
+    "",
+    // 憲章 v1.0：固定入力の厳守
+    "【固定された事実】",
+    "以下の入力（product_name/category/goal/audience/keywords/selling_points/constraints/evidence 等）だけを根拠に書いてください。",
+    "入力に無い固有情報（数値・型番・受賞・ランキング・保証条件・価格・レビュー等）は推測で足さないでください。",
+    "",
+    // 憲章 v1.0：出力構成の強制
+    "【出力構成（必須）】",
+    "1) ヘッド：2文のみ。",
+    "   - 1文目：用途 + 主ベネフィット",
+    "   - 2文目：使用シーン",
+    "2) ボディ：箇条書き（最大3点）。順番は「コア機能 → 困りごと解消 → 汎用価値」。",
+    "3) 補助：入力に objections または cta_preference がある場合のみ、短い追記を1〜2行で許可。無い場合は絶対に出さない。",
+    "",
+    // 憲章 v1.0：禁止
+    "【禁止】",
+    "- 見出し（## や「【】見出し」等）を出さない。",
+    "- ヘッドで説明・前置き・水増しをしない（例：「重要」「サポート」「〜でしょう」等）。",
+    "- 抽象まとめ・同義反復をしない。",
+    "- 不足情報を想像で補わない。分からない要素は触れない。",
+    "",
+    // 仕上げ
+    "【出力】",
+    "本文のみを出力し、注釈・自己評価・手順・コードブロックは書かない。",
+  ].join("\n");
 
   const parts: string[] = [];
 
   if (metaBlock) {
-    parts.push("# 入力", metaBlock);
+    parts.push("INPUT\n" + metaBlock);
   }
 
   const raw = (n._raw ?? "").toString().trim();
   if (raw) {
-    parts.push("# 元の依頼文", raw);
+    parts.push("RAW\n" + raw);
   }
 
-  parts.push("# 指示", guide);
+  parts.push("INSTRUCTION\n" + guide);
 
   return parts.join("\n\n");
 }
