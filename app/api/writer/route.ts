@@ -199,6 +199,54 @@ async function checkSubscriptionGate(
 }
 
 /**
+ * L3 編集ルール（設計憲章 v1.0 確定版）を「生成に強制」するための system 注入。
+ * - L0/L1/L2（勝利条件/品質定義/出力構成）は変更しない
+ * - ここでの役割：出力の"形"と"禁止事項"を、モデル側の挙動として固定する
+ */
+function buildForcedEditingSystem(): string {
+  // 重要：ここは「努力目標」ではなく「制約」
+  // 重要：入力に無い固有情報は出さない（推測/捏造禁止）
+  return [
+    "あなたはEC向け商品説明の編集者です。出力は日本語。以下の制約に必ず従ってください。",
+    "",
+    "【出力フォーマット（必須・固定）】",
+    "1) ヘッド：2文のみ（1文目=用途+主ベネフィット / 2文目=使用シーン）。",
+    "2) ボディ：箇条書きは最大3点まで。順番は「コア機能→困りごと解消→汎用価値」。",
+    "3) 補助：入力に objections または cta_preference がある場合のみ、その情報に対応する短い追記を1〜2行で許可。無ければ絶対に出さない。",
+    "",
+    "【禁止事項（必須）】",
+    "- 見出し（## や「【】見出し」等）を出さない。",
+    "- ヘッドで説明・前置き・水増しをしない（例：「重要」「サポート」「〜でしょう」「おすすめ」「丁寧に」等）。",
+    "- 抽象まとめ・同義反復・言い換えの繰り返しをしない。",
+    "- 短文化は努力目標ではなく制約。冗長なら削る。",
+    "- 固有情報は入力にあるもののみ。推測・捏造・過剰な一般論（例：健康/医療効果、数値根拠、第三者評価）を入れない。",
+    "",
+    "【書き方の規則（必須）】",
+    "- ヘッド2文はそれぞれ一息で読める長さにする。",
+    "- 箇条書きは各1行で簡潔に（最大3行）。",
+    "- 句読点は自然に。語尾の連発を避ける。",
+    "",
+    "出力は本文のみ。コードブロック・注釈・自己評価・説明は書かない。",
+  ].join("\n");
+}
+
+/**
+ * systemOverride はユーザー/上位層から渡りうるが、
+ * L3強制の制約を緩めることはできない（強制ルールを先頭に固定注入）。
+ */
+function composeSystemOverride(forced: string, userOverride: string): string {
+  const u = (userOverride ?? "").toString().trim();
+  if (!u) return forced;
+
+  return [
+    forced,
+    "",
+    "【追加指示（ただし上の制約は優先）】",
+    u,
+  ].join("\n");
+}
+
+/**
  * meta.template / meta.cta を route.ts で確実に拾う
  * - 目的：UIの選択値がサーバで確実に観測できる状態にする
  * - 実装方針：normalizeInput(rawPrompt) の結果に「上書き/補完」する
@@ -270,7 +318,9 @@ export async function POST(req: Request) {
     model = ((reqInput as any).model ?? "gpt-4o-mini").toString();
     const temperature =
       typeof (reqInput as any).temperature === "number" ? (reqInput as any).temperature : 0.7;
-    const systemOverride = (((reqInput as any).system ?? "") as string).toString();
+
+    // ここで受け取る systemOverride は「追加指示」扱いに落とし、L3強制は常に優先させる
+    const systemOverrideRaw = (((reqInput as any).system ?? "") as string).toString();
 
     await writerLog({
       phase: "request",
@@ -362,6 +412,10 @@ export async function POST(req: Request) {
       forceConsoleEvent("ok", payloadPre);
       await emitWriterEvent("ok", payloadPre);
     }
+
+    // ✅ L3編集ルールを system に強制注入（生成の形を固定する）
+    const forcedSystem = buildForcedEditingSystem();
+    const systemOverride = composeSystemOverride(forcedSystem, systemOverrideRaw);
 
     // ✅ 新pipelineへ：composedSystem/composedUser は渡さない
     const pipelineResponse = await runWriterPipeline({
