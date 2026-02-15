@@ -221,6 +221,13 @@ function buildForcedEditingSystem(): string {
     "- 短文化は努力目標ではなく制約。冗長なら削る。",
     "- 固有情報は入力にあるもののみ。推測・捏造・過剰な一般論（例：健康/医療効果、数値根拠、第三者評価）を入れない。",
     "",
+    "【断言ワード制御（必須）】",
+    "- 「最適」「おすすめ」「ぴったり」「ベスト」「完璧」など“根拠なし断言”は使わない（特にヘッド）。",
+    "- 代替表現は「向いています」「便利です」「普段使いしやすいです」「〜に役立ちます」を使う。",
+    "- ヘッドは「感じ方（快適・心地よい等）」を書かず、「どうなるか（状態）」だけを書く。",
+    "- 例：「快適に過ごせます」→「飲み頃の温度を保ったまま飲めます」/「作業中も温度が変わりにくいです」",
+    "- 感情語・評価語（快適/心地よい/ストレスフリー等）は、ヘッドでは禁止（ボディでも極力避ける）。",
+    "",
     "【書き方の規則（必須）】",
     "- ヘッド2文はそれぞれ一息で読める長さにする。",
     "- 箇条書きは各1行で簡潔に（最大3行）。",
@@ -238,12 +245,7 @@ function composeSystemOverride(forced: string, userOverride: string): string {
   const u = (userOverride ?? "").toString().trim();
   if (!u) return forced;
 
-  return [
-    forced,
-    "",
-    "【追加指示（ただし上の制約は優先）】",
-    u,
-  ].join("\n");
+  return [forced, "", "【追加指示（ただし上の制約は優先）】", u].join("\n");
 }
 
 /**
@@ -288,11 +290,82 @@ function normalizeCtaBool(raw: unknown): boolean | null {
   return null;
 }
 
+/* =========================
+   ✅ UI必須4項目（別フィールド）を n に反映
+   - 商品名 / 用途・目的 / 特徴・強み / ターゲット
+   - UIキー名の揺れを吸収して安全に補完する
+========================= */
+
+function S(raw: unknown): string {
+  return typeof raw === "string" ? raw.trim() : "";
+}
+
+function arrOfStrings(raw: unknown): string[] {
+  if (Array.isArray(raw)) return raw.map((x) => S(x)).filter(Boolean);
+  const s = S(raw);
+  if (!s) return [];
+  // 改行/スラッシュ/中点/カンマ/全角スペースで雑に分割（UI入力の揺れ吸収）
+  return s
+    .split(/[\n\r]+|[\/／]|[・]|[,，]|[　]+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+function pickFirst(obj: any, keys: string[]): unknown {
+  for (const k of keys) {
+    if (!k) continue;
+    const v = obj?.[k];
+    if (v === undefined || v === null) continue;
+    // 空文字はスキップ
+    if (typeof v === "string" && v.trim().length === 0) continue;
+    return v;
+  }
+  return undefined;
+}
+
+function applyUiRequiredFieldsToNormalized(n: any, reqInputAny: any) {
+  const root = reqInputAny ?? {};
+  const meta = root?.meta ?? {};
+
+  // “別フィールド”候補（UI側の命名揺れを吸収）
+  const rawProductName = pickFirst(root, ["productName", "product_name", "product", "name", "title"]);
+  const rawGoal = pickFirst(root, ["purpose", "goal", "useCase", "usage", "intent"]);
+  const rawSellingPoints = pickFirst(root, ["strengths", "sellingPoints", "selling_points", "features", "featureList"]);
+  const rawAudience = pickFirst(root, ["target", "audience", "persona", "customer", "reader"]);
+
+  // meta 内に入ってしまう実装も吸収（念のため）
+  const rawProductName2 = pickFirst(meta, ["productName", "product_name", "product", "name", "title"]);
+  const rawGoal2 = pickFirst(meta, ["purpose", "goal", "useCase", "usage", "intent"]);
+  const rawSellingPoints2 = pickFirst(meta, ["strengths", "sellingPoints", "selling_points", "features", "featureList"]);
+  const rawAudience2 = pickFirst(meta, ["target", "audience", "persona", "customer", "reader"]);
+
+  const productName = S(rawProductName ?? rawProductName2);
+  const goal = S(rawGoal ?? rawGoal2);
+  const audience = S(rawAudience ?? rawAudience2);
+
+  const sellingPointsArr = [
+    ...arrOfStrings(rawSellingPoints),
+    ...arrOfStrings(rawSellingPoints2),
+  ];
+
+  // ✅ “補完 or 上書き” 方針：
+  // - UIで必須4項目を入力している前提なので、来ていれば上書き優先。
+  if (productName) n.product_name = productName;
+  if (goal) n.goal = goal;
+  if (audience) n.audience = audience;
+  if (sellingPointsArr.length > 0) n.selling_points = sellingPointsArr;
+
+  return {
+    productNameLen: productName.length,
+    goalLen: goal.length,
+    audienceLen: audience.length,
+    sellingPointsCount: sellingPointsArr.length,
+  };
+}
+
 export async function POST(req: Request) {
   const t0 = Date.now();
-  const rid =
-    (globalThis as any).crypto?.randomUUID?.() ??
-    Math.random().toString(36).slice(2);
+  const rid = (globalThis as any).crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
 
   const elapsed = () => Date.now() - t0;
 
@@ -303,11 +376,7 @@ export async function POST(req: Request) {
     const ctxResult = await buildWriterRequestContext(req);
 
     if (!ctxResult.ok) {
-      return handleInvalidRequestError(
-        ctxResult.error?.message ?? "invalid request",
-        rid,
-        elapsed(),
-      );
+      return handleInvalidRequestError(ctxResult.error?.message ?? "invalid request", rid, elapsed());
     }
 
     // ✅ composedSystem / composedUser は旧設計の残骸。新pipelineでは使わない。
@@ -316,8 +385,7 @@ export async function POST(req: Request) {
     provider = String((reqInput as any).provider ?? "openai").toLowerCase();
     const rawPrompt = ((reqInput as any).prompt ?? "").toString();
     model = ((reqInput as any).model ?? "gpt-4o-mini").toString();
-    const temperature =
-      typeof (reqInput as any).temperature === "number" ? (reqInput as any).temperature : 0.7;
+    const temperature = typeof (reqInput as any).temperature === "number" ? (reqInput as any).temperature : 0.7;
 
     // ここで受け取る systemOverride は「追加指示」扱いに落とし、L3強制は常に優先させる
     const systemOverrideRaw = (((reqInput as any).system ?? "") as string).toString();
@@ -373,6 +441,9 @@ export async function POST(req: Request) {
       if (!n.cta) n.cta = "あり";
     }
 
+    // ✅ UI必須4項目（別フィールド）を n に反映（密度Aの土台）
+    const required4 = applyUiRequiredFieldsToNormalized(n, unsafeRawInput);
+
     // --- productId ---
     const rawProductId = unsafeRawInput?.productId;
 
@@ -403,6 +474,9 @@ export async function POST(req: Request) {
           metaCta: metaCta ?? null,
           // 参考：productId有無
           productId: productId ?? null,
+
+          // ✅ 必須4項目が “別フィールドで届いているか” の観測（中身はログに出さない）
+          required4,
         },
         hash: {
           prompt_sha256_8: sha256Hex(rawPrompt).slice(0, 8),

@@ -10,10 +10,18 @@ import { buildPrecisionProductPayload, buildProductFactsDto } from "@/server/pro
 import { buildProductFactsBlock } from "./prompt/product-facts";
 import { applyPostprocess } from "./postprocess";
 
+// ✅ densityA（観測＋同点タイブレーク＋低密度救済）
+// - export名が違っても落ちないように namespace import + any で呼ぶ
+import * as DensityA from "@/lib/densityA";
+
 /**
  * 目的（新設計）:
  * - Pipeline は 3工程（Normalize / Decide / Handoff）に縮退
  * - ✅ 生成品質を安定させるため「内部3案生成→L3スコア→最良案採用」を Handoff 内で行う
+ * - ✅ 同点時は densityA（情報使用率）をタイブレークに使う（L3最優先は維持）
+ * - ✅ 低密度（inputCount=4 で 1要素でも落ちる等）を救済するため、最大1回だけ追加生成(idx4)を許可
+ * - ✅ “プロンプトで使用強制” を追加し、設計を守りつつ密度が薄い勝ち方を減らす（Case3対策）
+ * - ✅ C-2（本丸）：mustUse の対象セットを「事実/仕様寄り」に限定し、評価語っぽい selling_points は任意素材へ落とす
  * - CTAのSSOT: ctx.flags.cta.mode ("on" | "off")
  * - CTAブロック仕様SSOT: ctx.contracts.ctaBlock（仕様のみ。生成は他責務）
  * - ✅ 実運用上必要なので applyPostprocess() は “返却直前” にのみ適用する（data.text / output を同一に固定）
@@ -149,7 +157,7 @@ function resolveTemplateKey(n: NormalizedInput): string {
   const metaTemplate = (n as any)?.meta?.template;
   const platform = (n as any)?.platform;
   const raw = (metaTemplate ?? platform ?? "").toString().trim().toLowerCase();
-  return raw;
+  return raw || "lp";
 }
 
 function isSnsLikeTemplate(templateKey: string): boolean {
@@ -184,12 +192,252 @@ function resolveCtaMode(n: NormalizedInput): CtaMode {
    Decide（L3を生成に強制）
 ========================= */
 
-function buildOutputRulesSuffix(normalized: NormalizedInput): string {
-  const templateKey = resolveTemplateKey(normalized);
-  const isSNS = isSnsLikeTemplate(templateKey);
-  const pn = (normalized.product_name ?? "").toString().trim();
+/**
+ * ✅ C-2: mustUse対象を「事実/仕様寄り」に限定する
+ *
+ * 方針（辞書メンテ破綻を避ける）:
+ * - “評価語”を列挙して増やし続けない（永遠メンテになる）
+ * - mustUse に入れる selling_points は「根拠シグナルがある行」だけ
+ *   - 数値/単位（強い）
+ *   - 仕様っぽい “最小の固定マーカー” （増やす運用にしない）
+ * - それ以外は任意素材（入力としては尊重するが強制しない）
+ */
 
-  const rules = [
+function normalizeJaText(s: unknown): string {
+  return (s ?? "").toString().replace(/\s+/g, " ").trim();
+}
+
+function uniqueNonEmptyStrings(list: unknown): string[] {
+  if (!Array.isArray(list)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const x of list) {
+    const s = normalizeJaText(x);
+    if (!s) continue;
+    if (seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
+function truncateJoinQuoted(items: string[], maxItems: number): string {
+  const xs = (items ?? []).slice(0, Math.max(0, maxItems));
+  if (xs.length === 0) return "";
+  return xs.map((x) => `「${x}」`).join("、");
+}
+
+/**
+ * 文字化け疑い（観測安定化）
+ * - ✅ “スペース”では判定しない（通常入力に含まれる）
+ * - “判定不能っぽい” ものだけを mustUse から外す
+ */
+function looksMojibakeLike(line: string): boolean {
+  const s = (line ?? "").toString();
+  if (!s) return false;
+
+  // 置換文字（典型）
+  if (s.includes("�")) return true;
+
+  // よくある mojibake パターン（ログで観測された系）
+  if (/[繧繝]/.test(s)) return true;
+
+  // 半角カナの連続（UTF-8誤デコードで出やすい）
+  const hwKanaRuns = s.match(/[ｦ-ﾟ]{2,}/g);
+  if (hwKanaRuns && hwKanaRuns.length > 0) return true;
+
+  return false;
+}
+
+function classifySellingPoints(points: string[]): { facts: string[]; optional: string[] } {
+  const src = uniqueNonEmptyStrings(points);
+
+  // “根拠シグナル”として強いもの（辞書ではなくパターン中心）
+  const UNIT_OR_NUMBER_RE =
+    /[0-9０-９]+|%|％|mm|cm|m|g|kg|mg|ml|mL|l|L|W|w|V|v|Hz|kHz|lm|ルーメン|インチ|時間|分|秒|年|回|段階/;
+
+  // 仕様マーカー（固定・最小：増やす運用にしない）
+  const SPEC_MARKERS_RE = /(可動|調整|角度|高さ|明るさ|LED|USB|Type-?C|Bluetooth|Wi-?Fi)/;
+
+  const hasEvidenceSignal = (s: string): boolean => {
+    if (!s) return false;
+    if (UNIT_OR_NUMBER_RE.test(s)) return true;
+    if (SPEC_MARKERS_RE.test(s)) return true;
+    return false;
+  };
+
+  const facts: string[] = [];
+  const optional: string[] = [];
+
+  for (const p of src) {
+    // 文字化け疑いは mustUse に入れない（任意素材）
+    if (looksMojibakeLike(p)) {
+      optional.push(p);
+      continue;
+    }
+
+    // ✅ C-2の核：根拠シグナルがある行だけを “事実/仕様寄り” として採用
+    if (hasEvidenceSignal(p)) {
+      facts.push(p);
+      continue;
+    }
+
+    // それ以外（評価語っぽい／抽象／感想系が混ざる）は任意素材
+    optional.push(p);
+  }
+
+  return { facts, optional };
+}
+
+/**
+ * ✅ densityA は「必須セット」だけで評価する（C-2整合）
+ * - 任意素材（optional selling_points）を densityA の入力セットに含めない
+ *
+ * ✅ InputSet揺れ防止（本丸）:
+ * - UI上 selling_points が入力されているなら、densityA は必ず inputCount=4（= 3 + 1）に固定する
+ * - “事実/仕様寄り” が0件でも、入力がある限り先頭1件をフォールバック採用（意味判定なし／辞書なし）
+ * - threshold 側が 3/4 を前提にしているため、ここで selling_points を最大1件に丸める
+ */
+function normalizedForDensityA(normalized: NormalizedInput): NormalizedInput {
+  const sellingPointsRaw = Array.isArray(normalized.selling_points) ? normalized.selling_points : [];
+  const src = uniqueNonEmptyStrings(sellingPointsRaw);
+
+  if (src.length === 0) {
+    // v0: 必須3（product_name/goal/audience）
+    return { ...normalized, selling_points: [] };
+  }
+
+  const classified = classifySellingPoints(src);
+  const pick = classified.facts[0] ?? src[0]; // ✅ 入力がある限り 1件は必ず採用（4固定）
+  const one = pick ? [pick] : [];
+
+  return {
+    ...normalized,
+    selling_points: one,
+  };
+}
+
+/**
+ * ✅ 生成側（辞書なし）：audience 原文が欠けたら返却直前に1回だけ保証する
+ * - すでに含まれているなら何もしない
+ * - 無ければ「ヘッド2文の2文目」の先頭に差し込む（説明は足さない）
+ */
+function enforceAudienceExactOnce(text: string, audienceRaw: string): { text: string; didEnforce: boolean } {
+  const audience = (audienceRaw ?? "").toString().trim();
+  if (!audience) return { text: (text ?? "").toString(), didEnforce: false };
+
+  const t = (text ?? "").toString().replace(/\r\n/g, "\n").trim();
+  if (!t) return { text: t, didEnforce: false };
+
+  // 既に含まれているならOK（1回だけは、ここでは強制しない＝過剰削除リスクを避ける）
+  if (t.includes(audience)) return { text: t, didEnforce: false };
+
+  const { head, body } = splitHeadAndBody(t);
+  if (!head) return { text: t, didEnforce: false };
+
+  // ヘッド2文に寄せて、2文目があればその先頭へ。無ければ末尾へ短く付与。
+  const parts = head
+    .split("。")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (parts.length >= 2) {
+    const head1 = `${parts[0]}。`;
+    const head2 = parts[1] ?? "";
+    const injected2 = head2 ? `${audience}の${head2}` : `${audience}の作業中に使います`;
+    const rebuiltHead = `${head1}\n${injected2}。`.trim();
+    const rebuilt = body ? `${rebuiltHead}\n\n${body}`.trim() : rebuiltHead;
+    return { text: rebuilt, didEnforce: true };
+  }
+
+  // 1文しか無い場合（例外）: 末尾に一言だけ足す
+  const rebuiltHead = `${head}\n${audience}の作業中に使います。`.trim();
+  const rebuilt = body ? `${rebuiltHead}\n\n${body}`.trim() : rebuiltHead;
+  return { text: rebuilt, didEnforce: true };
+}
+
+/* =========================
+   Output Rules Suffix（責務境界固定）
+========================= */
+
+type OutputRulesSuffixCtx = {
+  isSNS: boolean;
+  pn: string;
+
+  goal: string;
+  audience: string;
+  category: string;
+  sellingPoints: string[];
+
+  hasGoal: boolean;
+  hasAudience: boolean;
+  hasCategory: boolean;
+
+  forcedSellingPoints: string[];
+  optionalSellingPoints: string[];
+  hasForcedSellingPoints: boolean;
+  hasOptional: boolean;
+};
+
+function buildUseForceLines(ctx: OutputRulesSuffixCtx): string[] {
+  const useForceLines: string[] = [
+    "",
+    "使用強制（必須・ラベル禁止）:",
+    "- 次の要素を、本文の自然な日本語として必ず反映する（項目名は書かない / 例:「goal:」禁止）。",
+    `- product_name：必須（1文目に含める）${ctx.pn ? `（"${ctx.pn}"を省略しない）` : ""}`,
+  ];
+
+  if (ctx.hasGoal) {
+    useForceLines.push("- goal（用途/目的）：必ず1回以上反映（言い換え可、説明調にしない）。");
+  } else {
+    useForceLines.push("- goal（用途/目的）：入力が空の場合は“想像で補わない”。");
+  }
+
+  // ✅ 生成側の対策（辞書なし）：audience は「原文（完全一致）を1回だけ」必ず含める
+  if (ctx.hasAudience) {
+    useForceLines.push(
+      `- audience（対象/利用者）：原文をそのまま1回だけ必ず含める（完全一致）${
+        ctx.audience ? `（"${ctx.audience}"を省略しない）` : ""
+      }。言い換えで置き換えない。繰り返し禁止。`,
+    );
+    useForceLines.push("- audience は、ヘッド2文のどちらかに入れる（箇条書きだけに押し込まない）。");
+  } else {
+    useForceLines.push("- audience（対象/利用者）：入力が空の場合は“想像で補わない”。");
+  }
+
+  // ✅ C-2 本丸：selling_points は “事実/仕様寄り” だけを mustUse 対象にする
+  if (ctx.hasForcedSellingPoints) {
+    const listText = truncateJoinQuoted(ctx.forcedSellingPoints, 6);
+    const minReq = Math.min(2, ctx.forcedSellingPoints.length);
+    useForceLines.push(
+      `- selling_points（特徴・強み／事実・仕様寄りのみ強制）：以下の中から最低${minReq}点を必ず反映（そのまま or 言い換え可）${
+        listText ? `：${listText}` : "。"
+      }`,
+    );
+  } else {
+    useForceLines.push("- selling_points（特徴・強み／事実・仕様寄りのみ強制）：入力が空の場合は“想像で補わない”。");
+  }
+
+  if (ctx.hasOptional) {
+    const listText = truncateJoinQuoted(ctx.optionalSellingPoints, 6);
+    useForceLines.push(
+      `- selling_points（任意素材／強制しない）：${listText ? `入力に含まれる（例：${listText}）` : "入力に含まれる"}。`,
+    );
+    useForceLines.push("- 任意素材を使う場合：ヘッドには書かない。本文（箇条書き）のみで“事実（機能/調整/可動/数値等）に寄せて”短く書く。");
+    useForceLines.push("- 根拠が無い評価語は、そのまま使わず、事実ベースに言い換える（または触れない）。");
+  }
+
+  if (ctx.hasCategory) {
+    useForceLines.push("- category：不自然にならない範囲で反映（無理に入れて不自然なら入れない）。");
+  }
+
+  useForceLines.push("- 反映は「ヘッド2文 + 箇条書き3点」のどこに入れてもよいが、欠落は禁止。");
+
+  return useForceLines;
+}
+
+function buildOutputRulesLines(ctx: OutputRulesSuffixCtx, useForceLines: string[]): string[] {
+  return [
     "",
     "---",
     "出力ルール（厳守）:",
@@ -200,10 +448,11 @@ function buildOutputRulesSuffix(normalized: NormalizedInput): string {
     "- 固有情報は入力にあるもののみ（推測/捏造禁止）。",
     "",
     "ヘッドの制約:",
-    `- 1文目は product_name を必ず含める${pn ? `（"${pn}"を省略しない）` : ""}。`,
+    `- 1文目は product_name を必ず含める${ctx.pn ? `（"${ctx.pn}"を省略しない）` : ""}。`,
     "- 1文目は「用途+主ベネフィット」を事実ベースで短く書く（説明禁止）。",
     "- 2文目は「使用シーン」のみを書く（説明禁止）。",
     "- ヘッドで「重要」「サポート」「〜でしょう」などの水増し語を入れない。",
+    "- ヘッドでは“評価語（快適/使いやすい/目に優しい等）”を書かない。",
     "",
     "ボディ（箇条書き）:",
     "- 箇条書きは最大3点。必ず改行し、1行1点にする（1行に複数要素を詰めない）。",
@@ -211,9 +460,52 @@ function buildOutputRulesSuffix(normalized: NormalizedInput): string {
     "",
     "補助:",
     "- objections/cta_preference が入力にある場合のみ末尾に短く補助（無ければ出さない）。",
-  ].join("\n");
+    ...useForceLines,
+  ];
+}
 
-  if (isSNS) return `${rules}\n- SNS投稿として不自然に長くしない。`;
+function buildOutputRulesSuffix(normalized: NormalizedInput): string {
+  const templateKey = resolveTemplateKey(normalized);
+  const isSNS = isSnsLikeTemplate(templateKey);
+  const pn = (normalized.product_name ?? "").toString().trim();
+
+  const goal = (normalized.goal ?? "").toString().trim();
+  const audience = (normalized.audience ?? "").toString().trim();
+  const category = (normalized.category ?? "").toString().trim();
+  const sellingPoints = Array.isArray(normalized.selling_points) ? normalized.selling_points : [];
+
+  const hasGoal = Boolean(goal);
+  const hasAudience = Boolean(audience);
+  const hasCategory = Boolean(category);
+
+  // ✅ C-2: selling_points を分離（事実/仕様寄り＝強制、その他＝任意素材）
+  const classified = classifySellingPoints(sellingPoints);
+  const forcedSellingPoints = classified.facts;
+  const optionalSellingPoints = classified.optional;
+
+  const hasForcedSellingPoints = forcedSellingPoints.length > 0;
+  const hasOptional = optionalSellingPoints.length > 0;
+
+  const ctx: OutputRulesSuffixCtx = {
+    isSNS,
+    pn,
+    goal,
+    audience,
+    category,
+    sellingPoints,
+    hasGoal,
+    hasAudience,
+    hasCategory,
+    forcedSellingPoints,
+    optionalSellingPoints,
+    hasForcedSellingPoints,
+    hasOptional,
+  };
+
+  const useForceLines = buildUseForceLines(ctx);
+  const rules = buildOutputRulesLines(ctx, useForceLines).join("\n");
+
+  if (ctx.isSNS) return `${rules}\n- SNS投稿として不自然に長くしない。`;
   return rules;
 }
 
@@ -307,15 +599,9 @@ function repairBulletsToMax3(text: string): { text: string; didRepair: boolean }
     const t = (s ?? "").toString().trim();
     if (!t) return false;
 
-    // よくある “項目の開始” を雑に検出（repair専用のヒューリスティック）
-    // 例: "スマートフォンを..." / "配線が..." / "シンプルな..." / "LEDライトと..."
     if (/^[0-9A-Za-z]/.test(t)) return true;
     if (/^[「『（(【]/.test(t)) return true;
-
-    // 名詞句 + 助詞/連体「な」っぽい開始
     if (/^(?:.{1,12}?)(?:を|が|に|で|と|の|や|へ|も|な)/.test(t)) return true;
-
-    // 「しにくく」「でき」など動詞系の開始も拾う（最低限）
     if (/^(?:し|でき|なる|保て|守れ|使え)/.test(t)) return true;
 
     return false;
@@ -325,11 +611,9 @@ function repairBulletsToMax3(text: string): { text: string; didRepair: boolean }
     const s = (stripped ?? "").toString().trim();
     if (!s) return [];
 
-    // "・" が1つ以下なら分割しない（語彙中点の可能性が高い）
     const dotCount = (s.match(/・/g) ?? []).length;
     if (dotCount <= 1) return [s];
 
-    // 走査して、区切りに見える "・" だけで分割する
     const parts: string[] = [];
     let buf = "";
 
@@ -340,7 +624,6 @@ function repairBulletsToMax3(text: string): { text: string; didRepair: boolean }
         continue;
       }
 
-      // 次の文字列（右側）を見て、項目開始っぽければ区切りとして扱う
       const right = s.slice(i + 1);
       const rightTrimmed = right.replace(/^[ \t\u3000]+/, "");
       const isSeparator = looksLikeSeparatorStart(rightTrimmed);
@@ -349,19 +632,15 @@ function repairBulletsToMax3(text: string): { text: string; didRepair: boolean }
         const left = buf.trim();
         if (left) parts.push(left);
         buf = "";
-        // "・" 自体は捨てて、右側の空白も次ループで拾わせない
-        // ただし、ここで i は進めず、次ループで rightの先頭を処理
         continue;
       }
 
-      // 語彙中点っぽいので保持
       buf += ch;
     }
 
     const last = buf.trim();
     if (last) parts.push(last);
 
-    // 分割できていない場合は元のまま
     if (parts.length <= 1) return [s];
 
     return parts;
@@ -374,13 +653,9 @@ function repairBulletsToMax3(text: string): { text: string; didRepair: boolean }
       continue;
     }
 
-    // 先頭記号を揃える（・優先）
     const bulletMark = ln.startsWith("-") ? "-" : "・";
+    const stripped = ln.replace(/^[・\-]\s*/, "").trim();
 
-    // 先頭の箇条書き記号だけ剥がす
-    let stripped = ln.replace(/^[・\-]\s*/, "").trim();
-
-    // 詰め込みを分解（空白なし中点も対象）
     const parts = splitCollapsedBullet(stripped);
 
     if (parts.length >= 2) {
@@ -392,7 +667,6 @@ function repairBulletsToMax3(text: string): { text: string; didRepair: boolean }
     repairedBullets.push(`${bulletMark} ${stripped}`.trim());
   }
 
-  // ✅ 最大3点に丸める
   if (repairedBullets.length > 3) {
     didRepair = true;
     repairedBullets.splice(3);
@@ -460,6 +734,55 @@ function scoreByL3Rules(text: string, normalized: NormalizedInput): L3ScoreDetai
     reasons.push("HEAD_HAS_CAN_DO_PHRASE");
   }
 
+  const MAX_REASON_ITEMS = 24;
+  const ABSTRACT_SUMMARY_WORDS = ["役立つ", "安心", "最適", "心配が減る", "使いやすい", "活用", "実現します", "便利"];
+
+  const headParts = head.split("。").map((s) => s.trim()).filter(Boolean);
+  const head2 = headParts.length >= 2 ? headParts[1] : "";
+  if (head2) {
+    const hasBadInHead2 =
+      ABSTRACT_SUMMARY_WORDS.some((w) => w && head2.includes(w)) ||
+      bannedHeadWords.some((w) => w && head2.includes(w)) ||
+      /できます|することができます/.test(head2);
+
+    if (hasBadInHead2) {
+      score += 6;
+      reasons.push("HEAD2_EVALUATIVE_OR_ABSTRACT");
+    }
+  }
+
+  const scoreAbstractSummaryWords = (headText: string, bodyText: string) => {
+    let localScore = 0;
+    let hits = 0;
+
+    const HEAD_PENALTY_PER_HIT = 9;
+    const BODY_PENALTY_PER_HIT = 2;
+
+    for (const w of ABSTRACT_SUMMARY_WORDS) {
+      if (!w) continue;
+
+      if (headText.includes(w)) {
+        hits += 1;
+        localScore += HEAD_PENALTY_PER_HIT;
+        if (reasons.length < MAX_REASON_ITEMS) reasons.push(`ABSTRACT_WORD_HEAD:${w}`);
+      }
+
+      if (bodyText.includes(w)) {
+        hits += 1;
+        localScore += BODY_PENALTY_PER_HIT;
+        if (reasons.length < MAX_REASON_ITEMS) reasons.push(`ABSTRACT_WORD_BODY:${w}`);
+      }
+    }
+
+    if (hits > 0) {
+      if (reasons.length < MAX_REASON_ITEMS) reasons.push("HAS_ABSTRACT_SUMMARY_WORD");
+    }
+
+    return localScore;
+  };
+
+  score += scoreAbstractSummaryWords(head, body);
+
   const bullets = collectBulletLines(body);
   const bulletLines = bullets.length;
 
@@ -489,39 +812,116 @@ function scoreByL3Rules(text: string, normalized: NormalizedInput): L3ScoreDetai
 
   const hasFaqLike = /FAQ|よくある質問|Q[:：]/.test(t);
   const hasObjections = Array.isArray((normalized as any).objections) && (normalized as any).objections.length > 0;
-  const hasCtaPref = Array.isArray((normalized as any).cta_preference) && (normalized as any).cta_preference.length > 0;
+  const hasCtaPref =
+    Array.isArray((normalized as any).cta_preference) && (normalized as any).cta_preference.length > 0;
   if (hasFaqLike && !(hasObjections || hasCtaPref)) {
     score += 2;
     reasons.push("UNNEEDED_FAQ_LIKE");
   }
 
-  return {
-    score,
-    reasons,
-    facts: {
-      headSentences,
-      hasHeading,
-      bulletLines,
-      hasProductNameInHead1,
-      headHasBannedWord,
-      hasCanDoPhrase,
-      bulletLooksCollapsed,
-    },
+  const facts = {
+    headSentences,
+    hasHeading,
+    bulletLines,
+    hasProductNameInHead1,
+    headHasBannedWord,
+    hasCanDoPhrase,
+    bulletLooksCollapsed,
   };
+
+  return { score, reasons, facts };
 }
 
+function hasAbstractHeadReason(reasons: string[]): boolean {
+  return (reasons ?? []).some((r) => typeof r === "string" && r.startsWith("ABSTRACT_WORD_HEAD:"));
+}
+
+/* =========================
+   densityA helpers（同点タイブレーク / 低密度救済）
+========================= */
+
+type DensitySnap = {
+  densityA: number | null;
+  inputCount: number | null;
+  usedCount: number | null;
+};
+
+function tryComputeDensityA(normalized: NormalizedInput, outputText: string): DensitySnap {
+  try {
+    const fn = (DensityA as any)?.evaluateDensityA;
+    if (typeof fn !== "function") return { densityA: null, inputCount: null, usedCount: null };
+
+    // ✅ C-2整合：densityA評価は必須セットのみ（ただし selling_points は最大1件だけで 3/4 を固定）
+    const densNorm = normalizedForDensityA(normalized);
+
+    const r = fn(densNorm, outputText);
+    const densityA = typeof r?.densityA === "number" ? r.densityA : null;
+    const inputCount = Array.isArray(r?.inputSet) ? r.inputSet.length : null;
+    const usedCount = Array.isArray(r?.usedSet) ? r.usedSet.length : null;
+    return { densityA, inputCount, usedCount };
+  } catch {
+    return { densityA: null, inputCount: null, usedCount: null };
+  }
+}
+
+/**
+ * ✅ threshold（v0改：必須世界=3 or 4 は “欠落なし=1.0”）
+ * - 必須が3/4要素のときは 1つでも欠けたら救済対象にする
+ * - それ以外は現状値を維持（波及を抑える）
+ */
+function resolveDensityAThreshold(inputCount: number | null): number {
+  if (inputCount === 4) return 1.0;
+  if (inputCount === 3) return 1.0;
+  return 0.34;
+}
+
+/* =========================
+   Candidate selection（L3最優先 → 同点なら densityA → 短い方）
+========================= */
+
+type Candidate = {
+  idx: number;
+  content: string;
+  apiMs: number;
+  status: number;
+  statusText: string;
+};
+
+type ScoredCandidate = Candidate & {
+  didRepair: boolean;
+  score: number;
+  reasons: string[];
+  facts: L3ScoreDetail["facts"];
+  densityA: number | null;
+  inputCount: number | null;
+  usedCount: number | null;
+  contentLen: number;
+  contentHash8: string;
+};
+
 function chooseBestCandidate(
-  candidates: Array<{ idx: number; content: string; apiMs: number; status: number; statusText: string }>,
+  candidates: Candidate[],
   normalized: NormalizedInput,
-) {
+): { best: ScoredCandidate; scored: ScoredCandidate[] } {
   const repaired = candidates.map((c) => {
     const r = repairBulletsToMax3(c.content);
     return { ...c, content: r.text, didRepair: r.didRepair };
   });
 
-  const scored = repaired.map((c) => {
+  const scored: ScoredCandidate[] = repaired.map((c) => {
     const detail = scoreByL3Rules(c.content, normalized);
-    return { ...c, score: detail.score, reasons: detail.reasons, facts: detail.facts };
+    const dens = tryComputeDensityA(normalized, c.content);
+    return {
+      ...c,
+      score: detail.score,
+      reasons: detail.reasons,
+      facts: detail.facts,
+      densityA: dens.densityA,
+      inputCount: dens.inputCount,
+      usedCount: dens.usedCount,
+      contentLen: c.content.length,
+      contentHash8: sha256Hex(c.content).slice(0, 8),
+    };
   });
 
   const preferencePenalty = (facts: L3ScoreDetail["facts"]) => {
@@ -541,10 +941,77 @@ function chooseBestCandidate(
     const pb = preferencePenalty(b.facts);
     if (pa !== pb) return pa - pb;
 
-    return a.content.length - b.content.length;
+    const da = typeof a.densityA === "number" ? a.densityA : -1;
+    const db = typeof b.densityA === "number" ? b.densityA : -1;
+    if (da !== db) return db - da;
+
+    return a.contentLen - b.contentLen;
   });
 
   return { best: scored[0], scored };
+}
+
+/* =========================
+   densityA Observe（観測のみ・副作用なし）
+========================= */
+
+function limit20(s: unknown): string {
+  return (s ?? "").toString().slice(0, 20);
+}
+
+function observeDensityA(args: {
+  normalized: NormalizedInput;
+  outputText: string;
+  requestId: string;
+  provider?: string;
+  model?: string;
+  templateKey: string;
+  isSNS: boolean;
+  ctaMode: CtaMode;
+  hasProductFacts: boolean;
+}) {
+  try {
+    const fn = (DensityA as any)?.evaluateDensityA;
+    if (typeof fn !== "function") return;
+
+    // ✅ C-2整合：densityA観測も必須セットのみ（ただし selling_points は最大1件だけで 3/4 を固定）
+    const densNorm = normalizedForDensityA(args.normalized);
+
+    const r = fn(densNorm, args.outputText);
+
+    const densityA = typeof r?.densityA === "number" ? r.densityA : null;
+    const inputCount = Array.isArray(r?.inputSet) ? r.inputSet.length : null;
+    const usedCount = Array.isArray(r?.usedSet) ? r.usedSet.length : null;
+
+    const masked =
+      Array.isArray(r?.unusedTop3ForLogMasked) && r.unusedTop3ForLogMasked.length > 0
+        ? r.unusedTop3ForLogMasked
+        : [];
+    const unusedTop3ForLogMasked20 = masked.map((x: any) => limit20(x)).slice(0, 3);
+
+    const densityLog = {
+      phase: "densityA_observe" as const,
+      level: "INFO",
+      route: "/api/writer",
+      message: "densityA observed (log-only)",
+      provider: args.provider,
+      model: args.model,
+      requestId: args.requestId,
+      templateKey: args.templateKey,
+      isSNS: args.isSNS,
+      ctaMode: args.ctaMode,
+      hasProductFacts: args.hasProductFacts,
+      densityA,
+      inputCount,
+      usedCount,
+      unusedTop3ForLogMasked: unusedTop3ForLogMasked20,
+    };
+
+    logEvent("ok", densityLog);
+    forceConsoleEvent("ok", densityLog);
+  } catch {
+    // best-effort
+  }
 }
 
 /* =========================
@@ -589,6 +1056,12 @@ export async function runWriterPipeline(args: WriterPipelineArgs): Promise<Respo
   {
     const repaired = repairBulletsToMax3(finalText);
     finalText = repaired.text;
+  }
+
+  // ✅ 生成側（辞書なし）：audience 原文を返却直前で1回だけ保証する
+  {
+    const enforced = enforceAudienceExactOnce(finalText, result.ctx.input.normalized.audience);
+    finalText = enforced.text;
   }
 
   return NextResponse.json(
@@ -785,7 +1258,11 @@ export async function runWriterPipelineCore(args: WriterPipelineArgs): Promise<W
     return { ok: false, reason: "openai_api_error", message, meta: { requestId } };
   }
 
-  const { best, scored } = chooseBestCandidate(
+  // ===== Choose best (L3 → densityA tie-break) =====
+  let attemptedExtraCount = 0;
+  let extraAttempt: { idx: number; ok: boolean; status: number; apiMs: number } | null = null;
+
+  let { best, scored } = chooseBestCandidate(
     oks.map((x) => ({
       idx: x.idx,
       content: x.content,
@@ -796,27 +1273,84 @@ export async function runWriterPipelineCore(args: WriterPipelineArgs): Promise<W
     normalized,
   );
 
+  const densityAThreshold = resolveDensityAThreshold(best.inputCount);
+
+  const rescueTriggeredByAbstractHead = scored.length >= 3 && scored.every((s) => hasAbstractHeadReason(s.reasons));
+
+  // ✅ 最小修正：densityAが「評価不能（inputCount=0/null）」のときは lowDensity救済を発火させない
+  const canUseLowDensityRescue = best.inputCount === 3 || best.inputCount === 4;
+  const rescueTriggeredByLowDensity =
+    canUseLowDensityRescue && typeof best.densityA === "number" && best.densityA < densityAThreshold;
+
+  if (rescueTriggeredByAbstractHead || rescueTriggeredByLowDensity) {
+    attemptedExtraCount = 1;
+    const extra = await callOnce(4);
+
+    if (extra.ok) {
+      extraAttempt = { idx: extra.idx, ok: true, status: extra.status, apiMs: extra.apiMs };
+
+      const reselect = chooseBestCandidate(
+        [
+          ...oks.map((x) => ({
+            idx: x.idx,
+            content: x.content,
+            apiMs: x.apiMs,
+            status: x.status,
+            statusText: x.statusText,
+          })),
+          {
+            idx: extra.idx,
+            content: extra.content,
+            apiMs: extra.apiMs,
+            status: extra.status,
+            statusText: extra.statusText,
+          },
+        ],
+        normalized,
+      );
+
+      best = reselect.best;
+      scored = reselect.scored;
+    } else {
+      extraAttempt = { idx: extra.idx, ok: false, status: extra.status, apiMs: extra.apiMs };
+    }
+  }
+
   const selectLog = {
     phase: "pipeline_select" as const,
     level: "DEBUG",
     route: "/api/writer",
-    message: "selected best candidate by L3 scoring",
+    message: "selected best candidate by L3 scoring (+ densityA tie-breaker + threshold rescue)",
     provider,
     model,
     requestId,
     selectedIdx: best.idx,
     selectedScore: best.score,
-    selectedDidRepair: Boolean((best as any).didRepair),
+    selectedDidRepair: Boolean(best.didRepair),
     selectedReasons: best.reasons.slice(0, 12),
     selectedFacts: best.facts,
+
+    selectedDensityA: best.densityA,
+    selectedInputCount: best.inputCount,
+    selectedUsedCount: best.usedCount,
+    densityAThreshold,
+    rescueTriggeredByLowDensity,
+    rescueTriggeredByAbstractHead,
+
+    attemptedExtraCount,
+    extraAttempt,
+
     candidateScores: scored.map((s) => ({
       idx: s.idx,
       score: s.score,
-      didRepair: Boolean((s as any).didRepair),
+      didRepair: Boolean(s.didRepair),
       reasons: s.reasons.slice(0, 8),
       facts: s.facts,
-      contentLen: s.content.length,
-      contentHash8: sha256Hex(s.content).slice(0, 8),
+      densityA: s.densityA,
+      inputCount: s.inputCount,
+      usedCount: s.usedCount,
+      contentLen: s.contentLen,
+      contentHash8: s.contentHash8,
       apiMs: s.apiMs,
       status: s.status,
     })),
@@ -850,6 +1384,18 @@ export async function runWriterPipelineCore(args: WriterPipelineArgs): Promise<W
     await emitWriterEvent("error", errLog);
     return { ok: false, reason: "openai_empty_content", message: "empty content", meta: { requestId } };
   }
+
+  observeDensityA({
+    normalized,
+    outputText: chosenContent,
+    requestId,
+    provider,
+    model,
+    templateKey,
+    isSNS,
+    ctaMode,
+    hasProductFacts: Boolean(productFactsBlock),
+  });
 
   return {
     ok: true,
