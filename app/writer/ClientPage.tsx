@@ -281,6 +281,12 @@ async function callWriterStreaming(payload: {
   meta: Record<string, any>;
   prompt: string;
   productId?: string | null;
+
+  // ✅ required4 SSOT: 別フィールドで送る（密度A観測の入力カウントを立てる）
+  productName: string;
+  goal: string;
+  audience: string;
+  sellingPoints: string[];
 }) {
   const res = await fetch("/api/writer", {
     method: "POST",
@@ -331,6 +337,9 @@ export default function ClientPage({ productId }: ClientPageProps) {
 
   // A1: 入力フォーム先頭へのスクロール（事故防止：入力自体は書き換えない）
   const formTopRef = useRef<HTMLDivElement | null>(null);
+
+  // ✅ A2: パネルへスクロール用（SSOT）
+  const a2PanelRef = useRef<HTMLDivElement | null>(null);
 
   const prefersReduce = useReducedMotion();
   const scrollToResultSmart = useCallback(() => {
@@ -396,34 +405,12 @@ export default function ClientPage({ productId }: ClientPageProps) {
     thin.isThin &&
     thin.points.length > 0; // A2: A1表示中のみ
 
-  // A2: A1ボタン押下を捕捉してパネルを開く（既存A1ボタンのonClickは変更しない）
-  useEffect(() => {
-    // A2: A1と同じ安全条件
-    if (!a2CanShow) return;
-
-    const onDocClick = (ev: MouseEvent) => {
-      if (!a2CanShow) return; // A2: safety
-      const t = ev.target as HTMLElement | null;
-      if (!t) return;
-      const btn = t.closest("button");
-      if (!btn) return;
-
-      const label = (btn.textContent || "").trim();
-      if (!label.includes("商品情報を1分で補足する")) return;
-
-      // A2: 明示操作で開く（自動はしない）
-      setA2Open(true);
-    };
-
-    document.addEventListener("click", onDocClick, true);
-    return () => {
-      document.removeEventListener("click", onDocClick, true);
-    };
-  }, [a2CanShow]);
+  // ✅ A2: document click ハック撤去（SSOTは A1ボタン onClick）
+  // ※ここでは何もしない（設計固定）
 
   // A2: 「適用」＝ここで初めて元フォームへ反映（明示操作のみ）
+  // ★ purpose は <Input>（単一行）なので、補足は「 / 」で連結して見た目と意味を保つ
   const a2Apply = useCallback(() => {
-    // A2: 明示適用（自動上書き禁止）
     const scene = a2Scene.trim();
     const feat = a2Feature.trim();
 
@@ -435,18 +422,26 @@ export default function ClientPage({ productId }: ClientPageProps) {
     let changed = false;
 
     if (scene) {
-      const cur = (getValues("purpose") || "").trim();
-      const next = cur ? `${cur}\n${scene}` : scene;
-      if (next !== (getValues("purpose") || "")) {
+      const curRaw = getValues("purpose") || "";
+      const cur = curRaw.trim();
+
+      // 単一行の入力に \n を入れるとブラウザ側で潰れて「直結」に見えやすいので delimiter を固定
+      const delimiter = " / ";
+      const next = cur ? `${cur}${delimiter}${scene}` : scene;
+
+      if (next !== curRaw) {
         setValue("purpose", next, { shouldDirty: true, shouldValidate: true });
         changed = true;
       }
     }
 
     if (feat) {
-      const cur = (getValues("features") || "").trim();
+      const curRaw = getValues("features") || "";
+      const cur = curRaw.trim();
+      // features は Textarea なので改行でOK（意味が分離されて評価にも効きやすい）
       const next = cur ? `${cur}\n${feat}` : feat;
-      if (next !== (getValues("features") || "")) {
+
+      if (next !== curRaw) {
         setValue("features", next, { shouldDirty: true, shouldValidate: true });
         changed = true;
       }
@@ -457,21 +452,9 @@ export default function ClientPage({ productId }: ClientPageProps) {
       return false;
     }
 
-    toast.success("補足内容を適用しました（再生成はまだです）");
+    toast.success("補足内容を適用しました（このまま再生成します）");
     return true;
   }, [a2Scene, a2Feature, getValues, setValue]);
-
-  // A2: 「適用して再生成」＝明示操作のみ（既存submit/onSubmitを流用）
-  const a2ApplyAndRegenerate = useCallback(() => {
-    // A2: 明示操作のみ
-    const ok = a2Apply();
-    if (!ok) return;
-
-    // A2: 既存の生成処理を流用（submitと同じ）
-    window.setTimeout(() => {
-      void handleSubmit(onSubmit)();
-    }, 0);
-  }, [a2Apply, handleSubmit]);
 
   // 同一productIdでの再prefill防止（ユーザー入力の上書き防止）
   const prefillDoneForProductIdRef = useRef<string | null>(null);
@@ -684,6 +667,11 @@ export default function ClientPage({ productId }: ClientPageProps) {
       setJustCompleted(false);
       setShowDoneBadge(false);
 
+      // A2: 再生成開始時は閉じる（既存思想を維持）
+      setA2Open(false);
+      setA2Scene("");
+      setA2Feature("");
+
       setShowThinking(true);
       if (skeletonTimerRef.current) clearTimeout(skeletonTimerRef.current);
       skeletonTimerRef.current = window.setTimeout(
@@ -724,6 +712,12 @@ export default function ClientPage({ productId }: ClientPageProps) {
       if (vals.template === "headline_only") sections.push("- ヘッドライン案を3つ");
       const prompt = sections.join("\n");
 
+      // ✅ required4 SSOT: 特徴・強みを配列化して送る（サーバ側で sellingPointsCount を立てる）
+      const sellingPoints = (vals.features ?? "")
+        .split(/\r?\n|・|•|\-|\u2022|,|、|;/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+
       const payload = {
         meta: {
           template: vals.template,
@@ -731,6 +725,13 @@ export default function ClientPage({ productId }: ClientPageProps) {
           length: vals.length,
           cta: vals.cta,
         },
+
+        // ✅ required4 の元（別フィールド）
+        productName: vals.product,
+        goal: vals.purpose,
+        audience: vals.audience,
+        sellingPoints,
+
         prompt,
         productId,
       } as const;
@@ -745,6 +746,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
         if (canStream && res.ok) {
           setShowThinking(true);
           const parasArr: string[] = [];
+          const plainParts: string[] = []; // ✅ R-1: state逆変換に依存しない plain 蓄積
           let firstPainted = false;
 
           const stream = res.body as ReadableStream<Uint8Array>;
@@ -752,6 +754,8 @@ export default function ClientPage({ productId }: ClientPageProps) {
             stream,
             (para) => {
               parasArr.push(para);
+              plainParts.push(para); // ✅ 受信順で蓄積
+
               if (!firstPainted) {
                 const lead = parasArr.shift() ?? "";
                 if (lead) {
@@ -767,6 +771,8 @@ export default function ClientPage({ productId }: ClientPageProps) {
               }
             },
             (rest) => {
+              if (rest) plainParts.push(rest); // ✅ 末尾残りも蓄積
+
               if (!firstPainted && rest) {
                 setLeadHtml(basicMarkdownToHtml(rest));
                 tFirstPaintRef.current = performance.now();
@@ -777,8 +783,13 @@ export default function ClientPage({ productId }: ClientPageProps) {
             },
           );
 
-          const plain = [leadHtmlToPlain(), ...restParasToPlain()].join("\n\n").trim();
+          // ✅ R-1最優先：result(plain) は React state / DOM 逆変換に依存させない（ズレ防止）
+          const plain = plainParts.join("\n\n").trim();
           setResult(plain);
+
+          // 旧ロジックは温存（比較・保険用）。result確定には使用しない。
+          // const legacyPlain = [leadHtmlToPlain(), ...restParasToPlain()].join("\n\n").trim();
+          // console.debug("[H-8/L2] legacyPlain.len vs plain.len", legacyPlain.length, plain.length);
 
           setShowThinking(false);
           setShowSkeleton(false);
@@ -901,6 +912,16 @@ export default function ClientPage({ productId }: ClientPageProps) {
     if (isLoading || isSubmitting || !isValid) return;
     void handleSubmit(onSubmit)();
   }, [handleSubmit, isLoading, isSubmitting, isValid, onSubmit]);
+
+  // ✅ A2: 「適用して再生成」＝ submit() 経由（TDZ根絶）
+  const a2ApplyAndRegenerate = useCallback(() => {
+    const ok = a2Apply();
+    if (!ok) return;
+
+    window.setTimeout(() => {
+      submit();
+    }, 0);
+  }, [a2Apply, submit]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -1453,12 +1474,16 @@ export default function ClientPage({ productId }: ClientPageProps) {
                           variant="secondary"
                           className="h-9 rounded-lg border border-amber-200 bg-white/80 text-xs font-semibold text-amber-900 hover:bg-white"
                           onClick={() => {
-                            const el = formTopRef.current;
-                            if (!el) return;
-                            el.scrollIntoView({
-                              behavior: prefersReduce ? "auto" : "smooth",
-                              block: "start",
-                            });
+                            // ✅ A2: SSOT（A1ボタン直結）
+                            setA2Open(true);
+                            window.setTimeout(() => {
+                              const el = a2PanelRef.current;
+                              if (!el) return;
+                              el.scrollIntoView({
+                                behavior: prefersReduce ? "auto" : "smooth",
+                                block: "start",
+                              });
+                            }, 0);
                           }}
                         >
                           商品情報を1分で補足する
@@ -1471,12 +1496,16 @@ export default function ClientPage({ productId }: ClientPageProps) {
 
             {/* A2: 簡易入力UI（A1表示中のみ / 出力直下 / CTAの直前） */}
             {a2CanShow && a2Open && (
-              <div className="mt-3 rounded-xl border border-amber-200/70 bg-white/80 px-4 py-3" data-nosnippet>
+              <div
+                ref={a2PanelRef}
+                className="mt-3 rounded-xl border border-amber-200/70 bg-white/80 px-4 py-3"
+                data-nosnippet
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-xs font-semibold text-neutral-900">補足入力（1分）</p>
                     <p className="mt-0.5 text-[11px] leading-relaxed text-neutral-600">
-                      ここで入力した内容は「適用」まで元の入力フォームへ反映されません。
+                      ここで入力した内容は「適用して再生成」を押すまで元の入力フォームへ反映されません。
                     </p>
                   </div>
                   <button
@@ -1512,11 +1541,12 @@ export default function ClientPage({ productId }: ClientPageProps) {
                 </div>
 
                 <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <Button type="button" size="sm" className="h-9 rounded-lg text-xs" onClick={a2Apply}>
-                    適用
-                  </Button>
-
-                  <Button type="button" size="sm" className="h-9 rounded-lg text-xs" onClick={a2ApplyAndRegenerate}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-9 rounded-lg text-xs"
+                    onClick={a2ApplyAndRegenerate}
+                  >
                     適用して再生成
                   </Button>
 
