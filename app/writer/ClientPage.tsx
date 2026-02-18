@@ -30,6 +30,7 @@ import {
   Zap,
   Star,
   CheckCircle2,
+  Info,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -86,6 +87,35 @@ const THIN = {
     "革",
   ],
 };
+
+/* =========================
+   Prescription Layer v1 (Light A1)
+   - A1 は「圧」を出さない（最大2ヒント）
+   - reasons が取れない場合でも本文から軽く推定して UX を成立させる
+========================= */
+type ReasonCode =
+  | "ABSTRACT_WORD_BODY"
+  | "HAS_ABSTRACT_SUMMARY_WORD"
+  | "HEAD2_EVALUATIVE_OR_ABSTRACT"
+  | "HEAD_HAS_CAN_DO_PHRASE"
+  | "HEAD_HAS_BANNED_WORD";
+
+const ABSTRACT_SUMMARY_WORDS = [
+  "便利",
+  "効果的",
+  "実現",
+  "活用",
+  "魅力",
+  "使いやすい",
+  "おすすめ",
+  "快適",
+  "安心",
+  "高品質",
+];
+
+// P2: できる/できます系 & 評価語/まとめ語っぽさ（軽い推定）
+const HEAD_CAN_DO_PHRASES = ["できます", "できる", "可能です", "対応できます"];
+const HEAD_BANNED_LIKE = ["最適", "ぴったり", "おすすめ", "理想", "完璧"];
 
 function normalizeForThin(s: string) {
   return (s ?? "")
@@ -145,16 +175,151 @@ function getThinSignals(text: string, productName: string) {
   const ngCount = [ng1, ng2, ng3].filter(Boolean).length;
   const isThin = ngCount >= 2;
 
+  // ✅ “薄い”の短い指摘（既存）— ここは軽いガイドとして残す（最大2）
   const points: string[] = [];
-  if (ng1) points.push("① 利用シーン：・使われる場面が、やや抽象的なようです");
-  if (ng2) points.push("② 強み一般化：・商品の強みが、一般的な表現に寄っています");
-  if (ng3) points.push("③ 具体性：・商品の特徴を、もう一段具体的にできそうです");
+  if (ng1) points.push("② 利用シーン：時間・場所・目的のいずれかを1つ足すだけでもOKです");
+  if (ng3) points.push("③ 具体性：数値や仕様ワードを1つ足すと改善しやすくなります");
+
+  // ng2（抽象語多め）は “責める文言” になりやすいので、短い方向へ寄せる
+  if (points.length < 2 && ng2) {
+    points.push("③ 具体性：数値や仕様ワードを1つ足すと改善しやすくなります");
+  }
 
   return {
     isThin,
-    points: points.slice(0, 2),
+    points: Array.from(new Set(points)).slice(0, 2),
     debug: { ng1, ng2, ng3, sceneHits, abstractHits, verbHits, specificHits },
   };
+}
+
+function splitFirstTwoSentences(src: string) {
+  const t = normalizeForThin(src);
+  if (!t) return { s1: "", s2: "" };
+
+  // ざっくり句点で2文へ（UI推定用。厳密でなくOK）
+  const parts = t.split("。").map((x) => x.trim()).filter(Boolean);
+  const s1 = parts[0] ? `${parts[0]}。` : "";
+  const s2 = parts[1] ? `${parts[1]}。` : "";
+  return { s1, s2 };
+}
+
+function inferReasonCodesFromText(text: string): ReasonCode[] {
+  const t = normalizeForThin(text);
+  if (!t) return [];
+
+  const { s1, s2 } = splitFirstTwoSentences(t);
+  const reasons = new Set<ReasonCode>();
+
+  // ABSTRACT系（本文全体）
+  const hasSummary = ABSTRACT_SUMMARY_WORDS.some((w) => t.includes(w));
+  if (hasSummary) reasons.add("HAS_ABSTRACT_SUMMARY_WORD");
+
+  // 「快適/便利/使いやすい…」が複数回混ざると ABSTRACT_WORD_BODY 扱い
+  const abstractBodyHits = countDistinctHits(t, ABSTRACT_SUMMARY_WORDS);
+  if (abstractBodyHits >= 2) reasons.add("ABSTRACT_WORD_BODY");
+
+  // HEAD系（冒頭）
+  if (HEAD_CAN_DO_PHRASES.some((w) => s1.includes(w))) reasons.add("HEAD_HAS_CAN_DO_PHRASE");
+  if (HEAD_BANNED_LIKE.some((w) => s1.includes(w))) reasons.add("HEAD_HAS_BANNED_WORD");
+
+  // 2文目が「評価/抽象寄り」なら
+  const s2Abstract = ABSTRACT_SUMMARY_WORDS.some((w) => s2.includes(w));
+  const s2HasCanDo = HEAD_CAN_DO_PHRASES.some((w) => s2.includes(w));
+  if (s2 && (s2Abstract || s2HasCanDo)) reasons.add("HEAD2_EVALUATIVE_OR_ABSTRACT");
+
+  return Array.from(reasons);
+}
+
+/**
+ * A1の“圧ゼロ”ヒント（最大2）
+ * - 「禁止」ではなく「次はここだけ足すと伸びる」へ寄せる
+ * - 事前に用意した固定文の2択ではなく、状況（thin/reasons）で候補が変わる
+ */
+type A1HintKey =
+  | "H_SCENE"
+  | "H_SPEC"
+  | "H_ABSTRACT_TO_FACT"
+  | "H_HEAD_TO_SCENE"
+  | "H_CAN_DO_TO_RESULT";
+
+type A1HintItem = {
+  key: A1HintKey;
+  text: string; // 1行で完結（短い）
+  example?: string; // 例は短く（括弧で収まる）
+};
+
+function uniqHintItems(items: A1HintItem[]) {
+  const seen = new Set<A1HintKey>();
+  const out: A1HintItem[] = [];
+  for (const it of items) {
+    if (seen.has(it.key)) continue;
+    seen.add(it.key);
+    out.push(it);
+  }
+  return out;
+}
+
+function buildA1HintItems(args: {
+  thinDebug?: { ng1?: boolean; ng2?: boolean; ng3?: boolean };
+  reasons: ReasonCode[];
+}): A1HintItem[] {
+  const ng1 = !!args.thinDebug?.ng1;
+  const ng2 = !!args.thinDebug?.ng2;
+  const ng3 = !!args.thinDebug?.ng3;
+
+  const hasAbstract =
+    args.reasons.includes("HAS_ABSTRACT_SUMMARY_WORD") || args.reasons.includes("ABSTRACT_WORD_BODY");
+
+  const headAbstract =
+    args.reasons.includes("HEAD2_EVALUATIVE_OR_ABSTRACT") ||
+    args.reasons.includes("HEAD_HAS_BANNED_WORD");
+
+  const headCanDo = args.reasons.includes("HEAD_HAS_CAN_DO_PHRASE");
+
+  const candidates: A1HintItem[] = [];
+
+  // 優先度：薄さ判定の根拠（ng1/ng3）を先に出す → 次に表現面（abstract/head）
+  if (ng1) {
+    candidates.push({
+      key: "H_SCENE",
+      text: "利用シーンを1つだけ追加（時間/場所/目的のどれか）",
+      example: "例：ランチ前（11時台）／雨の日の店頭／在宅デスク",
+    });
+  }
+
+  if (ng3) {
+    candidates.push({
+      key: "H_SPEC",
+      text: "数値・仕様を1つだけ追加（サイズ/容量/素材/対応など）",
+      example: "例：450ml／A4対応／強化ガラス／12席",
+    });
+  }
+
+  if (!ng1 && hasAbstract) {
+    candidates.push({
+      key: "H_ABSTRACT_TO_FACT",
+      text: "「便利/快適」などを“条件”に置き換え（単語でOK）",
+      example: "例：予約不要／当日OK／徒歩3分",
+    });
+  }
+
+  if (headAbstract) {
+    candidates.push({
+      key: "H_HEAD_TO_SCENE",
+      text: "2文目を“状況”に寄せる（説明よりシーン）",
+      example: "例：店頭ポスター用／初来店向け",
+    });
+  }
+
+  if (headCanDo || ng2) {
+    candidates.push({
+      key: "H_CAN_DO_TO_RESULT",
+      text: "「できます」を“結果”に言い換え（短くでOK）",
+      example: "例：当日予約を増やす／問い合わせを増やす",
+    });
+  }
+
+  return uniqHintItems(candidates).slice(0, 2); // ✅ 圧ゼロ：最大2
 }
 
 /* =========================
@@ -323,7 +488,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
   // A2: パネル開閉 + 補足入力（元フォームは「適用」まで触らない）
   const [a2Open, setA2Open] = useState(false); // A2: open/close
   const [a2Scene, setA2Scene] = useState(""); // A2: 利用シーン（補足）
-  const [a2Feature, setA2Feature] = useState(""); // A2: 具体特徴（補足）
+  const [a2Feature, setA2Feature] = useState(""); // A2: 具体的な特徴（補足）
 
   const skeletonTimerRef = useRef<number | null>(null);
   const celebTimerRef = useRef<number | null>(null);
@@ -397,13 +562,27 @@ export default function ClientPage({ productId }: ClientPageProps) {
     return getThinSignals(result, product ?? "");
   }, [result, product]);
 
+  // ✅ reasons 推定（UI側の軽い推定）
+  const inferredReasons = useMemo(() => {
+    if (!result || typeof result !== "string") return [] as ReasonCode[];
+    return inferReasonCodesFromText(result);
+  }, [result]);
+
+  // ✅ A1 “圧ゼロ”ヒント（最大2 / 状況で変わる）
+  const a1HintItems = useMemo(() => {
+    if (!thin.isThin) return [] as A1HintItem[];
+    return buildA1HintItems({
+      thinDebug: thin.debug,
+      reasons: inferredReasons,
+    });
+  }, [thin.isThin, thin.debug, inferredReasons]);
+
   // A2: 表示条件（A1と同じ安全条件 + isThin=true）
   const a2CanShow =
     !isLoading &&
     !error &&
     (leadHtml || restParasHtml.length > 0) &&
-    thin.isThin &&
-    thin.points.length > 0; // A2: A1表示中のみ
+    thin.isThin; // A1が出ている時だけA2を出す（設計維持）
 
   // ✅ A2: document click ハック撤去（SSOTは A1ボタン onClick）
   // ※ここでは何もしない（設計固定）
@@ -787,10 +966,6 @@ export default function ClientPage({ productId }: ClientPageProps) {
           const plain = plainParts.join("\n\n").trim();
           setResult(plain);
 
-          // 旧ロジックは温存（比較・保険用）。result確定には使用しない。
-          // const legacyPlain = [leadHtmlToPlain(), ...restParasToPlain()].join("\n\n").trim();
-          // console.debug("[H-8/L2] legacyPlain.len vs plain.len", legacyPlain.length, plain.length);
-
           setShowThinking(false);
           setShowSkeleton(false);
           setJustCompleted(true);
@@ -891,22 +1066,6 @@ export default function ClientPage({ productId }: ClientPageProps) {
     },
     [scrollToResultSmart, productId],
   );
-
-  const leadHtmlToPlain = () => {
-    if (!leadHtml) return "";
-    const tmp = document.createElement("div");
-    tmp.innerHTML = leadHtml;
-    return tmp.textContent || tmp.innerText || "";
-  };
-  const restParasToPlain = () => {
-    const arr: string[] = [];
-    for (const h of restParasHtml) {
-      const tmp = document.createElement("div");
-      tmp.innerHTML = h;
-      arr.push(tmp.textContent || tmp.innerText || "");
-    }
-    return arr;
-  };
 
   const submit = useCallback(() => {
     if (isLoading || isSubmitting || !isValid) return;
@@ -1424,9 +1583,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                 </div>
               ) : leadHtml || restParasHtml.length > 0 ? (
                 <div className="whitespace-normal break-words">
-                  {leadHtml && (
-                    <div dangerouslySetInnerHTML={{ __html: leadHtml }} />
-                  )}
+                  {leadHtml && <div dangerouslySetInnerHTML={{ __html: leadHtml }} />}
                   {restParasHtml.map((h, idx) => (
                     <motion.div
                       dangerouslySetInnerHTML={{ __html: h }}
@@ -1446,8 +1603,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
             {!isLoading &&
               !error &&
               (leadHtml || restParasHtml.length > 0) &&
-              thin.isThin &&
-              thin.points.length > 0 && (
+              thin.isThin && (
                 <div
                   className="mt-4 rounded-xl border border-amber-200/70 bg-amber-50/60 px-4 py-3 select-none"
                   data-nosnippet
@@ -1458,15 +1614,39 @@ export default function ClientPage({ productId }: ClientPageProps) {
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold text-neutral-900">
-                        🟡 この文章は、もう少し良くできます
+                        💡 この文章は、もう少し良くできます
                       </p>
-                      <div className="mt-1 space-y-1">
-                        {thin.points.map((line) => (
-                          <p key={line} className="text-xs leading-relaxed text-neutral-700">
-                            {line}
-                          </p>
-                        ))}
-                      </div>
+
+                      <p className="mt-1 text-[11px] leading-relaxed text-neutral-700">
+                        <span className="font-medium">ヒント：</span>
+                        次のどれか1つだけ追加でOKです
+                      </p>
+
+                      {/* 旧pointsは“軽い”補助として残す（最大2） */}
+                      {thin.points.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          {thin.points.map((line) => (
+                            <p key={line} className="text-[11px] leading-relaxed text-neutral-700">
+                              {line}
+                            </p>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* ✅ A1本丸：状況に応じて変わる“具体ヒント”を最大2つ */}
+                      {a1HintItems.length > 0 && (
+                        <div className="mt-2 space-y-1.5">
+                          {a1HintItems.map((it, idx) => (
+                            <p key={it.key} className="text-xs leading-relaxed text-neutral-800">
+                              <span className="font-medium">ヒント{idx + 1}：</span>
+                              {it.text}
+                              {it.example ? (
+                                <span className="text-neutral-600">（{it.example}）</span>
+                              ) : null}
+                            </p>
+                          ))}
+                        </div>
+                      )}
 
                       <div className="mt-3">
                         <Button
@@ -1489,6 +1669,8 @@ export default function ClientPage({ productId }: ClientPageProps) {
                           商品情報を1分で補足する
                         </Button>
                       </div>
+
+                      {/* console.debug("[A1] inferredReasons=", inferredReasons); */}
                     </div>
                   </div>
                 </div>
@@ -1505,7 +1687,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                   <div className="min-w-0">
                     <p className="text-xs font-semibold text-neutral-900">補足入力（1分）</p>
                     <p className="mt-0.5 text-[11px] leading-relaxed text-neutral-600">
-                      ここで入力した内容は「適用して再生成」を押すまで元の入力フォームへ反映されません。
+                      ここで足した内容は「適用して再生成」で本文に反映されます。
                     </p>
                   </div>
                   <button
@@ -1518,23 +1700,39 @@ export default function ClientPage({ productId }: ClientPageProps) {
                   </button>
                 </div>
 
+                {/* ✅ “禁止”ではなく“ヒント”（A2は固定の軽い注意でOK） */}
+                <div className="mt-3 rounded-lg border border-amber-200/70 bg-amber-50/50 px-3 py-2">
+                  <div className="flex items-start gap-2">
+                    <span className="mt-0.5 inline-flex size-6 items-center justify-center rounded-full bg-amber-500/15 text-amber-700">
+                      <Info className="size-3.5" />
+                    </span>
+                    <p className="text-[11px] leading-relaxed text-neutral-700">
+                      ※「丈夫」「魅力的」などの抽象語より、「数値」「仕様」「条件」を1つ足すほうが効果的です
+                    </p>
+                  </div>
+                </div>
+
                 <div className="mt-3 grid gap-3">
                   <div className="grid gap-1.5">
-                    <Label className="text-[11px] font-semibold text-neutral-700">利用シーン（短文）</Label>
+                    <Label className="text-[11px] font-semibold text-neutral-700">
+                      利用シーン
+                    </Label>
                     <Textarea
                       value={a2Scene}
                       onChange={(e) => setA2Scene(e.target.value)}
-                      placeholder="例：在宅ワークのデスクで、午前中に淹れたコーヒーをゆっくり飲みたい"
+                      placeholder={`例：\nランチ前（11時台）\n店頭ポスター用\n当日予約を増やしたい`}
                       className="min-h-[72px] resize-y rounded-lg text-xs leading-relaxed"
                     />
                   </div>
 
                   <div className="grid gap-1.5">
-                    <Label className="text-[11px] font-semibold text-neutral-700">具体特徴（短文）</Label>
+                    <Label className="text-[11px] font-semibold text-neutral-700">
+                      具体的な特徴
+                    </Label>
                     <Textarea
                       value={a2Feature}
                       onChange={(e) => setA2Feature(e.target.value)}
-                      placeholder="例：氷を入れても飲み口が冷たすぎず、外側が結露しにくい"
+                      placeholder={`例：\n最大1200px対応\n強化ガラス採用\n写真3枚まで掲載可能`}
                       className="min-h-[72px] resize-y rounded-lg text-xs leading-relaxed"
                     />
                   </div>
