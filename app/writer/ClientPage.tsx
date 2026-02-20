@@ -177,12 +177,12 @@ function getThinSignals(text: string, productName: string) {
 
   // ✅ “薄い”の短い指摘（既存）— ここは軽いガイドとして残す（最大2）
   const points: string[] = [];
-  if (ng1) points.push("② 利用シーン：時間・場所・目的のいずれかを1つ足すだけでもOKです");
-  if (ng3) points.push("③ 具体性：数値や仕様ワードを1つ足すと改善しやすくなります");
+  if (ng1) points.push("② 利用シーン：1つ追加すると用途・目的に追記されます");
+  if (ng3) points.push("③ 具体性：数値や仕様ワードを1つ追加すると特徴・強みに追記されます");
 
   // ng2（抽象語多め）は “責める文言” になりやすいので、短い方向へ寄せる
   if (points.length < 2 && ng2) {
-    points.push("③ 具体性：数値や仕様ワードを1つ足すと改善しやすくなります");
+    points.push("③ 具体性：数値や仕様ワードを1つ追加すると特徴・強みに追記されます");
   }
 
   return {
@@ -240,7 +240,11 @@ type A1HintKey =
   | "H_SPEC"
   | "H_ABSTRACT_TO_FACT"
   | "H_HEAD_TO_SCENE"
-  | "H_CAN_DO_TO_RESULT";
+  | "H_CAN_DO_TO_RESULT"
+  // ✅ 入力ベース dynamicA1 用（Top-1）
+  | "H_PURPOSE"
+  | "H_FEATURES"
+  | "H_NUMERIC";
 
 type A1HintItem = {
   key: A1HintKey;
@@ -282,7 +286,7 @@ function buildA1HintItems(args: {
   if (ng1) {
     candidates.push({
       key: "H_SCENE",
-      text: "利用シーンを1つだけ追加（時間/場所/目的のどれか）",
+      text: "利用シーンを1つだけ追加（用途・目的に追記されます）",
       example: "例：ランチ前（11時台）／雨の日の店頭／在宅デスク",
     });
   }
@@ -290,7 +294,7 @@ function buildA1HintItems(args: {
   if (ng3) {
     candidates.push({
       key: "H_SPEC",
-      text: "数値・仕様を1つだけ追加（サイズ/容量/素材/対応など）",
+      text: "数値・仕様を1つだけ追加（特徴・強みに追記されます）",
       example: "例：450ml／A4対応／強化ガラス／12席",
     });
   }
@@ -320,6 +324,112 @@ function buildA1HintItems(args: {
   }
 
   return uniqHintItems(candidates).slice(0, 2); // ✅ 圧ゼロ：最大2
+}
+
+/* =========================
+   A1 dynamic (入力のみ / 記憶なし / Top-1)
+========================= */
+function normalizeInputLite(s: string) {
+  return (s ?? "").replace(/\u3000/g, " ").replace(/[\r\n]+/g, "\n").trim();
+}
+
+function hasAnyDigit(s: string) {
+  const t = normalizeInputLite(s);
+  if (!t) return false;
+  return /[0-9０-９]/.test(t);
+}
+
+function splitSellingPointsLike(features: string) {
+  const t = normalizeInputLite(features);
+  if (!t) return [];
+  return t
+    .split(/\r?\n|・|•|\-|\u2022|,|、|;/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+function hasSceneHintInText(s: string) {
+  const t = normalizeInputLite(s);
+  if (!t) return false;
+
+  // 既存の scene words + ざっくり時間/場所っぽい記号
+  if (THIN.SCENE_WORDS.some((w) => t.includes(w))) return true;
+  if (t.includes("店頭") || t.includes("屋外") || t.includes("屋内")) return true;
+  if (t.includes("時") || t.includes("分")) return true;
+  return false;
+}
+
+function getInputA1State(args: {
+  product: string;
+  purpose: string;
+  features: string;
+}) {
+  const purpose = normalizeInputLite(args.purpose);
+  const features = normalizeInputLite(args.features);
+
+  // 「そこそこ書いている人」でも拾えるように、バリデーションよりは少し高めの基準
+  const purposeLen = [...purpose].length;
+  const featuresLen = [...features].length;
+  const featureItems = splitSellingPointsLike(features);
+
+  const purposeOk = purposeLen >= 14; // 例：「〜したい」+ 何か条件 が入るとだいたい超える
+  const featuresOk = featureItems.length >= 2 || featuresLen >= 30;
+
+  const hasNumeric = hasAnyDigit(purpose + "\n" + features);
+  const hasScene = hasSceneHintInText(purpose + "\n" + features);
+
+  // Top-1（記憶なし）
+  let hint: A1HintItem | null = null;
+
+  if (!purposeOk) {
+    hint = {
+      key: "H_PURPOSE",
+      text: "用途・目的に「誰が/何のために」を1つだけ追加（短文でOK）",
+      example: "例：初めての人向け／忙しい平日用／在宅作業の集中用",
+    };
+  } else if (!featuresOk) {
+    hint = {
+      key: "H_FEATURES",
+      text: "特徴・強みに「仕様/条件/機能」を1つだけ追加（単語でもOK）",
+      example: "例：真空二重構造／A4対応／写真3枚まで／防水",
+    };
+  } else if (!hasNumeric) {
+    // ✅ 数値は「用途＆特徴がOKのときのみ」対象（合意済み）
+    hint = {
+      key: "H_NUMERIC",
+      text: "数値を1つだけ追加（特徴・強みに追記されます）",
+      example: "例：450ml／12席／徒歩3分／最短10分",
+    };
+  } else if (!hasScene) {
+    // 数値の次にシーン（段階的に上げる）
+    hint = {
+      key: "H_SCENE",
+      text: "利用シーンを1つだけ追加（用途・目的に追記されます）",
+      example: "例：ランチ前（11時台）／雨の日の店頭／在宅デスク",
+    };
+  }
+
+  const isOn = !!hint;
+
+  // 旧pointsの“軽い補助”は、入力ベースで最小限に合わせる（最大1〜2）
+  const points: string[] = [];
+  if (!hasScene) points.push("② 利用シーン：1つ追加すると用途・目的に追記されます");
+  if (!hasNumeric) points.push("③ 具体性：数値や仕様ワードを1つ追加すると特徴・強みに追記されます");
+
+  return {
+    isOn,
+    hintItems: hint ? [hint] : ([] as A1HintItem[]), // ✅ Top-1：常に最大1
+    points: Array.from(new Set(points)).slice(0, 2),
+    debug: {
+      purposeLen,
+      featuresLen,
+      featureItemsCount: featureItems.length,
+      purposeOk,
+      featuresOk,
+      hasNumeric,
+      hasScene,
+    },
+  };
 }
 
 /* =========================
@@ -549,40 +659,43 @@ export default function ClientPage({ productId }: ClientPageProps) {
   });
 
   const product = watch("product");
-  const featuresLen = [...(watch("features") ?? "")].length;
+  const purpose = watch("purpose");
+  const features = watch("features");
+  const featuresLen = [...(features ?? "")].length;
 
   // ★ CTAトグル（UI側だけで差分を出す / API送信は不変）
   const ctaEnabled = !!watch("cta");
 
-  // A1: 判定対象は本文テキストのみ（result相当）
-  const thin = useMemo(() => {
-    if (!result || typeof result !== "string") {
-      return { isThin: false, points: [] as string[], debug: {} as any };
-    }
-    return getThinSignals(result, product ?? "");
-  }, [result, product]);
-
-  // ✅ reasons 推定（UI側の軽い推定）
-  const inferredReasons = useMemo(() => {
-    if (!result || typeof result !== "string") return [] as ReasonCode[];
-    return inferReasonCodesFromText(result);
-  }, [result]);
-
-  // ✅ A1 “圧ゼロ”ヒント（最大2 / 状況で変わる）
-  const a1HintItems = useMemo(() => {
-    if (!thin.isThin) return [] as A1HintItem[];
-    return buildA1HintItems({
-      thinDebug: thin.debug,
-      reasons: inferredReasons,
+  // ✅ dynamicA1（入力のみ / 記憶なし / Top-1）
+  const dynamicA1 = useMemo(() => {
+    return getInputA1State({
+      product: product ?? "",
+      purpose: purpose ?? "",
+      features: features ?? "",
     });
-  }, [thin.isThin, thin.debug, inferredReasons]);
+  }, [product, purpose, features]);
 
-  // A2: 表示条件（A1と同じ安全条件 + isThin=true）
+  // ✅ 旧thin（points表示）のみ入力ベースへ寄せる（resultは混ぜない）
+  const thin = useMemo(() => {
+    return {
+      isThin: dynamicA1.isOn,
+      points: dynamicA1.points,
+      debug: dynamicA1.debug as any,
+    };
+  }, [dynamicA1]);
+
+  // ✅ A1 “圧ゼロ”ヒント（Top-1：最大1）
+  const a1HintItems = useMemo(() => {
+    if (!dynamicA1.isOn) return [] as A1HintItem[];
+    return dynamicA1.hintItems;
+  }, [dynamicA1.isOn, dynamicA1.hintItems]);
+
+  // A2: 表示条件（A1と同じ安全条件 + A1 on）
   const a2CanShow =
     !isLoading &&
     !error &&
     (leadHtml || restParasHtml.length > 0) &&
-    thin.isThin; // A1が出ている時だけA2を出す（設計維持）
+    dynamicA1.isOn; // ✅ A1が出ている時だけA2を出す（設計維持）
 
   // ✅ A2: document click ハック撤去（SSOTは A1ボタン onClick）
   // ※ここでは何もしない（設計固定）
@@ -1398,7 +1511,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                     <option value="lp">標準（おすすめ）</option>
                     <option value="sns_short">SNS</option>
 
-                    <option value="__sep" disabled>
+                    <option value="" disabled>
                       ──────────────
                     </option>
 
@@ -1603,7 +1716,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
             {!isLoading &&
               !error &&
               (leadHtml || restParasHtml.length > 0) &&
-              thin.isThin && (
+              dynamicA1.isOn && (
                 <div
                   className="mt-4 rounded-xl border border-amber-200/70 bg-amber-50/60 px-4 py-3 select-none"
                   data-nosnippet
@@ -1633,7 +1746,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                         </div>
                       )}
 
-                      {/* ✅ A1本丸：状況に応じて変わる“具体ヒント”を最大2つ */}
+                      {/* ✅ A1本丸：入力に応じた Top-1（最大1） */}
                       {a1HintItems.length > 0 && (
                         <div className="mt-2 space-y-1.5">
                           {a1HintItems.map((it, idx) => (
@@ -1669,8 +1782,6 @@ export default function ClientPage({ productId }: ClientPageProps) {
                           商品情報を1分で補足する
                         </Button>
                       </div>
-
-                      {/* console.debug("[A1] inferredReasons=", inferredReasons); */}
                     </div>
                   </div>
                 </div>
@@ -1687,7 +1798,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                   <div className="min-w-0">
                     <p className="text-xs font-semibold text-neutral-900">補足入力（1分）</p>
                     <p className="mt-0.5 text-[11px] leading-relaxed text-neutral-600">
-                      ここで足した内容は「適用して再生成」で本文に反映されます。
+                      ここで入力した内容は「適用して再生成」で反映されます（利用シーン→用途・目的／具体的な特徴→特徴・強み）。
                     </p>
                   </div>
                   <button
@@ -1707,7 +1818,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                       <Info className="size-3.5" />
                     </span>
                     <p className="text-[11px] leading-relaxed text-neutral-700">
-                      ※「丈夫」「魅力的」などの抽象語より、「数値」「仕様」「条件」を1つ足すほうが効果的です
+                      ※「丈夫」「魅力的」などの抽象語より、「数値」「仕様」「条件」を1つ（特徴・強みに）足すほうが効果的です
                     </p>
                   </div>
                 </div>
@@ -1715,19 +1826,19 @@ export default function ClientPage({ productId }: ClientPageProps) {
                 <div className="mt-3 grid gap-3">
                   <div className="grid gap-1.5">
                     <Label className="text-[11px] font-semibold text-neutral-700">
-                      利用シーン
+                      利用シーン（用途・目的に追記）
                     </Label>
                     <Textarea
                       value={a2Scene}
                       onChange={(e) => setA2Scene(e.target.value)}
-                      placeholder={`例：\nランチ前（11時台）\n店頭ポスター用\n当日予約を増やしたい`}
+                      placeholder={`例：\nランチ前（11時台）\n雨の日の店頭\n在宅デスクでの作業中`}
                       className="min-h-[72px] resize-y rounded-lg text-xs leading-relaxed"
                     />
                   </div>
 
                   <div className="grid gap-1.5">
                     <Label className="text-[11px] font-semibold text-neutral-700">
-                      具体的な特徴
+                      具体的な特徴（特徴・強みに追記）
                     </Label>
                     <Textarea
                       value={a2Feature}
