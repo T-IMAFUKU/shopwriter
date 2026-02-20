@@ -31,6 +31,7 @@ import {
   Star,
   CheckCircle2,
   Info,
+  Info,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -187,6 +188,7 @@ function getThinSignals(text: string, productName: string) {
 
   return {
     isThin,
+    points: Array.from(new Set(points)).slice(0, 2),
     points: Array.from(new Set(points)).slice(0, 2),
     debug: { ng1, ng2, ng3, sceneHits, abstractHits, verbHits, specificHits },
   };
@@ -1782,6 +1784,8 @@ export default function ClientPage({ productId }: ClientPageProps) {
                           商品情報を1分で補足する
                         </Button>
                       </div>
+
+                      {/* console.debug("[A1] inferredReasons=", inferredReasons); */}
                     </div>
                   </div>
                 </div>
