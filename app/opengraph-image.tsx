@@ -1,6 +1,7 @@
 import { ImageResponse } from "next/og";
 
 export const runtime = "edge";
+
 export const contentType = "image/png";
 export const size = { width: 1200, height: 630 };
 
@@ -8,33 +9,18 @@ export const size = { width: 1200, height: 630 };
  * ShopWriter OGP画像（ブランド統一版）
  *
  * 目的:
- * - どこでシェアされても「ShopWriterのあのアイコン」が一発でわかること
- * - キャッチコピーも明示し、プロダクト価値を伝えること
+ * - どこでシェアされても「ShopWriter」だと一発でわかること
+ * - キャッチコピーを明示し、プロダクト価値を伝えること
  *
  * 実装メモ:
- * - Edge runtime の ImageResponse / @vercel/og は
- *   <img src="/foo.png"> のような相対パスを直接使えない。
- *   そのため public 内の画像を fetch して base64 DataURL に変換し、
- *   <img src="data:..."> で埋め込んでいる。
- *
- * - origin は NEXT_PUBLIC_SITE_URL（本番）を優先し、
- *   なければローカル http://localhost:3000 を使う。
+ * - build/prerender で落ちないことを最優先にするため、
+ *   public 画像の fetch/base64 変換は使わない（環境依存が強い）。
+ * - 代わりにモノグラム（SW）をブランドブロックとして固定表示する。
  */
 
 export default async function OpenGraphImage() {
   const W = size.width;
   const H = size.height;
-
-  // 1. どこから public を取るか決める
-  const origin =
-    process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-
-  // 2. /public/logo-icon.png を取得して base64 にする
-  //    ※ 今回はアイコン単体でブランド統一する
-  const logoRes = await fetch(`${origin}/logo-icon.png`);
-  const logoArrayBuffer = await logoRes.arrayBuffer();
-  const logoBase64 = Buffer.from(logoArrayBuffer).toString("base64");
-  const logoDataUrl = `data:image/png;base64,${logoBase64}`;
 
   return new ImageResponse(
     (
@@ -54,7 +40,7 @@ export default async function OpenGraphImage() {
             '"Segoe UI", "Helvetica Neue", Arial, "Noto Sans JP", system-ui, sans-serif',
         }}
       >
-        {/* LEFT: ブランドアイコン（今回の正式アイコン） */}
+        {/* LEFT: ブランドブロック（画像取得なしのモノグラム固定） */}
         <div
           style={{
             display: "flex",
@@ -65,24 +51,27 @@ export default async function OpenGraphImage() {
             flexShrink: 0,
             borderRadius: 24,
             background:
-              // もとの淡い放射グラデを、ブランド側（濃紺→バイオレット）寄りに若干強調
               "radial-gradient(circle at 30% 30%, rgba(15,29,47,0.10) 0%, rgba(106,31,191,0.00) 70%)",
             boxShadow: "0 24px 48px rgba(15,29,47,0.12)",
           }}
         >
-          {/* data URL として埋め込み */}
-          <img
-            src={logoDataUrl}
-            alt="ShopWriter"
-            width={320}
-            height={320}
+          <div
             style={{
-              objectFit: "contain",
               width: 320,
               height: 320,
               borderRadius: 32,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "rgba(10,31,97,0.06)",
+              color: "#0A1F61",
+              fontSize: 96,
+              fontWeight: 900 as any,
+              letterSpacing: "-0.04em",
             }}
-          />
+          >
+            SW
+          </div>
         </div>
 
         {/* RIGHT: テキストコピー */}
@@ -100,7 +89,7 @@ export default async function OpenGraphImage() {
             style={{
               fontSize: 32,
               fontWeight: 700 as any,
-              color: "#0A1F61", // ブランド濃紺
+              color: "#0A1F61",
               lineHeight: 1.2,
             }}
           >

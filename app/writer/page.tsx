@@ -3,7 +3,6 @@
 // ここでは searchParams から productId を受け取り、ClientPage に渡すのみ。
 // L2-12 Step2: productId の入力揺れ/不正値に耐える（無効なら null に落とし、最小の注意表示）
 
-export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
 import ClientPage from "./ClientPage";
