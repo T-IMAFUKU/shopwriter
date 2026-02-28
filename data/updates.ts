@@ -8,12 +8,17 @@
 // - 上に新しいものを積む
 
 export type UpdateItem = {
-  date: string;   // YYYY/MM/DD
-  title: string;  // 短い見出し
-  note?: string;  // 補足（省略可）
+  date: string; // YYYY/MM/DD
+  title: string; // 短い見出し
+  note?: string; // 補足（省略可）
 };
 
 export const updates: UpdateItem[] = [
+  {
+    date: "2026/03/01",
+    title: "改善ヒント表示（AI自動検知）に対応しました",
+    note: "生成された文章の『足りないポイント』をAIが自動で検知し、改善のヒントを表示できるようになりました。",
+  },
   {
     date: "2026/01/25",
     title: "ログイン・請求のヘルプを整備しました",
