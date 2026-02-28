@@ -67,9 +67,15 @@ export function buildSystemPrompt(opts: {
   toneKey: string;
 }): string {
   const { overrides, toneKey } = opts;
-  if (overrides && overrides.trim().length > 0) return overrides + "";
 
   const toneModule = renderToneModule(toneKey);
+
+  // NOTE:
+  // - これまでは overrides があると「置換」していたが、
+  //   route.ts 側の systemOverride は「追加指示」扱いの想定があるため、
+  //   ここではベース prompt に「追記」する。
+  // - これにより tone-utils の仕様（ベース）と forcedSystem（追加）を同居できる。
+  const extra = (overrides ?? "").toString().trim();
 
   const modules = [
     toneModule,
@@ -83,6 +89,10 @@ export function buildSystemPrompt(opts: {
     "【厳格条件】感嘆符（！）は使用しません。語尾・表記揺れ・冗長な繰り返しは整えてください。文体は 'です・ます' で統一します。",
     "ユーザーが指定した商品・サービス・店舗・ブランド名をそのまま用い、別の名前や別の商品に置き換えないでください。固有名詞を別の企業名や別ブランド名に差し替えたり、別の商品に飛び換えたりしないでください。たとえば「アイン薬局」と指定された場合は必ず「アイン薬局」という表記を用い、その企業やサービスを正しく主語にしてください。",
   ];
+
+  if (extra.length > 0) {
+    modules.push(`【追加指示】\n${extra}`);
+  }
 
   return modules.join("\n\n");
 }
