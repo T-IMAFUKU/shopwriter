@@ -38,8 +38,6 @@ import { toast } from "sonner";
    Durations / UI timings
 ========================= */
 const DUR = {
-  TYPEWRITER_MS: 32,
-  SPIN_MIN_MS: 700,
   DONE_BADGE_MS: 5000,
   CELEB_MS: 5200,
   SKELETON_DELAY_MS: 300,
@@ -47,204 +45,32 @@ const DUR = {
 };
 
 /* =========================
-   A1: "薄い" 判定（事故耐性優先 / 誤検知を避ける軽め実装）
-   - 3指標のうち2つ以上NG → isThin=true
-   - 判定対象：生成本文テキスト（result相当）
+   A1 dynamic（入力のみ / Top-1 / 非数値理由のみ）
+   - 「数値不足」はヒント発火理由にしない
+   - 用途・目的不足 / 特徴・強み不足 / 利用シーン不足だけを見る
+   - 主経路以外の旧A1補助ロジックは残さない
 ========================= */
-const THIN = {
-  SCENE_WORDS: [
-    "自宅",
-    "在宅",
-    "オフィス",
-    "デスク",
-    "仕事",
-    "休憩",
-    "通勤",
-    "朝",
-    "昼",
-    "夜",
-    "休日",
-    "外出",
-    "会議",
-    "作業",
-  ],
-  ABSTRACT_WORDS: ["快適", "便利", "使いやすい", "高品質", "安心", "おすすめ"],
-  CONCRETE_VERBS: ["減る", "保つ", "防ぐ", "守る", "抑える", "支える", "整える"],
-  MATERIAL_WORDS: [
-    "ステンレス",
-    "アルミ",
-    "チタン",
-    "セラミック",
-    "ガラス",
-    "木",
-    "竹",
-    "綿",
-    "コットン",
-    "シルク",
-    "ナイロン",
-    "ポリエステル",
-    "レザー",
-    "革",
-  ],
-};
+const A1_SCENE_WORDS = [
+  "自宅",
+  "在宅",
+  "オフィス",
+  "デスク",
+  "仕事",
+  "休憩",
+  "通勤",
+  "朝",
+  "昼",
+  "夜",
+  "休日",
+  "外出",
+  "会議",
+  "作業",
+  "店頭",
+  "屋外",
+  "屋内",
+] as const;
 
-/* =========================
-   Prescription Layer v1 (Light A1)
-   - A1 は「圧」を出さない（最大2ヒント）
-   - reasons が取れない場合でも本文から軽く推定して UX を成立させる
-========================= */
-type ReasonCode =
-  | "ABSTRACT_WORD_BODY"
-  | "HAS_ABSTRACT_SUMMARY_WORD"
-  | "HEAD2_EVALUATIVE_OR_ABSTRACT"
-  | "HEAD_HAS_CAN_DO_PHRASE"
-  | "HEAD_HAS_BANNED_WORD";
-
-const ABSTRACT_SUMMARY_WORDS = [
-  "便利",
-  "効果的",
-  "実現",
-  "活用",
-  "魅力",
-  "使いやすい",
-  "おすすめ",
-  "快適",
-  "安心",
-  "高品質",
-];
-
-// P2: できる/できます系 & 評価語/まとめ語っぽさ（軽い推定）
-const HEAD_CAN_DO_PHRASES = ["できます", "できる", "可能です", "対応できます"];
-const HEAD_BANNED_LIKE = ["最適", "ぴったり", "おすすめ", "理想", "完璧"];
-
-function normalizeForThin(s: string) {
-  return (s ?? "")
-    .replace(/\u3000/g, " ")
-    .replace(/[\r\n]+/g, "\n")
-    .trim();
-}
-
-function countDistinctHits(text: string, words: string[]) {
-  const t = normalizeForThin(text);
-  if (!t) return 0;
-  let n = 0;
-  for (const w of words) {
-    if (!w) continue;
-    if (t.includes(w)) n += 1;
-  }
-  return n;
-}
-
-function buildProductTokens(productName: string) {
-  const tokens = new Set<string>();
-
-  const p = (productName ?? "").trim();
-  if (p) {
-    tokens.add(p);
-    const parts = p
-      .split(/[\s\-_/()（）【】\[\]「」『』・、。]+/g)
-      .map((x) => x.trim())
-      .filter(Boolean);
-    for (const part of parts.slice(0, 4)) {
-      if (part.length >= 2) tokens.add(part);
-    }
-  }
-
-  for (const w of THIN.MATERIAL_WORDS) tokens.add(w);
-
-  return Array.from(tokens)
-    .map((x) => x.trim())
-    .filter((x) => x.length >= 2)
-    .slice(0, 14);
-}
-
-function getThinSignals(text: string, productName: string) {
-  const t = normalizeForThin(text);
-
-  const sceneHits = countDistinctHits(t, THIN.SCENE_WORDS);
-  const abstractHits = countDistinctHits(t, THIN.ABSTRACT_WORDS);
-  const verbHits = countDistinctHits(t, THIN.CONCRETE_VERBS);
-
-  const tokens = buildProductTokens(productName);
-  const specificHits = countDistinctHits(t, tokens);
-
-  const ng1 = sceneHits <= 1; // 利用シーン語 <=1
-  const ng2 = abstractHits >= 2 && verbHits === 0; // 抽象語が多い & 具体動詞0
-  const ng3 = specificHits <= 1; // 商品固有語の出現 <=1
-
-  const ngCount = [ng1, ng2, ng3].filter(Boolean).length;
-  const isThin = ngCount >= 2;
-
-  // ✅ “薄い”の短い指摘（既存）— ここは軽いガイドとして残す（最大2）
-  const points: string[] = [];
-  if (ng1) points.push("② 利用シーン：1つ追加すると用途・目的に追記されます");
-  if (ng3) points.push("③ 具体性：数値や仕様ワードを1つ追加すると特徴・強みに追記されます");
-
-  // ng2（抽象語多め）は “責める文言” になりやすいので、短い方向へ寄せる
-  if (points.length < 2 && ng2) {
-    points.push("③ 具体性：数値や仕様ワードを1つ追加すると特徴・強みに追記されます");
-  }
-
-  return {
-    isThin,
-    points: Array.from(new Set(points)).slice(0, 2),
-    debug: { ng1, ng2, ng3, sceneHits, abstractHits, verbHits, specificHits },
-  };
-}
-
-function splitFirstTwoSentences(src: string) {
-  const t = normalizeForThin(src);
-  if (!t) return { s1: "", s2: "" };
-
-  // ざっくり句点で2文へ（UI推定用。厳密でなくOK）
-  const parts = t.split("。").map((x) => x.trim()).filter(Boolean);
-  const s1 = parts[0] ? `${parts[0]}。` : "";
-  const s2 = parts[1] ? `${parts[1]}。` : "";
-  return { s1, s2 };
-}
-
-function inferReasonCodesFromText(text: string): ReasonCode[] {
-  const t = normalizeForThin(text);
-  if (!t) return [];
-
-  const { s1, s2 } = splitFirstTwoSentences(t);
-  const reasons = new Set<ReasonCode>();
-
-  // ABSTRACT系（本文全体）
-  const hasSummary = ABSTRACT_SUMMARY_WORDS.some((w) => t.includes(w));
-  if (hasSummary) reasons.add("HAS_ABSTRACT_SUMMARY_WORD");
-
-  // 「快適/便利/使いやすい…」が複数回混ざると ABSTRACT_WORD_BODY 扱い
-  const abstractBodyHits = countDistinctHits(t, ABSTRACT_SUMMARY_WORDS);
-  if (abstractBodyHits >= 2) reasons.add("ABSTRACT_WORD_BODY");
-
-  // HEAD系（冒頭）
-  if (HEAD_CAN_DO_PHRASES.some((w) => s1.includes(w))) reasons.add("HEAD_HAS_CAN_DO_PHRASE");
-  if (HEAD_BANNED_LIKE.some((w) => s1.includes(w))) reasons.add("HEAD_HAS_BANNED_WORD");
-
-  // 2文目が「評価/抽象寄り」なら
-  const s2Abstract = ABSTRACT_SUMMARY_WORDS.some((w) => s2.includes(w));
-  const s2HasCanDo = HEAD_CAN_DO_PHRASES.some((w) => s2.includes(w));
-  if (s2 && (s2Abstract || s2HasCanDo)) reasons.add("HEAD2_EVALUATIVE_OR_ABSTRACT");
-
-  return Array.from(reasons);
-}
-
-/**
- * A1の“圧ゼロ”ヒント（最大2）
- * - 「禁止」ではなく「次はここだけ足すと伸びる」へ寄せる
- * - 事前に用意した固定文の2択ではなく、状況（thin/reasons）で候補が変わる
- */
-type A1HintKey =
-  | "H_SCENE"
-  | "H_SPEC"
-  | "H_ABSTRACT_TO_FACT"
-  | "H_HEAD_TO_SCENE"
-  | "H_CAN_DO_TO_RESULT"
-  // ✅ 入力ベース dynamicA1 用（Top-1）
-  | "H_PURPOSE"
-  | "H_FEATURES"
-  | "H_NUMERIC";
+type A1HintKey = "H_PURPOSE" | "H_FEATURES" | "H_SCENE";
 
 type A1HintItem = {
   key: A1HintKey;
@@ -252,91 +78,8 @@ type A1HintItem = {
   example?: string; // 例は短く（括弧で収まる）
 };
 
-function uniqHintItems(items: A1HintItem[]) {
-  const seen = new Set<A1HintKey>();
-  const out: A1HintItem[] = [];
-  for (const it of items) {
-    if (seen.has(it.key)) continue;
-    seen.add(it.key);
-    out.push(it);
-  }
-  return out;
-}
-
-function buildA1HintItems(args: {
-  thinDebug?: { ng1?: boolean; ng2?: boolean; ng3?: boolean };
-  reasons: ReasonCode[];
-}): A1HintItem[] {
-  const ng1 = !!args.thinDebug?.ng1;
-  const ng2 = !!args.thinDebug?.ng2;
-  const ng3 = !!args.thinDebug?.ng3;
-
-  const hasAbstract =
-    args.reasons.includes("HAS_ABSTRACT_SUMMARY_WORD") || args.reasons.includes("ABSTRACT_WORD_BODY");
-
-  const headAbstract =
-    args.reasons.includes("HEAD2_EVALUATIVE_OR_ABSTRACT") ||
-    args.reasons.includes("HEAD_HAS_BANNED_WORD");
-
-  const headCanDo = args.reasons.includes("HEAD_HAS_CAN_DO_PHRASE");
-
-  const candidates: A1HintItem[] = [];
-
-  // 優先度：薄さ判定の根拠（ng1/ng3）を先に出す → 次に表現面（abstract/head）
-  if (ng1) {
-    candidates.push({
-      key: "H_SCENE",
-      text: "利用シーンを1つだけ追加（用途・目的に追記されます）",
-      example: "例：ランチ前（11時台）／雨の日の店頭／在宅デスク",
-    });
-  }
-
-  if (ng3) {
-    candidates.push({
-      key: "H_SPEC",
-      text: "数値・仕様を1つだけ追加（特徴・強みに追記されます）",
-      example: "例：450ml／A4対応／強化ガラス／12席",
-    });
-  }
-
-  if (!ng1 && hasAbstract) {
-    candidates.push({
-      key: "H_ABSTRACT_TO_FACT",
-      text: "「便利/快適」などを“条件”に置き換え（単語でOK）",
-      example: "例：予約不要／当日OK／徒歩3分",
-    });
-  }
-
-  if (headAbstract) {
-    candidates.push({
-      key: "H_HEAD_TO_SCENE",
-      text: "2文目を“状況”に寄せる（説明よりシーン）",
-      example: "例：店頭ポスター用／初来店向け",
-    });
-  }
-
-  if (headCanDo || ng2) {
-    candidates.push({
-      key: "H_CAN_DO_TO_RESULT",
-      text: "「できます」を“結果”に言い換え（短くでOK）",
-      example: "例：当日予約を増やす／問い合わせを増やす",
-    });
-  }
-
-  return uniqHintItems(candidates).slice(0, 2); // ✅ 圧ゼロ：最大2
-}
-
-/* =========================
-   A1 dynamic (入力のみ / 記憶なし / Top-1)
-========================= */
 function normalizeInputLite(s: string) {
   return (s ?? "").replace(/\u3000/g, " ").replace(/[\r\n]+/g, "\n").trim();
-}
-
-function hasAnyDigit(s: string) {
-  const t = normalizeInputLite(s);
-  if (!t) return false;
-  return /[0-9０-９]/.test(t);
 }
 
 function splitSellingPointsLike(features: string) {
@@ -352,73 +95,59 @@ function hasSceneHintInText(s: string) {
   const t = normalizeInputLite(s);
   if (!t) return false;
 
-  // 既存の scene words + ざっくり時間/場所っぽい記号
-  if (THIN.SCENE_WORDS.some((w) => t.includes(w))) return true;
-  if (t.includes("店頭") || t.includes("屋外") || t.includes("屋内")) return true;
+  if (A1_SCENE_WORDS.some((w) => t.includes(w))) return true;
   if (t.includes("時") || t.includes("分")) return true;
   return false;
 }
 
-function getInputA1State(args: {
-  product: string;
-  purpose: string;
-  features: string;
-}) {
+function getInputA1State(args: { purpose: string; features: string }) {
   const purpose = normalizeInputLite(args.purpose);
   const features = normalizeInputLite(args.features);
 
-  // 「そこそこ書いている人」でも拾えるように、バリデーションよりは少し高めの基準
   const purposeLen = [...purpose].length;
   const featuresLen = [...features].length;
   const featureItems = splitSellingPointsLike(features);
 
-  const purposeOk = purposeLen >= 14; // 例：「〜したい」+ 何か条件 が入るとだいたい超える
+  const purposeOk = purposeLen >= 14;
   const featuresOk = featureItems.length >= 2 || featuresLen >= 30;
+  const hasScene = hasSceneHintInText(`${purpose}\n${features}`);
 
-  const hasNumeric = hasAnyDigit(purpose + "\n" + features);
-  const hasScene = hasSceneHintInText(purpose + "\n" + features);
-
-  // Top-1（記憶なし）
   let hint: A1HintItem | null = null;
 
   if (!purposeOk) {
     hint = {
       key: "H_PURPOSE",
-      text: "用途・目的に「誰が/何のために」を1つだけ追加（短文でOK）",
+      text: "用途・目的に「誰が / 何のために」を1つだけ追加（短文でOK）",
       example: "例：初めての人向け／忙しい平日用／在宅作業の集中用",
     };
   } else if (!featuresOk) {
     hint = {
       key: "H_FEATURES",
-      text: "特徴・強みに「仕様/条件/機能」を1つだけ追加（単語でもOK）",
-      example: "例：真空二重構造／A4対応／写真3枚まで／防水",
-    };
-  } else if (!hasNumeric) {
-    // ✅ 数値は「用途＆特徴がOKのときのみ」対象（合意済み）
-    hint = {
-      key: "H_NUMERIC",
-      text: "数値を1つだけ追加（特徴・強みに追記されます）",
-      example: "例：450ml／12席／徒歩3分／最短10分",
+      text: "特徴・強みに「仕様 / 条件 / 機能」を1つだけ追加（単語でもOK）",
+      example: "例：防水仕様／真空断熱構造／持ち手付き／当日受け取り可",
     };
   } else if (!hasScene) {
-    // 数値の次にシーン（段階的に上げる）
     hint = {
       key: "H_SCENE",
       text: "利用シーンを1つだけ追加（用途・目的に追記されます）",
-      example: "例：ランチ前（11時台）／雨の日の店頭／在宅デスク",
+      example: "例：ランチ前／雨の日の店頭／在宅デスク",
     };
   }
 
-  const isOn = !!hint;
-
-  // 旧pointsの“軽い補助”は、入力ベースで最小限に合わせる（最大1〜2）
   const points: string[] = [];
-  if (!hasScene) points.push("② 利用シーン：1つ追加すると用途・目的に追記されます");
-  if (!hasNumeric) points.push("③ 具体性：数値や仕様ワードを1つ追加すると特徴・強みに追記されます");
+  if (!purposeOk) {
+    points.push("① 用途・目的：誰が何のために使うかを短く足すと伝わりやすくなります");
+  }
+  if (!featuresOk) {
+    points.push("③ 特徴・強み：仕様や条件を1つ足すと具体性が上がります");
+  }
+  if (points.length < 2 && !hasScene) {
+    points.push("② 利用シーン：1つ追加すると用途・目的に追記されます");
+  }
 
   return {
-    isOn,
-    hintItems: hint ? [hint] : ([] as A1HintItem[]), // ✅ Top-1：常に最大1
+    isOn: !!hint,
+    hintItems: hint ? [hint] : ([] as A1HintItem[]),
     points: Array.from(new Set(points)).slice(0, 2),
     debug: {
       purposeLen,
@@ -426,7 +155,6 @@ function getInputA1State(args: {
       featureItemsCount: featureItems.length,
       purposeOk,
       featuresOk,
-      hasNumeric,
       hasScene,
     },
   };
@@ -610,8 +338,6 @@ export default function ClientPage({ productId }: ClientPageProps) {
 
   const resultRef = useRef<HTMLDivElement | null>(null);
 
-  // A1: 入力フォーム先頭へのスクロール（事故防止：入力自体は書き換えない）
-  const formTopRef = useRef<HTMLDivElement | null>(null);
 
   // ✅ A2: パネルへスクロール用（SSOT）
   const a2PanelRef = useRef<HTMLDivElement | null>(null);
@@ -669,26 +395,12 @@ export default function ClientPage({ productId }: ClientPageProps) {
   // ✅ dynamicA1（入力のみ / 記憶なし / Top-1）
   const dynamicA1 = useMemo(() => {
     return getInputA1State({
-      product: product ?? "",
       purpose: purpose ?? "",
       features: features ?? "",
     });
-  }, [product, purpose, features]);
+  }, [purpose, features]);
 
-  // ✅ 旧thin（points表示）のみ入力ベースへ寄せる（resultは混ぜない）
-  const thin = useMemo(() => {
-    return {
-      isThin: dynamicA1.isOn,
-      points: dynamicA1.points,
-      debug: dynamicA1.debug as any,
-    };
-  }, [dynamicA1]);
-
-  // ✅ A1 “圧ゼロ”ヒント（Top-1：最大1）
-  const a1HintItems = useMemo(() => {
-    if (!dynamicA1.isOn) return [] as A1HintItem[];
-    return dynamicA1.hintItems;
-  }, [dynamicA1.isOn, dynamicA1.hintItems]);
+  const a1HintItems = dynamicA1.hintItems;
 
   // A2: 表示条件（A1と同じ安全条件 + A1 on）
   const a2CanShow =
@@ -1402,8 +1114,6 @@ export default function ClientPage({ productId }: ClientPageProps) {
                 submit();
               }}
             >
-              {/* A1: 入力欄への安全なスクロール用（入力の自動書き換えはしない） */}
-              <div ref={formTopRef} />
 
               <div>
                 <Label className="text-sm text-neutral-700 dark:text-neutral-300">
@@ -1735,10 +1445,10 @@ export default function ClientPage({ productId }: ClientPageProps) {
                         次のどれか1つだけ追加でOKです
                       </p>
 
-                      {/* 旧pointsは“軽い”補助として残す（最大2） */}
-                      {thin.points.length > 0 && (
+                      {/* 軽い補助テキスト（最大2） */}
+                      {dynamicA1.points.length > 0 && (
                         <div className="mt-2 space-y-1">
-                          {thin.points.map((line) => (
+                          {dynamicA1.points.map((line) => (
                             <p key={line} className="text-[11px] leading-relaxed text-neutral-700">
                               {line}
                             </p>
@@ -1746,7 +1456,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                         </div>
                       )}
 
-                      {/* ✅ A1本丸：入力に応じた Top-1（最大1） */}
+                      {/* ✅ A1本丸：入力に応じた Top-1（最大1 / 非数値理由のみ） */}
                       {a1HintItems.length > 0 && (
                         <div className="mt-2 space-y-1.5">
                           {a1HintItems.map((it, idx) => (
@@ -1783,7 +1493,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                         </Button>
                       </div>
 
-                      {/* console.debug("[A1] inferredReasons=", inferredReasons); */}
+
                     </div>
                   </div>
                 </div>
@@ -1820,7 +1530,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                       <Info className="size-3.5" />
                     </span>
                     <p className="text-[11px] leading-relaxed text-neutral-700">
-                      ※「丈夫」「魅力的」などの抽象語より、「数値」「仕様」「条件」を1つ（特徴・強みに）足すほうが効果的です
+                      ※「丈夫」「魅力的」などの抽象語より、「仕様」「条件」「使う場面」を1つ足すほうが効果的です
                     </p>
                   </div>
                 </div>
@@ -1845,7 +1555,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                     <Textarea
                       value={a2Feature}
                       onChange={(e) => setA2Feature(e.target.value)}
-                      placeholder={`例：\n最大1200px対応\n強化ガラス採用\n写真3枚まで掲載可能`}
+                      placeholder={`例：\n防水仕様\n強化ガラス採用\n持ち手付き`}
                       className="min-h-[72px] resize-y rounded-lg text-xs leading-relaxed"
                     />
                   </div>
