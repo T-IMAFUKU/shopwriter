@@ -9,7 +9,7 @@ import { NextResponse } from "next/server";
 import { writerLog } from "@/lib/metrics/writerLogger";
 import { getProductContextById } from "@/server/products/repository";
 import { buildWriterRequestContext } from "./request-parse";
-import { sha256Hex, logEvent, forceConsoleEvent, emitWriterEvent } from "./_shared/logger";
+import { sha256Hex, logEvent, emitWriterEvent } from "./_shared/logger";
 import { runWriterPipeline } from "./pipeline";
 import { normalizeInput } from "./normalizer";
 import {
@@ -407,7 +407,6 @@ export async function POST(req: Request) {
         },
       };
       logEvent("ok", payloadPre);
-      forceConsoleEvent("ok", payloadPre);
       await emitWriterEvent("ok", payloadPre);
     }
 

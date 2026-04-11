@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 import {
   sha256Hex,
   logEvent,
-  forceConsoleEvent,
   emitWriterEvent,
 } from "./_shared/logger";
 import { createFinalProse } from "./openai-client";
@@ -1556,7 +1555,6 @@ async function emitCandidateLog(args: {
     contentHash8: sha256Hex(args.candidate.content).slice(0, 8),
   };
   logEvent(args.candidate.minimalBoundary.ok ? "ok" : "error", event);
-  forceConsoleEvent(args.candidate.minimalBoundary.ok ? "ok" : "error", event);
   await emitWriterEvent(args.candidate.minimalBoundary.ok ? "ok" : "error", event);
 }
 
@@ -1665,7 +1663,6 @@ async function logCandidateGenerationError(args: {
     errorTextPreview: args.response.errorText.slice(0, 500),
   };
   logEvent(args.response.errorKind === "empty" ? "ok" : "error", errLog as any);
-  forceConsoleEvent(args.response.errorKind === "empty" ? "ok" : "error", errLog as any);
   await emitWriterEvent(args.response.errorKind === "empty" ? "ok" : "error", errLog as any);
 }
 
@@ -1775,7 +1772,6 @@ async function generateCandidateWithShapeRescue(args: {
     selectedStage: selectedCandidate === rescueCandidate ? "shape_rescue" : "initial",
   };
   logEvent("ok", rescueLog);
-  forceConsoleEvent("ok", rescueLog);
   await emitWriterEvent("ok", rescueLog);
 
   return selectedCandidate;
@@ -2052,7 +2048,6 @@ async function judgePassedCandidatesWithAi(args: {
       errorTextPreview: response.errorText.slice(0, 500),
     };
     logEvent(response.errorKind === "empty" ? "ok" : "error", errorLog);
-    forceConsoleEvent(response.errorKind === "empty" ? "ok" : "error", errorLog);
     await emitWriterEvent(response.errorKind === "empty" ? "ok" : "error", errorLog);
 
     return {
@@ -2081,7 +2076,6 @@ async function judgePassedCandidatesWithAi(args: {
       rawPreview: response.content.slice(0, 500),
     };
     logEvent("error", invalidLog);
-    forceConsoleEvent("error", invalidLog);
     await emitWriterEvent("error", invalidLog);
 
     return {
@@ -2110,7 +2104,6 @@ async function judgePassedCandidatesWithAi(args: {
       rawPreview: response.content.slice(0, 500),
     };
     logEvent("error", invalidDecisionLog);
-    forceConsoleEvent("error", invalidDecisionLog);
     await emitWriterEvent("error", invalidDecisionLog);
 
     return {
@@ -2141,7 +2134,6 @@ async function judgePassedCandidatesWithAi(args: {
       rawHash8: sha256Hex(response.content).slice(0, 8),
     };
     logEvent("error", invalidIndexLog);
-    forceConsoleEvent("error", invalidIndexLog);
     await emitWriterEvent("error", invalidIndexLog);
 
     return {
@@ -2198,7 +2190,6 @@ async function judgePassedCandidatesWithAi(args: {
       ...(validation.meta ?? {}),
     };
     logEvent("error", invalidDecisionLog);
-    forceConsoleEvent("error", invalidDecisionLog);
     await emitWriterEvent("error", invalidDecisionLog);
 
     return {
@@ -2228,7 +2219,6 @@ async function judgePassedCandidatesWithAi(args: {
     rawHash8: sha256Hex(response.content).slice(0, 8),
   };
   logEvent("ok", successLog);
-  forceConsoleEvent("ok", successLog);
   await emitWriterEvent("ok", successLog);
 
   return {
@@ -2389,7 +2379,6 @@ export async function runWriterPipeline(
     repairKeys: finalized.repairKeys,
   };
   logEvent("ok", finalizeLog);
-  forceConsoleEvent("ok", finalizeLog);
   await emitWriterEvent("ok", finalizeLog);
 
   return NextResponse.json(
@@ -2512,7 +2501,6 @@ export async function runWriterPipelineCore(
     usableFactIds: usableFacts.map((fact) => fact.id),
   };
   logEvent("ok", decideLog);
-  forceConsoleEvent("ok", decideLog);
   await emitWriterEvent("ok", decideLog);
 
   if (isMinimalInputRescueTarget({ normalized, templateKey, rawPrompt })) {
@@ -2535,7 +2523,6 @@ export async function runWriterPipelineCore(
       contentHash8: sha256Hex(rescueText).slice(0, 8),
     };
     logEvent("ok", rescueLog);
-    forceConsoleEvent("ok", rescueLog);
     await emitWriterEvent("ok", rescueLog);
 
     return {
@@ -2684,7 +2671,6 @@ export async function runWriterPipelineCore(
     contentHash8: sha256Hex(bestCandidate.content).slice(0, 8),
   };
   logEvent("ok", selectionLog);
-  forceConsoleEvent("ok", selectionLog);
   await emitWriterEvent("ok", selectionLog);
 
   ctx.prompts.proseUser = bestCandidate.proseUser;
@@ -2724,7 +2710,6 @@ export async function runWriterPipelineCore(
     contentHash8: sha256Hex(bestCandidate.content).slice(0, 8),
   };
   logEvent("ok", proseLog);
-  forceConsoleEvent("ok", proseLog);
   await emitWriterEvent("ok", proseLog);
 
   return {

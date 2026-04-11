@@ -6,7 +6,7 @@
 
 import { NextResponse } from "next/server";
 import { writerLog } from "@/lib/metrics/writerLogger";
-import { logEvent, forceConsoleEvent, emitWriterEvent } from "./_shared/logger";
+import { logEvent, emitWriterEvent } from "./_shared/logger";
 
 /* =========================
    Writer Error Helper（共通エラーハンドリング）
@@ -156,7 +156,6 @@ export async function sendWriterError(
     }
 
     logEvent("error", payload);
-    forceConsoleEvent("error", payload);
     await emitWriterEvent("error", payload);
 
     // Precision Plan メトリクス（失敗フェーズ）
