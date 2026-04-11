@@ -1,41 +1,33 @@
 // app/api/writer/pipeline.ts
 import { NextResponse } from "next/server";
-import { sha256Hex, logEvent, forceConsoleEvent, emitWriterEvent } from "./_shared/logger";
-import { buildOpenAIRequestPayload, callOpenAI } from "./openai-client";
+import {
+  sha256Hex,
+  logEvent,
+  forceConsoleEvent,
+  emitWriterEvent,
+} from "./_shared/logger";
+import { createFinalProse } from "./openai-client";
 import { resolveTonePresetKey, buildSystemPrompt } from "./tone-utils";
-import { makeUserMessage } from "./user-message";
 import type { ProductContext } from "@/server/products/repository";
 import { logProductContextStatus } from "./logger";
-import { buildPrecisionProductPayload, buildProductFactsDto } from "@/server/products/dto";
-import { buildProductFactsBlock } from "./prompt/product-facts";
-import { applyPostprocess } from "./postprocess";
-
-// ✅ densityA（観測＋同点タイブレーク＋低密度救済）
-// - export名が違っても落ちないように namespace import + any で呼ぶ
+import {
+  buildPrecisionProductPayload,
+  buildProductFactsDto,
+} from "@/server/products/dto";
 import * as DensityA from "@/lib/densityA";
 
 /**
- * 目的（新設計）:
- * - Pipeline は 3工程（Normalize / Decide / Handoff）に縮退
- * - ✅ 生成品質を安定させるため「内部3案生成→L3スコア→最良案採用」を Handoff 内で行う
- * - ✅ 同点時は densityA（情報使用率）をタイブレークに使う（L3最優先は維持）
- * - ✅ 低密度（inputCount=4 で 1要素でも落ちる等）を救済するため、最大1回だけ追加生成(idx4)を許可
- * - ✅ “プロンプトで使用強制” を追加し、設計を守りつつ密度が薄い勝ち方を減らす（Case3対策）
- * - ✅ C-2（本丸）：mustUse の対象セットを「事実/仕様寄り」に限定し、評価語っぽい selling_points は任意素材へ落とす
- * - ✅ 今回フェーズ（Writer単体80点）では Product Facts を使用しない（system注入を無効化）
- * - CTAのSSOT: ctx.flags.cta.mode ("on" | "off")
- * - CTAブロック仕様SSOT: ctx.contracts.ctaBlock（仕様のみ。生成は他責務）
- * - ✅ 実運用上必要なので applyPostprocess() は “返却直前” にのみ適用する（data.text / output を同一に固定）
- * - ✅ さらに “最終返却の直前” に repair を必ず通し、UI/モデル差に依存しない改行を担保する
- *
- * ✅ 方式C（安定化）:
- * - repair は「整形（箇条書き/改行）」だけ（文章内容を削除・改変しない）
- * - 日本語の破綻は L3採点で重めに減点し、候補選択で落とす
- * - 返却直前の置換は “超安全な限定置換” だけ（必要最小）
+ * 設計方針:
+ * - Pipeline は Normalize / Prose / Selection / Finalize の 4工程で扱う。
+ * - 意味判断は AI 優先にし、機械は入力整形・API制御・ログ・最小外形チェックだけを担当する。
+ * - scene / need / action / head relation / landing / plannerState の機械決定は行わない。
+ * - proseUser は「最小外形 + 入力材料」の薄い handoff に限定する。
+ * - finalize は意味非介入の整形だけに限定する。
+ * - boundary fail は internal / 500 にせず、生成未成立として扱う。
  */
 
 /* =========================
-   Normalized Input（route.ts と同形）
+   Input / Result Types
 ========================= */
 
 export type NormalizedInput = {
@@ -55,11 +47,11 @@ export type NormalizedInput = {
   evidence: string[];
   cta_preference: string[];
   _raw?: string;
+  meta?: {
+    template?: string | null;
+    cta?: unknown;
+  } | null;
 };
-
-/* =========================
-   Writer Errors
-========================= */
 
 export type WriterErrorReason =
   | "validation"
@@ -70,6 +62,8 @@ export type WriterErrorReason =
   | "timeout"
   | "rate_limit"
   | "bad_request"
+  | "boundary_failed"
+  | "candidate_selection_failed"
   | "internal";
 
 export type WriterPipelineError = {
@@ -93,15 +87,15 @@ export type WriterPipelineOk = {
 
 export type WriterPipelineResult = WriterPipelineOk | WriterPipelineError;
 
-/* =========================
-   SSOT（CTA / Contracts）
-========================= */
-
 export type CtaMode = "on" | "off";
 
 export type CtaBlockContract = {
   heading: "おすすめのアクション";
-  variants: readonly ["おすすめのアクション", "おすすめアクション", "おすすめの行動"];
+  variants: readonly [
+    "おすすめのアクション",
+    "おすすめアクション",
+    "おすすめの行動",
+  ];
   placement: {
     atEnd: true;
     withinLastLines: 30;
@@ -109,6 +103,24 @@ export type CtaBlockContract = {
   bulletRules: {
     minBulletLines: 2;
   };
+};
+
+export type AtomicFactKind =
+  | "PRODUCT_NAME"
+  | "CATEGORY"
+  | "AUDIENCE"
+  | "SPEC"
+  | "EVIDENCE"
+  | "KEYWORD"
+  | "CONSTRAINT";
+
+export type AtomicFact = {
+  id: string;
+  kind: AtomicFactKind;
+  text: string;
+  required: boolean;
+  source: "input";
+  priority: number;
 };
 
 export type WriterPipelineCtx = {
@@ -137,15 +149,15 @@ export type WriterPipelineCtx = {
   contracts: {
     ctaBlock: CtaBlockContract;
   };
+  facts: {
+    items: AtomicFact[];
+  };
   prompts: {
-    system: string;
-    user: string;
+    proseSystem: string;
+    proseUser: string;
     debug?: {
-      baseSystemLength: number;
-      userLength: number;
-      systemHash8: string;
-      userHash8: string;
-      hasProductFacts: boolean;
+      proseSystemHash8: string;
+      proseUserHash8: string;
     };
   };
   product: {
@@ -156,13 +168,30 @@ export type WriterPipelineCtx = {
 };
 
 /* =========================
-   Normalize
+   Normalize Helpers
 ========================= */
 
+function normalizeJaText(s: unknown): string {
+  return (s ?? "").toString().replace(/\s+/g, " ").trim();
+}
+
+function uniqueNonEmptyStrings(list: unknown): string[] {
+  if (!Array.isArray(list)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of list) {
+    const value = normalizeJaText(item);
+    if (!value) continue;
+    if (seen.has(value)) continue;
+    seen.add(value);
+    out.push(value);
+  }
+  return out;
+}
+
 function resolveTemplateKey(n: NormalizedInput): string {
-  const metaTemplate = (n as any)?.meta?.template;
-  const platform = (n as any)?.platform;
-  const raw = (metaTemplate ?? platform ?? "").toString().trim().toLowerCase();
+  const metaTemplate = n.meta?.template;
+  const raw = (metaTemplate ?? n.platform ?? "").toString().trim().toLowerCase();
   return raw || "lp";
 }
 
@@ -186,376 +215,210 @@ function parseBooleanLike(v: unknown): boolean | null {
 }
 
 function resolveCtaMode(n: NormalizedInput): CtaMode {
-  const candidates = [(n as any)?.meta?.cta, (n as any)?.metaCta, (n as any)?.ctaEnabled, (n as any)?.cta];
-  for (const c of candidates) {
-    const b = parseBooleanLike(c);
-    if (b !== null) return b ? "on" : "off";
+  const candidates = [n.meta?.cta, (n as any)?.metaCta, (n as any)?.ctaEnabled, (n as any)?.cta];
+  for (const candidate of candidates) {
+    const parsed = parseBooleanLike(candidate);
+    if (parsed !== null) return parsed ? "on" : "off";
   }
   return "on";
 }
 
-/* =========================
-   Decide（L3を生成に強制）
-========================= */
-
-/**
- * ✅ C-2: mustUse対象を「事実/仕様寄り」に限定する
- *
- * 方針（辞書メンテ破綻を避ける）:
- * - “評価語”を列挙して増やし続けない（永遠メンテになる）
- * - mustUse に入れる selling_points は「根拠シグナルがある行」だけ
- *   - 数値/単位（強い）
- *   - 仕様っぽい “最小の固定マーカー” （増やす運用にしない）
- * - それ以外は任意素材（入力としては尊重するが強制しない）
- */
-
-function normalizeJaText(s: unknown): string {
-  return (s ?? "").toString().replace(/\s+/g, " ").trim();
-}
-
-function uniqueNonEmptyStrings(list: unknown): string[] {
-  if (!Array.isArray(list)) return [];
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const x of list) {
-    const s = normalizeJaText(x);
-    if (!s) continue;
-    if (seen.has(s)) continue;
-    seen.add(s);
-    out.push(s);
-  }
-  return out;
-}
-
-function truncateJoinQuoted(items: string[], maxItems: number): string {
-  const xs = (items ?? []).slice(0, Math.max(0, maxItems));
-  if (xs.length === 0) return "";
-  return xs.map((x) => `「${x}」`).join("、");
-}
-
-/**
- * 文字化け疑い（観測安定化）
- * - ✅ “スペース”では判定しない（通常入力に含まれる）
- * - “判定不能っぽい” ものだけを mustUse から外す
- */
 function looksMojibakeLike(line: string): boolean {
   const s = (line ?? "").toString();
   if (!s) return false;
-
-  // 置換文字（典型）
-  if (s.includes("�")) return true;
-
-  // よくある mojibake パターン（ログで観測された系）
+  if (s.includes("\uFFFD")) return true;
   if (/[繧繝]/.test(s)) return true;
-
-  // 半角カナの連続（UTF-8誤デコードで出やすい）
   const hwKanaRuns = s.match(/[ｦ-ﾟ]{2,}/g);
-  if (hwKanaRuns && hwKanaRuns.length > 0) return true;
-
-  return false;
+  return Boolean(hwKanaRuns && hwKanaRuns.length > 0);
 }
 
-function classifySellingPoints(points: string[]): { facts: string[]; optional: string[] } {
-  const src = uniqueNonEmptyStrings(points);
+function buildInputText(normalized: NormalizedInput): string {
+  return [
+    normalized.product_name,
+    normalized.category,
+    normalized.goal,
+    normalized.audience,
+    ...uniqueNonEmptyStrings(normalized.selling_points),
+    ...uniqueNonEmptyStrings(normalized.evidence),
+    ...uniqueNonEmptyStrings(normalized.keywords),
+    ...uniqueNonEmptyStrings(normalized.constraints),
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
 
-  // “根拠シグナル”として強いもの（辞書ではなくパターン中心）
-  const UNIT_OR_NUMBER_RE =
-    /[0-9０-９]+|%|％|mm|cm|m|g|kg|mg|ml|mL|l|L|W|w|V|v|Hz|kHz|lm|ルーメン|インチ|時間|分|秒|年|回|段階/;
+function hasSubstantialProductDetailInput(normalized: NormalizedInput): boolean {
+  return Boolean(
+    normalizeJaText(normalized.product_name) ||
+      normalizeJaText(normalized.category) ||
+      normalizeJaText(normalized.audience) ||
+      uniqueNonEmptyStrings(normalized.selling_points).length > 0 ||
+      uniqueNonEmptyStrings(normalized.evidence).length > 0 ||
+      uniqueNonEmptyStrings(normalized.keywords).length > 0 ||
+      uniqueNonEmptyStrings(normalized.constraints).length > 0,
+  );
+}
 
-  // 仕様マーカー（固定・最小：増やす運用にしない）
-  const SPEC_MARKERS_RE = /(可動|調整|角度|高さ|明るさ|LED|USB|Type-?C|Bluetooth|Wi-?Fi)/;
+type MinimalInputRescueTemplate = "lp" | "email" | "sns_short";
 
-  const hasEvidenceSignal = (s: string): boolean => {
-    if (!s) return false;
-    if (UNIT_OR_NUMBER_RE.test(s)) return true;
-    if (SPEC_MARKERS_RE.test(s)) return true;
-    return false;
-  };
+function resolveMinimalInputRescueTemplate(
+  templateKey: string,
+): MinimalInputRescueTemplate | null {
+  const key = normalizeJaText(templateKey).toLowerCase();
 
+  if (key === "lp" || /landing/.test(key)) return "lp";
+  if (key.includes("email") || key.includes("mail")) return "email";
+  if (key.includes("sns")) return "sns_short";
+
+  return null;
+}
+
+function isMinimalInputRescueTarget(args: {
+  normalized: NormalizedInput;
+  templateKey: string;
+  rawPrompt: string;
+}): args is {
+  normalized: NormalizedInput;
+  templateKey: string;
+  rawPrompt: string;
+} {
+  if (hasSubstantialProductDetailInput(args.normalized)) return false;
+  if (!normalizeJaText(args.rawPrompt)) return false;
+  return resolveMinimalInputRescueTemplate(args.templateKey) !== null;
+}
+
+function extractPromptTopic(rawPrompt: string): string {
+  const prompt = normalizeJaText(rawPrompt);
+  if (!prompt) return "";
+
+  const topic = prompt
+    .replace(/[「」『』【】]/g, "")
+    .replace(
+      /(?:LP|ランディングページ|メール|メルマガ|SNS|sns_short|sns|投稿文|紹介文|件名)\s*(?:用|向け)?/giu,
+      "",
+    )
+    .replace(
+      /(?:を|の)?(?:作成|制作|作る|生成|作って|書く|書いて|ください|下さい|お願いします|ほしい|欲しい)(?:[。.!！？?].*)?$/u,
+      "",
+    )
+    .replace(/^(?:について|向けの|用の)\s*/u, "")
+    .replace(/^[#＃:：\-\s]+/u, "")
+    .replace(/[。.!！？?].*$/u, "")
+    .trim();
+
+  return topic.slice(0, 60);
+}
+
+function buildMinimalInputLpRescueText(rawPrompt: string): string {
+  const topic = extractPromptTopic(rawPrompt);
+  const headline = topic ? `# ${topic}` : "# ランディングページ用コピー";
+
+  return [
+    headline,
+    "",
+    "導入メリットを短く伝え、特徴と行動導線をひと目で追いやすくしたLP向けのたたき台です。",
+    "",
+    "・特徴を短く整理して伝えます",
+    "・使う場面や価値を読み取りやすくまとめます",
+    "・お問い合わせや詳細確認につながる導線を最後に置きます",
+    "",
+    "お問い合わせはこちら",
+  ].join("\n");
+}
+
+function buildMinimalInputEmailRescueText(rawPrompt: string): string {
+  const topic = extractPromptTopic(rawPrompt);
+  const subject = topic ? `${topic}のご案内` : "ご案内";
+
+  return [
+    `件名: ${subject}`,
+    "",
+    topic
+      ? `${topic}について、要点を短く確認しやすいメール下書きです。`
+      : "要点を短く確認しやすいメール下書きです。",
+    "詳細が固まり次第、そのまま本文へ追記しやすい最小構成にしています。",
+    "",
+    "・冒頭で伝えたい内容を短く示します",
+    "・必要な情報を順番に確認しやすく並べます",
+    "・最後に返信や確認の導線を置きます",
+  ].join("\n");
+}
+
+function buildMinimalInputSnsShortRescueText(rawPrompt: string): string {
+  const topic = extractPromptTopic(rawPrompt);
+
+  return [
+    topic
+      ? `${topic}の要点を短くまとめたSNS向けの下書きです。`
+      : "SNS向けの短い下書きです。",
+    "詳細が固まり次第、そのまま投稿文へ言い回しを足しやすい形にしています。",
+    "",
+    "・要点を短く伝えます",
+    "・読み手が流れを追いやすく整えます",
+    "・詳しい案内への導線を後ろに置けます",
+  ].join("\n");
+}
+
+function buildMinimalInputRescueText(args: {
+  templateKey: string;
+  rawPrompt: string;
+}): string {
+  const rescueTemplate = resolveMinimalInputRescueTemplate(args.templateKey);
+
+  switch (rescueTemplate) {
+    case "lp":
+      return buildMinimalInputLpRescueText(args.rawPrompt);
+    case "email":
+      return buildMinimalInputEmailRescueText(args.rawPrompt);
+    case "sns_short":
+      return buildMinimalInputSnsShortRescueText(args.rawPrompt);
+    default:
+      return buildMinimalInputLpRescueText(args.rawPrompt);
+  }
+}
+
+const UNIT_OR_NUMBER_RE =
+  /[0-9０-９]+|%|％|mm|cm|m|g|kg|mg|ml|mL|l|L|W|w|V|v|Hz|kHz|lm|ルーメン|インチ|時間|分|秒|年|回|段階/;
+const SPEC_MARKER_RE = /(LED|USB|Type-?C|Bluetooth|Wi-?Fi|可動|調整|角度|高さ|明るさ)/;
+
+function classifySellingPoints(points: string[]): {
+  facts: string[];
+  optional: string[];
+} {
   const facts: string[] = [];
   const optional: string[] = [];
 
-  for (const p of src) {
-    // 文字化け疑いは mustUse に入れない（任意素材）
-    if (looksMojibakeLike(p)) {
-      optional.push(p);
+  for (const point of uniqueNonEmptyStrings(points)) {
+    if (looksMojibakeLike(point)) {
+      optional.push(point);
       continue;
     }
 
-    // ✅ C-2の核：根拠シグナルがある行だけを “事実/仕様寄り” として採用
-    if (hasEvidenceSignal(p)) {
-      facts.push(p);
+    if (UNIT_OR_NUMBER_RE.test(point) || SPEC_MARKER_RE.test(point)) {
+      facts.push(point);
       continue;
     }
 
-    // それ以外（評価語っぽい／抽象／感想系が混ざる）は任意素材
-    optional.push(p);
+    optional.push(point);
   }
 
   return { facts, optional };
 }
 
-/**
- * ✅ densityA は「必須セット」だけで評価する（C-2整合）
- * - 任意素材（optional selling_points）を densityA の入力セットに含めない
- *
- * ✅ InputSet揺れ防止（本丸）:
- * - UI上 selling_points が入力されているなら、densityA は必ず inputCount=4（= 3 + 1）に固定する
- * - “事実/仕様寄り” が0件でも、入力がある限り先頭1件をフォールバック採用（意味判定なし／辞書なし）
- * - threshold 側が 3/4 を前提にしているため、ここで selling_points を最大1件に丸める
- */
 function normalizedForDensityA(normalized: NormalizedInput): NormalizedInput {
-  const sellingPointsRaw = Array.isArray(normalized.selling_points) ? normalized.selling_points : [];
-  const src = uniqueNonEmptyStrings(sellingPointsRaw);
-
-  if (src.length === 0) {
-    // v0: 必須3（product_name/goal/audience）
+  const source = uniqueNonEmptyStrings(normalized.selling_points ?? []);
+  if (source.length === 0) {
     return { ...normalized, selling_points: [] };
   }
 
-  const classified = classifySellingPoints(src);
-  const pick = classified.facts[0] ?? src[0]; // ✅ 入力がある限り 1件は必ず採用（4固定）
-  const one = pick ? [pick] : [];
+  const classified = classifySellingPoints(source);
+  const picked = classified.facts[0] ?? source[0];
 
   return {
     ...normalized,
-    selling_points: one,
+    selling_points: picked ? [picked] : [],
   };
-}
-
-/**
- * ✅ 生成側（辞書なし）：audience 原文が欠けたら返却直前に1回だけ保証する
- * - すでに含まれているなら何もしない
- * - 無ければ「ヘッド2文の2文目」の先頭に差し込む（説明は足さない）
- *
- * ✅ 方式C：文法破綻を避けるため、head2 が「場所起点」のときだけ particle を「が」にする
- */
-function enforceAudienceExactOnce(text: string, audienceRaw: string): { text: string; didEnforce: boolean } {
-  const audience = (audienceRaw ?? "").toString().trim();
-  if (!audience) return { text: (text ?? "").toString(), didEnforce: false };
-
-  const t = (text ?? "").toString().replace(/\r\n/g, "\n").trim();
-  if (!t) return { text: t, didEnforce: false };
-
-  // 既に含まれているならOK（過剰修正を避ける）
-  if (t.includes(audience)) return { text: t, didEnforce: false };
-
-  const { head, body } = splitHeadAndBody(t);
-  if (!head) return { text: t, didEnforce: false };
-
-  const parts = head
-    .split("。")
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  const chooseParticle = (head2: string): "が" | "の" => {
-    const h2 = (head2 ?? "").toString().trim();
-    if (!h2) return "の";
-
-    // head2 が “場所/状況” から始まるときは「の」を使うと重複破綻しやすい（例：オフィスワーカーのオフィスで）
-    // → 主語として「が」に寄せる
-    const LOCATION_START_RE =
-      /^(?:朝|昼|夜|通勤|通学|移動中|在宅|自宅|オフィス|職場|デスク|会議|カフェ|店頭|レジ|キッチン|洗面所|寝室|リビング|外出先|週末|平日|雨の日|旅行|出張|作業中)/;
-    if (LOCATION_START_RE.test(h2)) return "が";
-
-    // ✅ 追加：head2 が “動作/行為” 起点のときも「の」は不自然になりやすい
-    // 例：オフィスワーカーの作業をしながら → オフィスワーカーが作業をしながら
-    const ACTION_START_RE =
-      /^(?:(?:デスクワーク|資料作成|入力作業|事務作業|作業|仕事|会議|打ち合わせ|商談|勉強|学習|授業|練習|移動|通勤|通学|在宅勤務|家事)(?:中に|の合間に|をしながら|をしつつ|をしているとき|をする時|をするとき|中)|(?:作業|仕事|会議|勉強|移動|通勤|家事)(?:を|で))/;
-    if (ACTION_START_RE.test(h2)) return "が";
-
-    // 2文目が「〜で」始まりなどのケースも主語が安定
-    const START_WITH_DE_RE = /^(?:[^\s]{1,8}で)/;
-    if (START_WITH_DE_RE.test(h2)) return "が";
-
-    return "の";
-  };
-
-  if (parts.length >= 2) {
-    const head1 = `${parts[0]}。`;
-    const head2 = parts[1] ?? "";
-
-    const particle = chooseParticle(head2);
-    const injected2 = head2 ? `${audience}${particle}${head2}` : `${audience}が作業中に使います`;
-
-    const rebuiltHead = `${head1}\n${injected2}。`.trim();
-    const rebuilt = body ? `${rebuiltHead}\n\n${body}`.trim() : rebuiltHead;
-    return { text: rebuilt, didEnforce: true };
-  }
-
-  // 1文しか無い場合（例外）: 末尾に一言だけ足す
-  const rebuiltHead = `${head}\n${audience}が作業中に使います。`.trim();
-  const rebuilt = body ? `${rebuiltHead}\n\n${body}`.trim() : rebuiltHead;
-  return { text: rebuilt, didEnforce: true };
-}
-
-/* =========================
-   Output Rules Suffix（責務境界固定）
-========================= */
-
-type OutputRulesSuffixCtx = {
-  isSNS: boolean;
-  pn: string;
-
-  goal: string;
-  audience: string;
-  category: string;
-  sellingPoints: string[];
-
-  hasGoal: boolean;
-  hasAudience: boolean;
-  hasCategory: boolean;
-
-  forcedSellingPoints: string[];
-  optionalSellingPoints: string[];
-  hasForcedSellingPoints: boolean;
-  hasOptional: boolean;
-};
-
-function buildUseForceLines(ctx: OutputRulesSuffixCtx): string[] {
-  const useForceLines: string[] = [
-    "",
-    "使用強制（必須・ラベル禁止）:",
-    "- 次の要素を、本文の自然な日本語として必ず反映する（項目名は書かない / 例:「goal:」禁止）。",
-    `- product_name：必須（1文目に含める）${ctx.pn ? `（"${ctx.pn}"を省略しない）` : ""}`,
-  ];
-
-  if (ctx.hasGoal) {
-    useForceLines.push("- goal（用途/目的）：必ず1回以上反映（言い換え可、説明調にしない）。");
-  } else {
-    useForceLines.push("- goal（用途/目的）：入力が空の場合は“想像で補わない”。");
-  }
-
-  // ✅ 生成側の対策（辞書なし）：audience は「原文（完全一致）を1回だけ」必ず含める
-  if (ctx.hasAudience) {
-    useForceLines.push(
-      `- audience（対象/利用者）：原文をそのまま1回だけ必ず含める（完全一致）${
-        ctx.audience ? `（"${ctx.audience}"を省略しない）` : ""
-      }。言い換えで置き換えない。繰り返し禁止。`,
-    );
-    useForceLines.push("- audience は、ヘッド2文のどちらかに入れる（箇条書きだけに押し込まない）。");
-  } else {
-    useForceLines.push("- audience（対象/利用者）：入力が空の場合は“想像で補わない”。");
-  }
-
-  // ✅ C-2 本丸：selling_points は “事実/仕様寄り” だけを mustUse 対象にする
-  if (ctx.hasForcedSellingPoints) {
-    const listText = truncateJoinQuoted(ctx.forcedSellingPoints, 6);
-    const minReq = Math.min(2, ctx.forcedSellingPoints.length);
-    useForceLines.push(
-      `- selling_points（特徴・強み／事実・仕様寄りのみ強制）：以下の中から最低${minReq}点を必ず反映（そのまま or 言い換え可）${
-        listText ? `：${listText}` : "。"
-      }`,
-    );
-  } else {
-    useForceLines.push("- selling_points（特徴・強み／事実・仕様寄りのみ強制）：入力が空の場合は“想像で補わない”。");
-  }
-
-  if (ctx.hasOptional) {
-    const listText = truncateJoinQuoted(ctx.optionalSellingPoints, 6);
-    useForceLines.push(
-      `- selling_points（任意素材／強制しない）：${listText ? `入力に含まれる（例：${listText}）` : "入力に含まれる"}。`,
-    );
-    useForceLines.push("- 任意素材を使う場合：ヘッドには書かない。本文（箇条書き）のみで“事実（機能/調整/可動/数値等）に寄せて”短く書く。");
-    useForceLines.push("- 根拠が無い評価語は、そのまま使わず、事実ベースに言い換える（または触れない）。");
-  }
-
-  if (ctx.hasCategory) {
-    useForceLines.push("- category：不自然にならない範囲で反映（無理に入れて不自然なら入れない）。");
-  }
-
-  useForceLines.push("- 反映は「ヘッド2文 + 箇条書き3点」のどこに入れてもよいが、欠落は禁止。");
-
-  return useForceLines;
-}
-
-function buildOutputRulesLines(ctx: OutputRulesSuffixCtx, useForceLines: string[], normalized: NormalizedInput): string[] {
-  // ✅ 合意③：A2固定は「機能入力があるときだけ」強制（捏造圧を除去）
-  const shouldForceA2 = hasFeatureInput(normalized);
-
-  return [
-    "",
-    "---",
-    "出力ルール（厳守）:",
-    "- 見出し（## 等）を出さない。",
-    "- ヘッド2文（用途+主ベネフィット / 使用シーン）→ 箇条書き3点の順に出力する。",
-    "- 抽象まとめ・同義反復で水増ししない。",
-    "- 短文化は努力目標ではなく制約（余計な説明を足さない）。",
-    "- 固有情報は入力にあるもののみ（推測/捏造禁止）。",
-    "",
-    "80点（固定）を満たすための制約:",
-    "- 文章内に「数値/単位/仕様語（例: 12席, 450ml, LED, USB, Type-C など）」が入力にある場合は、最低1つ必ず入れる（入力に無ければ追加しない）。",
-    "",
-    "ヘッドの制約:",
-    `- 1文目は product_name を必ず含める${ctx.pn ? `（"${ctx.pn}"を省略しない）` : ""}。`,
-    "- 1文目は「用途+主ベネフィット」を事実ベースで短く書く（説明禁止）。",
-    "- 2文目は「使用シーン」のみを書く（説明禁止）。",
-    "- 2文目は名詞で終わらせず、動作を1つ入れる（例:『デスクで資料を書きながら使います。』）。",
-    "- ヘッドで「重要」「サポート」「〜でしょう」などの水増し語を入れない。",
-    "- ヘッドでは“評価語（快適/使いやすい/目に優しい等）”を書かない。",
-    "",
-    "ボディ（箇条書き）:",
-    "- 箇条書きは必ず3点。必ず改行し、1行1点にする（1行に複数要素を詰めない）。",
-    "",
-    ...(shouldForceA2
-      ? [
-          "✅ A2固定（箇条書き2行の型を条件付き強制）:",
-          "- 1点目（A2-1）：必ずこの型で書く → 『〈機能〉で、〈困りごと〉をしにくくします。』",
-          "- 2点目（A2-2）：必ずこの型で書く → 『〈仕様〉で、〈手間/回数〉を減らします。』",
-          "- 3点目（自由枠）：価値/汎用性（使う場面が増える・手間が減る等）を短く1行で書く。",
-          "- 1点目と2点目は「機能→効果」になっていること（“機能列挙だけ”は禁止）。",
-          "",
-        ]
-      : []),
-    "補助:",
-    "- objections/cta_preference が入力にある場合のみ末尾に短く補助（無ければ出さない）。",
-    ...useForceLines,
-  ];
-}
-
-function buildOutputRulesSuffix(normalized: NormalizedInput): string {
-  const templateKey = resolveTemplateKey(normalized);
-  const isSNS = isSnsLikeTemplate(templateKey);
-  const pn = (normalized.product_name ?? "").toString().trim();
-
-  const goal = (normalized.goal ?? "").toString().trim();
-  const audience = (normalized.audience ?? "").toString().trim();
-  const category = (normalized.category ?? "").toString().trim();
-  const sellingPoints = Array.isArray(normalized.selling_points) ? normalized.selling_points : [];
-
-  const hasGoal = Boolean(goal);
-  const hasAudience = Boolean(audience);
-  const hasCategory = Boolean(category);
-
-  // ✅ C-2: selling_points を分離（事実/仕様寄り＝強制、その他＝任意素材）
-  const classified = classifySellingPoints(sellingPoints);
-  const forcedSellingPoints = classified.facts;
-  const optionalSellingPoints = classified.optional;
-
-  const hasForcedSellingPoints = forcedSellingPoints.length > 0;
-  const hasOptional = optionalSellingPoints.length > 0;
-
-  const ctx: OutputRulesSuffixCtx = {
-    isSNS,
-    pn,
-    goal,
-    audience,
-    category,
-    sellingPoints,
-    hasGoal,
-    hasAudience,
-    hasCategory,
-    forcedSellingPoints,
-    optionalSellingPoints,
-    hasForcedSellingPoints,
-    hasOptional,
-  };
-
-  const useForceLines = buildUseForceLines(ctx);
-  const rules = buildOutputRulesLines(ctx, useForceLines, normalized).join("\n");
-
-  if (ctx.isSNS) return `${rules}\n- SNS投稿として不自然に長くしない。`;
-  return rules;
 }
 
 function buildCtaBlockContract(): CtaBlockContract {
@@ -568,410 +431,443 @@ function buildCtaBlockContract(): CtaBlockContract {
 }
 
 /* =========================
-   Internal Scoring（L3違反スコア）
+   Atomic Facts
 ========================= */
 
-type L3ScoreDetail = {
-  score: number;
-  reasons: string[];
-  facts: {
-    headSentences: number;
-    hasHeading: boolean;
-    bulletLines: number;
-    hasProductNameInHead1: boolean;
-    headHasBannedWord: boolean;
-    hasCanDoPhrase: boolean;
-    bulletLooksCollapsed: boolean;
-  };
-};
+function pushAtomicFact(
+  out: AtomicFact[],
+  seen: Set<string>,
+  fact: Omit<AtomicFact, "id">,
+) {
+  const text = normalizeJaText(fact.text);
+  if (!text) return;
+
+  const dedupeKey = `${fact.kind}:${text}`;
+  if (seen.has(dedupeKey)) return;
+  seen.add(dedupeKey);
+
+  out.push({
+    id: `fact_${out.length + 1}`,
+    ...fact,
+    text,
+  });
+}
+
+export function buildAtomicFacts(normalized: NormalizedInput): AtomicFact[] {
+  const facts: AtomicFact[] = [];
+  const seen = new Set<string>();
+
+  pushAtomicFact(facts, seen, {
+    kind: "PRODUCT_NAME",
+    text: normalized.product_name,
+    required: true,
+    source: "input",
+    priority: 100,
+  });
+
+  pushAtomicFact(facts, seen, {
+    kind: "CATEGORY",
+    text: normalized.category,
+    required: false,
+    source: "input",
+    priority: 50,
+  });
+
+  pushAtomicFact(facts, seen, {
+    kind: "AUDIENCE",
+    text: normalized.audience,
+    required: false,
+    source: "input",
+    priority: 90,
+  });
+
+  for (const text of uniqueNonEmptyStrings([...normalized.selling_points, ...normalized.evidence])) {
+    pushAtomicFact(facts, seen, {
+      kind: UNIT_OR_NUMBER_RE.test(text) || SPEC_MARKER_RE.test(text) ? "SPEC" : "EVIDENCE",
+      text,
+      required: false,
+      source: "input",
+      priority: UNIT_OR_NUMBER_RE.test(text) || SPEC_MARKER_RE.test(text) ? 80 : 70,
+    });
+  }
+
+  for (const text of uniqueNonEmptyStrings(normalized.keywords)) {
+    pushAtomicFact(facts, seen, {
+      kind: "KEYWORD",
+      text,
+      required: false,
+      source: "input",
+      priority: 40,
+    });
+  }
+
+  for (const text of uniqueNonEmptyStrings(normalized.constraints)) {
+    pushAtomicFact(facts, seen, {
+      kind: "CONSTRAINT",
+      text,
+      required: false,
+      source: "input",
+      priority: 45,
+    });
+  }
+
+  return facts.sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id));
+}
+
+export function pickPrimaryFactByKind(
+  facts: AtomicFact[],
+  kind: AtomicFactKind,
+): AtomicFact | null {
+  return facts.find((fact) => fact.kind === kind) ?? null;
+}
+
+function filterFactsByKind(facts: AtomicFact[], kind: AtomicFactKind): AtomicFact[] {
+  return facts.filter((fact) => fact.kind === kind);
+}
+
+function uniqueFacts(facts: Array<AtomicFact | null | undefined>): AtomicFact[] {
+  const out: AtomicFact[] = [];
+  const seen = new Set<string>();
+
+  for (const fact of facts) {
+    if (!fact) continue;
+    if (seen.has(fact.id)) continue;
+    seen.add(fact.id);
+    out.push(fact);
+  }
+
+  return out;
+}
+
+function buildUsableFactsForRenderer(facts: AtomicFact[]): AtomicFact[] {
+  const productFact = pickPrimaryFactByKind(facts, "PRODUCT_NAME");
+  const categoryFact = pickPrimaryFactByKind(facts, "CATEGORY");
+  const audienceFact = pickPrimaryFactByKind(facts, "AUDIENCE");
+  const specFacts = filterFactsByKind(facts, "SPEC");
+  const evidenceFacts = filterFactsByKind(facts, "EVIDENCE");
+  const keywordFacts = filterFactsByKind(facts, "KEYWORD");
+  const constraintFacts = filterFactsByKind(facts, "CONSTRAINT");
+
+  return uniqueFacts([
+    productFact,
+    categoryFact,
+    audienceFact,
+    specFacts[0],
+    evidenceFacts[0],
+    specFacts[1],
+    evidenceFacts[1],
+    keywordFacts[0],
+    constraintFacts[0],
+  ]).slice(0, 8);
+}
+
+/* =========================
+   Prose Prompt
+========================= */
+
+function buildProseSystem(args: {
+  toneKey: string;
+  isSNS: boolean;
+}): string {
+  const baseSystem = buildSystemPrompt({
+    toneKey: args.toneKey,
+    overrides: undefined,
+  } as any);
+
+  const systemLines = [
+    "あなたはEC向けの商品紹介文を書くライターです。出力は日本語の本文のみです。",
+    "自然な日本語を最優先してください。説明くささや、型どおりに埋める感じを避けてください。",
+    "意味判断は入力からあなたが行ってください。機械側の分類名や推定ラベルは本文に持ち込まないでください。",
+    "入力にない具体値や比較優位は足さないでください。",
+    "英字の項目名や変数名は本文に出さないでください。",
+    "見出し、FAQ、自己評価、注釈は出さないでください。",
+  ];
+
+  if (args.isSNS) {
+    systemLines.push("SNS向けであっても、不自然な省略や過度な煽りは避けてください。");
+  }
+
+  return [baseSystem, systemLines.join("\n")].join("\n\n");
+}
+
+function buildHeadFirstHardFloorBlock(args: {
+  productName: string;
+}): string[] {
+  const lines = [
+    "出力はヘッド2文のあとに箇条書き3点です。",
+    "1文目を書き終えてから2文目へ進み、2文目を書いたらヘッドを閉じてください。",
+  ];
+
+  if (args.productName) {
+    lines.push(`1文目は、必ず「${args.productName}」から書き始めてください。商品名より前に別の語を置かないでください。`);
+  } else {
+    lines.push("1文目は、必ず商品名から書き始めてください。商品名より前に別の語を置かないでください。");
+  }
+
+  lines.push("1文目は1文だけで止め、句点で閉じてください。1文目の中で内容を詰め込みすぎないでください。");
+  lines.push("2文目は1文目の続きとして自然に読める1文にしてください。1文目の言い換えや抽象的な総評だけで閉じないでください。");
+
+  return lines;
+}
+
+function buildMinimalSceneHandoffBlock(): string[] {
+  return [
+    "入力を読んで、2〜3秒の自然な使用場面を頭の中で1つだけ選んでください。",
+    "その場面の意味づけや焦点化は、入力からあなたが判断してください。機械側で scene / need / action は決めません。",
+    "1文目では、その場面への入口を自然に書いてください。",
+    "2文目では、その入口の続きとして、次に起きることを自然な1文で書いてください。",
+  ];
+}
+
+function buildBodyShapeBlock(): string[] {
+  return [
+    "箇条書きは3点だけにしてください。",
+    "箇条書き3点は、同じ内容の言い換えを避けてください。",
+    "箇条書きでは、入力にある情報だけを使って具体的に書いてください。",
+  ];
+}
+
+function buildMinimalSafetyLines(): string[] {
+  return [
+    "商品名は原文のまま書いてください。",
+    "入力にない具体値は足さないでください。",
+    "英字の項目名や変数名は本文に出さないでください。",
+    "プレースホルダーや内部用ラベルを本文に出さないでください。",
+  ];
+}
+
+function buildShapeRescueLines(): string[] {
+  return [
+    "shape rescue: 内容の意味は変えず、出力の外形だけ立て直してください。",
+    "shape rescue: 1文目は商品名から始まる1文だけを書いてください。",
+    "shape rescue: 2文目は1文目の続きとなる1文だけを書いてください。",
+    "shape rescue: そのあと箇条書き3点だけを書いてください。",
+  ];
+}
+
+function buildShapeRescueUserMessage(baseUser: string): string {
+  return [baseUser, "", ...buildShapeRescueLines()].join("\n");
+}
+
+function buildPromptContextBlock(args: {
+  normalized: NormalizedInput;
+  usableFacts: AtomicFact[];
+}): string[] {
+  const lines: string[] = [];
+
+  const productName = normalizeJaText(args.normalized.product_name);
+  const category = normalizeJaText(args.normalized.category);
+  const audience = normalizeJaText(args.normalized.audience);
+  const goal = normalizeJaText(args.normalized.goal);
+
+  if (productName) lines.push(`商品名: ${productName}`);
+  if (category) lines.push(`カテゴリ: ${category}`);
+  if (audience) lines.push(`想定読者: ${audience}`);
+  if (goal) lines.push(`入力ゴール: ${goal}`);
+
+  const materialFacts = uniqueNonEmptyStrings(
+    args.usableFacts
+      .filter((fact) =>
+        ["SPEC", "EVIDENCE", "KEYWORD", "CONSTRAINT"].includes(fact.kind),
+      )
+      .map((fact) => fact.text),
+  ).slice(0, 6);
+
+  if (materialFacts.length > 0) {
+    lines.push("使ってよい材料:");
+    for (const value of materialFacts) {
+      lines.push(`- ${value}`);
+    }
+    lines.push("上の材料は本文にそのまま貼らず、自然な日本語にほどいて使ってください。");
+  }
+
+  return lines;
+}
+
+type CandidateDiversityHint =
+  | "goal_first"
+  | "scene_first"
+  | "feature_to_scene";
+
+function resolveCandidateDiversityHint(
+  candidateIndex: number,
+): CandidateDiversityHint {
+  switch (candidateIndex) {
+    case 0:
+      return "goal_first";
+    case 1:
+      return "scene_first";
+    default:
+      return "feature_to_scene";
+  }
+}
+
+function buildCandidateDiversityLines(
+  diversityHint: CandidateDiversityHint,
+): string[] {
+  switch (diversityHint) {
+    case "goal_first":
+      return [
+        "この候補では、入力ゴールへの整合を最優先してください。",
+        "何をしやすくしたいか、何を変えたいかが本文の早い位置で自然に読めるようにしてください。",
+        "ただし目的説明だけで閉じず、短い使用場面にも自然に着地してください。",
+      ];
+    case "scene_first":
+      return [
+        "この候補では、2〜3秒の短い使用場面を先に自然に立ち上げてください。",
+        "手に取る瞬間や置く場面、使い始める流れが先に浮かび、そのあと使いやすさや意味につながるようにしてください。",
+      ];
+    case "feature_to_scene":
+      return [
+        "この候補では、扱いやすさや特徴を入口にしてかまいません。",
+        "ただし特徴説明だけで止めず、その特徴がどんな場面で役に立つかへ自然につなげてください。",
+      ];
+  }
+}
+
+function buildProseUser(args: {
+  normalized: NormalizedInput;
+  usableFacts: AtomicFact[];
+  diversityHint: CandidateDiversityHint;
+}): string {
+  const productName = normalizeJaText(args.normalized.product_name);
+
+  const promptLines = [
+    ...buildHeadFirstHardFloorBlock({ productName }),
+    ...buildMinimalSceneHandoffBlock(),
+    ...buildBodyShapeBlock(),
+    ...buildMinimalSafetyLines(),
+    ...buildCandidateDiversityLines(args.diversityHint),
+    ...buildPromptContextBlock(args),
+  ];
+
+  return promptLines.join("\n");
+}
+
+/* =========================
+   Text Structure Helpers
+========================= */
 
 function splitHeadAndBody(text: string): { head: string; body: string } {
   const t = (text ?? "").toString().replace(/\r\n/g, "\n").trim();
   if (!t) return { head: "", body: "" };
+
   const idxBullet = t.search(/(^|\n)\s*[・\-]/m);
-  if (idxBullet >= 0) return { head: t.slice(0, idxBullet).trim(), body: t.slice(idxBullet).trim() };
+  if (idxBullet >= 0) {
+    return {
+      head: t.slice(0, idxBullet).trim(),
+      body: t.slice(idxBullet).trim(),
+    };
+  }
+
   return { head: t, body: "" };
 }
 
-function countHeadSentences(head: string): number {
-  const h = (head ?? "").toString().trim();
-  if (!h) return 0;
-  const byMaru = h.split("。").map((s) => s.trim()).filter(Boolean);
-  if (byMaru.length >= 1) return byMaru.length;
-  const byLine = h.split("\n").map((s) => s.trim()).filter(Boolean);
-  return byLine.length;
+function splitJapaneseSentences(text: string): string[] {
+  const t = (text ?? "").toString().replace(/\r\n/g, "\n").trim();
+  if (!t) return [];
+
+  return t
+    .split(/[。！？!?]\s*|\n+/)
+    .map((part) => part.replace(/^[・\-]\s*/, "").trim())
+    .filter(Boolean);
 }
 
-function extractHead1(head: string): string {
-  const h = (head ?? "").toString().trim();
-  if (!h) return "";
-  const i = h.indexOf("。");
-  if (i >= 0) return h.slice(0, i + 1);
-  const line = h.split("\n").map((s) => s.trim()).filter(Boolean)[0] ?? "";
-  return line;
+function countHeadSentences(head: string): number {
+  return splitJapaneseSentences(head).length;
+}
+
+function extractHeadSentences(head: string): [string, string] {
+  const sentences = splitJapaneseSentences(head);
+  return [sentences[0] ?? "", sentences[1] ?? ""];
 }
 
 function collectBulletLines(body: string): string[] {
-  const b = (body ?? "").toString().replace(/\r\n/g, "\n").trim();
-  if (!b) return [];
-  return b
-    .split("\n")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .filter((ln) => /^[・\-]\s*/.test(ln));
-}
-
-/**
- * ✅ repair（最小・安全）
- * - 1行詰め込み（・A・B・C / ・ A・ B・ C）→ 1行1点に分解
- * - ✅ 途中改行で「る。」「ます。」等が独立行になった場合は直前の箇条書きに吸収（UI崩れ防止）
- * - ✅ さらに「。」だけが独立行になった場合も、直前の箇条書きに吸収
- * - その後、必ず「最大3点」に丸める（②型を安定して勝たせるため）
- * - 返すのは“本文だけ”のまま（付与はしない）
- *
- * 重要:
- * - 「保温・保冷」のような “語彙中点” は極力分割しない
- * - 分割対象は「箇条書きの詰め込み」と判断できる区切り中点のみ
- */
-function repairBulletsToMax3(text: string): { text: string; didRepair: boolean } {
-  const raw = (text ?? "").toString().replace(/\r\n/g, "\n").trim();
-  if (!raw) return { text: raw, didRepair: false };
-
-  const { head, body } = splitHeadAndBody(raw);
-  if (!body) return { text: raw, didRepair: false };
-
-  const lines = body.split("\n").map((s) => s.trim()).filter(Boolean);
-
-  let didRepair = false;
-  const repairedBullets: string[] = [];
-  const tailLines: string[] = [];
-
-  const looksLikeSeparatorStart = (s: string): boolean => {
-    const t = (s ?? "").toString().trim();
-    if (!t) return false;
-
-    if (/^[0-9A-Za-z]/.test(t)) return true;
-    if (/^[「『（(【]/.test(t)) return true;
-    if (/^(?:.{1,12}?)(?:を|が|に|で|と|の|や|へ|も|な)/.test(t)) return true;
-    if (/^(?:し|でき|なる|保て|守れ|使え)/.test(t)) return true;
-
-    return false;
-  };
-
-  const splitCollapsedBullet = (stripped: string): string[] => {
-    const s = (stripped ?? "").toString().trim();
-    if (!s) return [];
-
-    const dotCount = (s.match(/・/g) ?? []).length;
-    if (dotCount <= 1) return [s];
-
-    const parts: string[] = [];
-    let buf = "";
-
-    for (let i = 0; i < s.length; i++) {
-      const ch = s[i];
-      if (ch !== "・") {
-        buf += ch;
-        continue;
-      }
-
-      const right = s.slice(i + 1);
-      const rightTrimmed = right.replace(/^[ \t\u3000]+/, "");
-      const isSeparator = looksLikeSeparatorStart(rightTrimmed);
-
-      if (isSeparator) {
-        const left = buf.trim();
-        if (left) parts.push(left);
-        buf = "";
-        continue;
-      }
-
-      buf += ch;
-    }
-
-    const last = buf.trim();
-    if (last) parts.push(last);
-
-    if (parts.length <= 1) return [s];
-
-    return parts;
-  };
-
-  // ✅ 「途中改行で続きだけが1行になる」ケースを最小で吸収
-  const canJoinContinuation = (prevBulletLine: string, currLine: string): boolean => {
-    const prev = (prevBulletLine ?? "").toString().trim();
-    const curr = (currLine ?? "").toString().trim();
-    if (!prev || !curr) return false;
-
-    // 既に文末なら join しない
-    if (/[。！？!?]$/.test(prev)) return false;
-
-    // 長い行は誤結合リスクがあるので join しない
-    if (curr.length > 8) return false;
-
-    // 箇条書きや見出しっぽい開始は除外
-    if (/^[・\-]\s*/.test(curr)) return false;
-    if (/^[0-9A-Za-z「『（(【]/.test(curr)) return false;
-
-    // ✅ 句点/感嘆符/疑問符「だけ」の行は join して良い
-    if (/^[。！？!?]+$/.test(curr)) return true;
-
-    // ひらがなだけ（+句点/感嘆符）等の「続き行」っぽいときだけ join
-    if (/^[ぁ-ん]+[。！？!?]?$/.test(curr)) return true;
-
-    return false;
-  };
-
-  for (const ln of lines) {
-    const isBullet = /^[・\-]\s*/.test(ln);
-
-    if (!isBullet) {
-      // 直前の箇条書きに「続き行」を吸収できるなら吸収する
-      if (repairedBullets.length > 0) {
-        const lastIdx = repairedBullets.length - 1;
-        const prevLine = repairedBullets[lastIdx] ?? "";
-        if (canJoinContinuation(prevLine, ln)) {
-          didRepair = true;
-          repairedBullets[lastIdx] = prevLine.replace(/\s+$/g, "") + ln;
-          continue;
-        }
-      }
-
-      tailLines.push(ln);
-      continue;
-    }
-
-    const bulletMark = ln.startsWith("-") ? "-" : "・";
-    const stripped = ln.replace(/^[・\-]\s*/, "").trim();
-
-    const parts = splitCollapsedBullet(stripped);
-
-    if (parts.length >= 2) {
-      didRepair = true;
-      for (const p of parts) repairedBullets.push(`${bulletMark} ${p}`.trim());
-      continue;
-    }
-
-    repairedBullets.push(`${bulletMark} ${stripped}`.trim());
-  }
-
-  if (repairedBullets.length > 3) {
-    didRepair = true;
-    repairedBullets.splice(3);
-  }
-
-  const rebuiltBody = [...repairedBullets, ...tailLines].join("\n").trim();
-  const rebuilt = rebuiltBody ? `${head}\n\n${rebuiltBody}`.trim() : head.trim();
-
-  return { text: rebuilt, didRepair };
-}
-
-/**
- * 80点（固定）の“検知”用ヘルパー（辞書に寄せず、パターン中心）
- */
-function hasAnySpecOrNumber(text: string): boolean {
-  const t = (text ?? "").toString();
-  if (!t) return false;
-
-  // 数値/単位（仕様シグナル）
-  const UNIT_OR_NUMBER_RE =
-    /[0-9０-９]+|%|％|mm|cm|m|g|kg|mg|ml|mL|l|L|W|w|V|v|Hz|kHz|lm|ルーメン|インチ|時間|分|秒|年|回|段階/;
-
-  // 仕様語（最低限：増やす運用にしない）
-  const SPEC_MARKERS_RE = /(LED|USB|Type-?C|Bluetooth|Wi-?Fi|可動|調整|角度|高さ|明るさ)/;
-
-  return UNIT_OR_NUMBER_RE.test(t) || SPEC_MARKERS_RE.test(t);
-}
-
-function head2HasAction(head2: string): boolean {
-  const h = (head2 ?? "").toString().trim();
-  if (!h) return false;
-
-  // ✅ STEP3（情景1カット安定化のみ）:
-  // - HEAD2_NO_ACTION の誤判定（false negative）を減らすため、
-  //   「活用形を吸う最小拡張」を追加する
-  // - 他レイヤー/他減点には触らない
-  //
-  // 方針:
-  // 1) 明示的な動作語（既存）を残す
-  // 2) “～たい/～ます/～て/～で/～る/～た/～ない/～れる/～られる/～しやすい/～しにくい/～しづらい/～ながら/～つつ”
-  //    のような活用形・接続を拾って「動作あり」とみなす（最小拡張）
-  const ACTION_RE =
-    /(?:して|しながら|するとき|しつつ|している|してる|しない|します|しました|できる|できて|使う|使って|置く|置いて|持つ|持って|運ぶ|運んで|書く|書いて|読む|読んで|飲む|飲んで|楽しむ|楽しんで|作業|会議|移動|撮影)/;
-
-  // 活用形・接続（最小拡張）
-  const ACTION_TAIL_RE =
-    /(?:ます|ました|ません|たい|て|で|る|た|ない|れる|られる|せる|しやす(?:い|く)|しにく(?:い|く)|しづら(?:い|く)|ながら|つつ)/;
-
-  // 既存動作語があれば即OK
-  if (ACTION_RE.test(h)) return true;
-
-  // 文章中に活用形・接続があれば「動作あり」とみなす（誤判定を避ける）
-  return ACTION_TAIL_RE.test(h);
-}
-
-function head2LooksLikeSceneOnly(head2: string): boolean {
-  const h = (head2 ?? "").toString().trim();
-  if (!h) return false;
-
-  // “説明”寄りの接続（最小でチェック）
-  const EXPLAIN_RE = /(?:ため|ので|から|により|ことで|つまり|結果|そのため)/;
-  const CAN_DO_RE = /(?:できます|することができます)/;
-  const ABSTRACT_RE = /(?:役立つ|活用|実現します|最適|便利|使いやすい|人気)/;
-
-  if (EXPLAIN_RE.test(h)) return false;
-  if (CAN_DO_RE.test(h)) return false;
-  if (ABSTRACT_RE.test(h)) return false;
-
-  return true;
-}
-
-function countBulletsWithFuncEffect(bullets: string[]): number {
-  const xs = (bullets ?? []).slice(0, 3);
-
-  // “機能→効果”っぽい接続
-  const LINK_RE = /(?:で|により|から|によって)/;
-
-  // 効果（困りごと解消/状態改善）
-  // ✅ 最小拡張:
-  // - 「しやすい/しやすく」「しにくい/しにくく」を吸う（結露しにくく 等）
-  // - 「保つ/保ちます/保てます」「減らす/減らします」を吸う（活用形の穴埋め）
-  const EFFECT_RE =
-    /(?:しやす(?:い|く)|しにく(?:い|く)|防ぐ|防止|抑える|減ら(?:す|し(?:ます|ました|ません)?)|軽減|回避|守る|保(?:つ|ち(?:ます|ました|ません)?|て(?:る|ます)?)|維持|短縮|効率|濡れにく(?:い|く)|疲れにく(?:い|く)|こぼれにく(?:い|く)|割れにく(?:い|く)|崩れにく(?:い|く))/;
-
-  let ok = 0;
-  for (const b of xs) {
-    const line = (b ?? "").toString();
-    if (!line) continue;
-
-    // 先頭の記号は外す
-    const stripped = line.replace(/^[・\-]\s*/, "").trim();
-    if (!stripped) continue;
-
-    if (LINK_RE.test(stripped) && EFFECT_RE.test(stripped)) {
-      ok += 1;
-      continue;
-    }
-
-    // もう一段だけ許容（「〜しにくい」単体でも効果が明確ならOK）
-    if (EFFECT_RE.test(stripped)) {
-      ok += 1;
-      continue;
-    }
-  }
-
-  return ok;
-}
-
-/**
- * ✅ 方式C：日本語破綻ペナルティ（少数パターン）
- * - 禁句リスト依存ではなく「破綻パターン」を見る
- * - 誤爆しにくいものだけを最小セットで重めに減点
- */
-type JaBreakHit = { key: string; penalty: number };
-
-function detectJapaneseBreakage(text: string): JaBreakHit[] {
-  const t = (text ?? "").toString().replace(/\r\n/g, "\n");
+  const t = (body ?? "").toString().replace(/\r\n/g, "\n").trim();
   if (!t) return [];
 
-  const hits: JaBreakHit[] = [];
-  const push = (key: string, penalty: number) => hits.push({ key, penalty });
-
-  // 1) 助詞破綻（観測）：◯◯をために / ◯◯をための
-  if (/(?:を|に)\s*ため(?:に|の)/.test(t)) push("JA_BREAK_PARTICLE_TAME", 18);
-
-  // 2) 明らかな重複構文：XのXで（最小）
-  if (/([ぁ-んァ-ン一-龥]{2,})の\1で/.test(t)) push("JA_BREAK_X_NO_X_DE", 14);
-
-  // 3) 近接同一語の連発（場所語に限定して誤爆低減）
-  //    例：オフィス…オフィス（短距離）
-  if (/(オフィス|職場|デスク|会議|カフェ).{0,8}\1/.test(t)) push("JA_BREAK_NEAR_DUP_LOCATION", 10);
-
-  // 4) 典型破綻：オフィスやカフェのオフィスで（観測系を最小で拾う）
-  //    “や/と” + “の” + 同語再登場
-  if (/(オフィス|職場|デスク|会議|カフェ)[やと](オフィス|職場|デスク|会議|カフェ)の\1で/.test(t)) {
-    push("JA_BREAK_YA_TO_NO_REPEAT", 16);
-  }
-
-  return hits;
+  return t
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => /^[・\-]\s*/.test(line));
 }
 
-/**
- * ✅ 80点（自然さ）: 根拠のない強い断定の検知（最小・誤爆を避ける）
- * - 強断言（誤爆が少ない）は本文内にあれば即NG
- * - 「必ず/確実」は誤爆しやすいので “文頭に出たときだけ” NG
- */
-function hasUnsupportedStrongAssertion(text: string): boolean {
-  const t = (text ?? "").toString();
-  if (!t) return false;
+/* =========================
+   Boundary / Safety Helpers
+========================= */
 
-  // 誤爆が少ない強断言（見つけたら即NG）
-  const HARD_ASSERT_RE = /(100%|１００％|No\.?1|Ｎｏ\.?１|no\.?1|業界初|永久|絶対|完璧)/;
-  if (HARD_ASSERT_RE.test(t)) return true;
+function extractSpecTokens(text: string): string[] {
+  const tokens: string[] = [];
+  const seen = new Set<string>();
 
-  // 誤爆しやすい語は “文頭” に限定（安全側）
-  const sentences = t
-    .replace(/\r\n/g, "\n")
-    .split("。")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const push = (value: string) => {
+    const token = (value ?? "").toString().trim();
+    if (!token || seen.has(token)) return;
+    seen.add(token);
+    tokens.push(token);
+  };
 
-  for (const s of sentences) {
-    if (/^(必ず|確実)\b/.test(s)) return true;
-    // 「必ず」「確実」が行頭（改行後）に来るケースも拾う
-    if (/^(?:[・\-]\s*)?(必ず|確実)\b/.test(s)) return true;
+  for (const match of text.match(/(?:[0-9０-９]{1,6})(?:\s*(?:%|％|mm|cm|m|g|kg|mg|ml|mL|l|L|W|w|V|v|Hz|kHz|lm|ルーメン|インチ|時間|分|秒|年|回|段階))?/g) ?? []) {
+    push(match);
+  }
+  for (const match of text.match(/(?:LED|USB|Type-?C|Bluetooth|Wi-?Fi|可動|調整|角度|高さ|明るさ)/g) ?? []) {
+    push(match);
+  }
+
+  return tokens;
+}
+
+function hasSpecInflation(outputText: string, normalized: NormalizedInput): boolean {
+  const inputTokens = new Set(extractSpecTokens(buildInputText(normalized)));
+  const outputTokens = extractSpecTokens(outputText);
+
+  for (const token of outputTokens) {
+    if (inputTokens.has(token)) continue;
+    const digitsOnly = token.replace(/[^\d０-９]/g, "");
+    if (digitsOnly) {
+      const sameDigits = Array.from(inputTokens).some(
+        (inputToken) => inputToken.replace(/[^\d０-９]/g, "") === digitsOnly,
+      );
+      if (sameDigits && digitsOnly === token) continue;
+    }
+    return true;
   }
 
   return false;
 }
 
-/**
- * ✅ 80点（自然さ）: 語尾の連発検知（最小）
- * - 「です/ます/します」等の終端が2回以上連続したらNG
- */
-function hasRepeatedSentenceEnding(text: string): boolean {
-  const t = (text ?? "").toString().replace(/\r\n/g, "\n").trim();
+function hasUnsupportedStrongAssertion(text: string): boolean {
+  const t = (text ?? "").toString();
   if (!t) return false;
+  if (/(100%|１００％|No\.?1|Ｎｏ\.?１|業界初|永久|絶対|完璧)/.test(t)) return true;
 
-  // ✅ A案：語尾連発は「ヘッド（2文）」だけで判定する（箇条書きは除外）
-  const { head } = splitHeadAndBody(t);
-  const h = (head ?? "").toString().replace(/\r\n/g, "\n").trim();
-  if (!h) return false;
+  const sentences = splitJapaneseSentences(t);
+  return sentences.some((sentence) => /^(?:[・\-]\s*)?(必ず|確実)\b/.test(sentence));
+}
 
-  const sentences = h
-    .split("。")
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  const pickEnding = (s: string): string => {
-    const x = (s ?? "").toString().trim();
-    if (!x) return "";
-
-    // よくある終端を優先して拾う
-    const m =
-      x.match(/(です|ます|します|しました|でした|でしたら|でしょう|できます)$/) ??
-      x.match(/(ない|ないです|ません|ませんでした)$/);
-    if (m && m[1]) return m[1];
-
-    // 最後の4文字（汎用フォールバック）
-    return x.slice(Math.max(0, x.length - 4));
-  };
-
+function hasRepeatedSentenceEnding(text: string): boolean {
+  const { head } = splitHeadAndBody(text);
+  const sentences = splitJapaneseSentences(head);
   let prev = "";
   let streak = 1;
 
-  for (const s of sentences) {
-    // 短すぎる文はノイズなので飛ばす
-    if (s.length <= 3) continue;
+  const pickEnding = (sentence: string): string => {
+    const s = sentence.trim();
+    const match = s.match(/(です|ます|します|しました|でした|でしょう|できます|ない|ません)$/);
+    if (match?.[1]) return match[1];
+    return s.slice(Math.max(0, s.length - 4));
+  };
 
-    const end = pickEnding(s);
-    if (!end) continue;
-
-    if (prev && end === prev) {
+  for (const sentence of sentences) {
+    if (sentence.length <= 3) continue;
+    const ending = pickEnding(sentence);
+    if (!ending) continue;
+    if (prev && ending === prev) {
       streak += 1;
-      if (streak >= 2) return true; // 2連続でNG（最小）
+      if (streak >= 2) return true;
     } else {
-      prev = end;
+      prev = ending;
       streak = 1;
     }
   }
@@ -979,652 +875,339 @@ function hasRepeatedSentenceEnding(text: string): boolean {
   return false;
 }
 
-/**
- * ✅ L3: 具体語比率型（Bodyのみ）
- * - 抽象語の禁止ではなく「具体ゼロを軽く不利」「具体が複数なら軽く有利」にする
- * - 既存L3構造/既存減点ロジックは変更しない（末尾で微調整のみ）
- *
- * 具体シグナル（合意済み）:
- * - 数字: /\d/
- * - 単位: ml | cm | 分 | 時 | 席
- * - 時間語: 朝 | 昼 | 休憩 | 会議 | 通勤 | 退勤
- * - 場所語: デスク | 机 | オフィス | カフェ | 自宅 | バッグ
- */
-function countConcreteSignalsInBody(body: string): number {
-  const b = (body ?? "").toString().replace(/\r\n/g, "\n");
-  if (!b) return 0;
+const PLACEHOLDER_LEAK_PATTERNS: Array<{ token: string; re: RegExp }> = [
+  { token: "product_name", re: /\bproduct_name\b/i },
+  { token: "audience", re: /\baudience\b/i },
+  { token: "goal_need", re: /\bgoal_need\b/i },
+  { token: "goal_scene", re: /\bgoal_scene\b/i },
+  { token: "goal_action", re: /\bgoal_action\b/i },
+  { token: "role_materials", re: /\brole_materials\b/i },
+  { token: "source_guard", re: /\bsource_guard\b/i },
+  { token: "reference_head_plan", re: /\breference_head_plan\b/i },
+  { token: "selected_facts", re: /\bselected_facts\b/i },
+  { token: "micro_scene_plan", re: /\bmicro_scene_plan\b/i },
+  { token: "writing_materials", re: /\bwriting_materials\b/i },
+  { token: "writing_contract", re: /\bwriting_contract\b/i },
+];
 
-  let n = 0;
+function detectPlaceholderLeakage(text: string): string[] {
+  const value = (text ?? "").toString();
+  if (!value) return [];
 
-  // 1) 数字系（半角のみ：合意通り /\d/）
-  if (/\d/.test(b)) n += 1;
-
-  // 2) 単位系
-  if (/(?:ml|cm|分|時|席)/.test(b)) n += 1;
-
-  // 3) 時間語
-  if (/(?:朝|昼|休憩|会議|通勤|退勤)/.test(b)) n += 1;
-
-  // 4) 場所語
-  if (/(?:デスク|机|オフィス|カフェ|自宅|バッグ)/.test(b)) n += 1;
-
-  return n;
+  const hits: string[] = [];
+  for (const item of PLACEHOLDER_LEAK_PATTERNS) {
+    if (item.re.test(value)) hits.push(item.token);
+  }
+  return hits;
 }
 
-/* =========================
-   L3 vNext: 入力密度に応じた評価モード
-========================= */
+export type FinalProseBoundaryResult = {
+  ok: boolean;
+  reasons: string[];
+  score: number;
+  warnings: string[];
+};
 
-function buildInputTextForScoring(normalized: NormalizedInput): string {
-  const join = (xs: unknown): string => uniqueNonEmptyStrings(xs).join("\n");
-  const parts = [
-    (normalized.product_name ?? "").toString(),
-    (normalized.category ?? "").toString(),
-    (normalized.goal ?? "").toString(),
-    (normalized.audience ?? "").toString(),
-    join(normalized.selling_points),
-    join(normalized.evidence),
-    join(normalized.constraints),
-    join(normalized.keywords),
-  ];
-  return parts.filter(Boolean).join("\n").trim();
-}
+function buildBoundaryWarnings(text: string, normalized: NormalizedInput): string[] {
+  const warnings: string[] = [];
 
-// ✅ 合意①：func入力判定は「非空」ではなく「根拠シグナルあり（facts）」で判定する
-function hasFeatureInput(normalized: NormalizedInput): boolean {
-  const spRaw = Array.isArray(normalized.selling_points) ? normalized.selling_points : [];
-  const evRaw = Array.isArray(normalized.evidence) ? normalized.evidence : [];
-
-  const sp = classifySellingPoints(uniqueNonEmptyStrings(spRaw)).facts;
-  const ev = classifySellingPoints(uniqueNonEmptyStrings(evRaw)).facts;
-
-  return sp.length > 0 || ev.length > 0;
-}
-
-function hasSpecInput(normalized: NormalizedInput): boolean {
-  // 「仕様入力あり」は、入力側テキストに “数値/単位/仕様語” が含まれるかで判定（文字数は使わない）
-  const inputText = buildInputTextForScoring(normalized);
-  return hasAnySpecOrNumber(inputText);
-}
-
-function extractSpecTokens(text: string): string[] {
-  const t = (text ?? "").toString().replace(/\r\n/g, "\n");
-  if (!t) return [];
-
-  const tokens: string[] = [];
-  const seen = new Set<string>();
-
-  // 数値 + 単位（できるだけ誤爆を避ける）
-  const NUM_UNIT_RE =
-    /(?:[0-9０-９]{1,6})(?:\s*(?:%|％|mm|cm|m|g|kg|mg|ml|mL|l|L|W|w|V|v|Hz|kHz|lm|ルーメン|インチ|時間|分|秒|年|回|段階))?/g;
-
-  // 仕様語（最小集合）
-  const SPEC_MARKERS_RE = /(LED|USB|Type-?C|Bluetooth|Wi-?Fi|可動|調整|角度|高さ|明るさ)/g;
-
-  const push = (s: string) => {
-    const x = (s ?? "").toString().trim();
-    if (!x) return;
-    if (seen.has(x)) return;
-    seen.add(x);
-    tokens.push(x);
-  };
-
-  const ms1 = t.match(NUM_UNIT_RE) ?? [];
-  for (const m of ms1) push(m);
-
-  const ms2 = t.match(SPEC_MARKERS_RE) ?? [];
-  for (const m of ms2) push(m);
-
-  return tokens;
-}
-
-function hasSpecInflation(outputText: string, normalized: NormalizedInput): boolean {
-  // 出力に “入力に無い” 数値/単位/仕様語が出たら NG（捏造圧を下げる核）
-  const inputText = buildInputTextForScoring(normalized);
-
-  const inputTokens = new Set(extractSpecTokens(inputText));
-  const outTokens = extractSpecTokens(outputText);
-
-  if (outTokens.length === 0) return false;
-
-  for (const tok of outTokens) {
-    // 出力トークンが入力にも存在すればOK
-    if (inputTokens.has(tok)) continue;
-
-    // 数字だけは誤爆があり得るので、入力に同じ “数字” があれば許容（単位違いは依然NG）
-    const digitsOnly = tok.replace(/[^\d０-９]/g, "");
-    if (digitsOnly && digitsOnly !== tok) {
-      // 数字+単位系はそのまま比較（単位違いは捏造になりやすい）
-    } else if (digitsOnly) {
-      const hasSameDigitsInInput = Array.from(inputTokens).some((it) => it.replace(/[^\d０-９]/g, "") === digitsOnly);
-      if (hasSameDigitsInInput) continue;
-    }
-
-    return true;
+  if (hasSpecInflation(text, normalized)) {
+    warnings.push("SPEC_INFLATION");
   }
 
-  return false;
-}
-
-function isPurposeAligned(headText: string, goalRaw: string): boolean {
-  const head = (headText ?? "").toString();
-  const goal = (goalRaw ?? "").toString().trim();
-  if (!goal) return true;
-
-  // そのまま含まれていれば合格（最優先）
-  if (head.includes(goal)) return true;
-
-  // 雑に単語抽出（日本語は形態素が無いので「事故らない最小」）
-  const stop = new Set(["ため", "向け", "したい", "した", "する", "用途", "目的", "の", "に", "を", "が", "で", "と", "や"]);
-  const rawTokens = goal
-    .replace(/\r\n/g, "\n")
-    .split(/[\s\n、。・/／|｜]+/g)
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  const tokens = rawTokens
-    .map((s) => s.replace(/[「」『』（）()【】]/g, "").trim())
-    .filter((s) => s.length >= 2)
-    .filter((s) => !stop.has(s));
-
-  // 2語までで十分（過剰な一致要求はしない）
-  for (const tk of tokens.slice(0, 2)) {
-    if (head.includes(tk)) return true;
+  if (hasUnsupportedStrongAssertion(text)) {
+    warnings.push("UNSUPPORTED_STRONG_ASSERTION");
   }
 
-  return false;
+  if (hasRepeatedSentenceEnding(text)) {
+    warnings.push("REPEATED_SENTENCE_ENDING");
+  }
+
+  return warnings;
 }
 
-// ✅ 合意②：goalが「依頼目的（商品説明/紹介文など）」なら PURPOSE_NOT_ALIGNED を評価しない
-function isGoalRequestType(goalRaw: string): boolean {
-  const g = (goalRaw ?? "").toString();
-  if (!g) return false;
-  return /(商品説明|説明文|紹介文|商品ページ|ランディング|LP)/.test(g);
+function normalizeBoundaryMatchText(text: string): string {
+  return (text ?? "")
+    .toString()
+    .replace(/\s+/g, "")
+    .replace(/[、。・\-‐‑‒–—―,:：;；!?！？()（）「」『』【】\[\]{}]/g, "")
+    .trim();
 }
 
-function shouldEvaluatePurpose(normalized: NormalizedInput): boolean {
-  const goal = (normalized.goal ?? "").toString().trim();
+function countNormalizedOccurrences(haystack: string, needle: string): number {
+  const source = normalizeBoundaryMatchText(haystack);
+  const target = normalizeBoundaryMatchText(needle);
+  if (!source || !target) return 0;
+
+  let count = 0;
+  let index = 0;
+  while (true) {
+    const found = source.indexOf(target, index);
+    if (found < 0) break;
+    count += 1;
+    index = found + target.length;
+  }
+
+  return count;
+}
+
+function collectRestatementSourceFragments(normalized: NormalizedInput): string[] {
+  return uniqueNonEmptyStrings([
+    normalized.goal,
+    ...normalized.selling_points,
+    ...normalized.evidence,
+    ...normalized.keywords,
+    ...normalized.constraints,
+  ]).filter((value) => normalizeBoundaryMatchText(value).length >= 8);
+}
+
+function hasSourceRestatement(textPart: string, normalized: NormalizedInput): boolean {
+  const target = normalizeBoundaryMatchText(textPart);
+  if (!target) return false;
+
+  return collectRestatementSourceFragments(normalized).some((fragment) => {
+    const source = normalizeBoundaryMatchText(fragment);
+    return source.length >= 8 && target.includes(source);
+  });
+}
+
+function extractGoalAnchorFragments(goal: string, normalized: NormalizedInput): string[] {
+  const productName = normalizeBoundaryMatchText(normalized.product_name);
+  const audience = normalizeBoundaryMatchText(normalized.audience);
+
+  const rawFragments =
+    normalizeJaText(goal).match(
+      /(?:[一-龠々]{1,6}(?:[ぁ-ん]{0,4})?|[ァ-ヶー]{2,}|[A-Za-z0-9]{2,})/g,
+    ) ?? [];
+
+  return uniqueNonEmptyStrings(rawFragments)
+    .map((fragment) => normalizeJaText(fragment))
+    .filter((fragment) => {
+      const token = normalizeBoundaryMatchText(fragment);
+      if (token.length < 2) return false;
+      if (productName && token === productName) return false;
+      if (audience && token === audience) return false;
+      return true;
+    })
+    .sort(
+      (a, b) =>
+        normalizeBoundaryMatchText(b).length - normalizeBoundaryMatchText(a).length,
+    );
+}
+
+function hasPurposeMisalignment(text: string, normalized: NormalizedInput): boolean {
+  const goal = normalizeJaText(normalized.goal);
   if (!goal) return false;
-  if (isGoalRequestType(goal)) return false;
-  return true;
+
+  const target = normalizeBoundaryMatchText(text);
+  if (!target) return false;
+
+  const goalAnchors = extractGoalAnchorFragments(goal, normalized);
+  if (goalAnchors.length === 0) return false;
+
+  const matchedAnchors = goalAnchors.filter((anchor) =>
+    target.includes(normalizeBoundaryMatchText(anchor)),
+  );
+
+  if (matchedAnchors.length === 0) return true;
+
+  const longestAnchor = goalAnchors[0];
+  const longestAnchorMatched = target.includes(
+    normalizeBoundaryMatchText(longestAnchor),
+  );
+  const requiredMatchedCount = Math.min(2, goalAnchors.length);
+
+  return !longestAnchorMatched && matchedAnchors.length < requiredMatchedCount;
 }
 
-function head2HasSceneCue(head2: string): boolean {
-  const h = (head2 ?? "").toString().trim();
-  if (!h) return false;
+const ABSTRACT_PROMOTION_PATTERNS = [
+  /(?:おすすめ|ぴったり|最適|理想的|理想の|ワンランク上|上質な体験)/,
+  /(?:毎日|暮らし|生活|日常|時間|気分|ひととき).{0,12}(?:変える|変わる|整う|支える|叶える|かなえる|豊か|快適|上質|便利)/,
+  /(?:価値|魅力|良さ|良いところ).{0,10}(?:広がる|高まる|深まる)/,
+];
 
-  // ✅ STEP3（情景1カット安定化のみ）:
-  // - SCENE_CUE_MISSING の誤判定（false negative）を減らすため、
-  //   「時間/状況の接続」を最小追加する（場所辞書を増やす運用はしない）
-  const CUE_RE =
-    /(?:朝|昼|夜|通勤|通学|移動中|在宅|自宅|オフィス|職場|デスク|会議|店頭|レジ|キッチン|洗面所|寝室|リビング|外出先|週末|平日|雨の日|旅行|出張|作業中|中に|中で|中は|最中|途中|のとき|とき|時|前に|後に|合間に|ながら|つつ)/;
-
-  return CUE_RE.test(h);
+function hasHeadAbstractPromotion(head: string): boolean {
+  const value = normalizeJaText(head);
+  if (!value) return false;
+  return ABSTRACT_PROMOTION_PATTERNS.some((pattern) => pattern.test(value));
 }
 
-function scoreByL3Rules(text: string, normalized: NormalizedInput): L3ScoreDetail {
+function hasAudiencePlacementViolation(head: string, body: string, normalized: NormalizedInput): boolean {
+  const audience = normalizeJaText(normalized.audience);
+  if (!audience) return false;
+
+  const headCount = countNormalizedOccurrences(head, audience);
+  const bodyCount = countNormalizedOccurrences(body, audience);
+
+  return headCount !== 1 || bodyCount > 0;
+}
+
+function evaluateCandidateSelectionBoundary(
+  text: string,
+  normalized: NormalizedInput,
+): FinalProseBoundaryResult {
   const reasons: string[] = [];
-  let score = 0;
+  const warnings = buildBoundaryWarnings(text, normalized);
 
-  const t = (text ?? "").toString();
-  const { head, body } = splitHeadAndBody(t);
-
-  const hasHeading = /(^|\n)\s*##\s+/m.test(t);
-  if (hasHeading) {
-    score += 8;
-    reasons.push("HAS_HEADING");
-  }
-
+  const { head, body } = splitHeadAndBody(text);
+  const [head1] = extractHeadSentences(head);
   const headSentences = countHeadSentences(head);
+  const bulletLines = collectBulletLines(body);
+  const productName = normalizeJaText(normalized.product_name);
+  const placeholderLeakageHits = detectPlaceholderLeakage(text);
+
   if (headSentences !== 2) {
-    score += 8;
-    reasons.push(`HEAD_SENTENCES_${headSentences}`);
+    reasons.push("HEAD_SENTENCE_COUNT");
   }
 
-  const head1 = extractHead1(head);
-  const pn = (normalized.product_name ?? "").toString().trim();
-  const hasProductNameInHead1 = pn ? head1.includes(pn) : true;
-  if (!hasProductNameInHead1) {
-    score += 12;
-    reasons.push("MISSING_PRODUCT_NAME_IN_HEAD1");
+  if (bulletLines.length !== 3) {
+    reasons.push("BULLET_COUNT");
   }
 
-  // === 入力密度ベースの評価モード ===
-  const inputHasSpec = hasSpecInput(normalized);
-  const inputHasFeature = hasFeatureInput(normalized);
-  const isLowInput = !inputHasSpec && !inputHasFeature;
-
-  // ✅ 自然さ（抽象まとめ語）: HEAD優先で落とす（※削除repairはしない）
-  const bannedHeadWords = [
-    "最適",
-    "ぴったり",
-    "おすすめ",
-    "大活躍",
-    "便利",
-    "快適",
-    "使いやすい",
-    "人気",
-    "嬉しい",
-    "安心",
-    "重要",
-    "サポート",
-    "でしょう",
-    "思います",
-    "適しています",
-  ];
-  const headHasBannedWord = bannedHeadWords.some((w) => w && head.includes(w));
-  if (headHasBannedWord) {
-    score += 1;
-    reasons.push("HEAD_HAS_BANNED_WORD");
+  if (!productName || !head1.includes(productName)) {
+    reasons.push("HEAD1_MISSING_PRODUCT_NAME");
   }
 
-  const hasCanDoPhrase = /できます|することができます/.test(head);
-  if (hasCanDoPhrase) {
-    score += 1;
-    reasons.push("HEAD_HAS_CAN_DO_PHRASE");
+  if (placeholderLeakageHits.length > 0) {
+    reasons.push("PLACEHOLDER_LEAKAGE");
   }
 
-  const MAX_REASON_ITEMS = 24;
+  const score = Math.max(0, 100 - reasons.length * 25 - warnings.length * 5);
 
-  // ✅ 方式C：日本語破綻ペナルティ（重めに落として採用されにくくする）
-  {
-    const hits = detectJapaneseBreakage(t);
-    if (hits.length > 0) {
-      let sum = 0;
-      for (const h of hits) {
-        sum += h.penalty;
-        if (reasons.length < MAX_REASON_ITEMS) reasons.push(h.key);
-      }
-      score += sum;
-      if (reasons.length < MAX_REASON_ITEMS) reasons.push("HAS_JA_BREAK");
-    }
-  }
-
-  // ✅ 80点（自然さ）：根拠のない強い断定の検知
-  if (hasUnsupportedStrongAssertion(t)) {
-    score += 8;
-    if (reasons.length < MAX_REASON_ITEMS) reasons.push("UNSUPPORTED_STRONG_ASSERTION");
-  }
-
-  // ✅ 80点（自然さ）：語尾の連発検知
-  if (hasRepeatedSentenceEnding(t)) {
-    score += 4;
-    if (reasons.length < MAX_REASON_ITEMS) reasons.push("REPEATED_SENTENCE_ENDING");
-  }
-
-  // ✅ 80点定義（自然さ）に寄せて増強（プロジェクト辞書化はしない／最小集合）
-  const ABSTRACT_SUMMARY_WORDS = ["役立つ", "安心", "最適", "心配が減る", "使いやすい", "人気", "活用", "実現します", "便利"];
-
-  const headParts = head.split("。").map((s) => s.trim()).filter(Boolean);
-  const head2 = headParts.length >= 2 ? headParts[1] : "";
-  if (head2) {
-    const hasBadInHead2 =
-      ABSTRACT_SUMMARY_WORDS.some((w) => w && head2.includes(w)) ||
-      bannedHeadWords.some((w) => w && head2.includes(w)) ||
-      /できます|することができます/.test(head2);
-
-    if (hasBadInHead2) {
-      score += 6;
-      reasons.push("HEAD2_EVALUATIVE_OR_ABSTRACT");
-    }
-
-    // ✅ 情景（評価側）：2文目は使用シーンのみ + 動作1つ
-    if (!head2LooksLikeSceneOnly(head2)) {
-      score += 5;
-      reasons.push("HEAD2_NOT_SCENE_ONLY");
-    }
-    if (!head2HasAction(head2)) {
-      score += 6;
-      reasons.push("HEAD2_NO_ACTION");
-    }
-
-    // ✅ 情景具体（評価側）：シーン手がかりが無い場合は減点（低入力時は重め）
-    if (!head2HasSceneCue(head2)) {
-      score += isLowInput ? 7 : 3;
-      reasons.push("SCENE_CUE_MISSING");
-    }
-  }
-
-  const scoreAbstractSummaryWords = (headText: string, bodyText: string) => {
-    let localScore = 0;
-    let hits = 0;
-
-    const HEAD_PENALTY_PER_HIT = 9;
-    const BODY_PENALTY_PER_HIT = 2;
-
-    for (const w of ABSTRACT_SUMMARY_WORDS) {
-      if (!w) continue;
-
-      if (headText.includes(w)) {
-        hits += 1;
-        localScore += HEAD_PENALTY_PER_HIT;
-        if (reasons.length < MAX_REASON_ITEMS) reasons.push(`ABSTRACT_WORD_HEAD:${w}`);
-      }
-
-      if (bodyText.includes(w)) {
-        hits += 1;
-        localScore += BODY_PENALTY_PER_HIT;
-        if (reasons.length < MAX_REASON_ITEMS) reasons.push(`ABSTRACT_WORD_BODY:${w}`);
-      }
-    }
-
-    if (hits > 0) {
-      if (reasons.length < MAX_REASON_ITEMS) reasons.push("HAS_ABSTRACT_SUMMARY_WORD");
-    }
-
-    return localScore;
+  return {
+    ok: reasons.length === 0,
+    reasons,
+    score,
+    warnings,
   };
-
-  score += scoreAbstractSummaryWords(head, body);
-
-  const bullets = collectBulletLines(body);
-  const bulletLines = bullets.length;
-
-  if (bulletLines === 0) {
-    score += 10;
-    reasons.push("NO_BULLETS");
-  } else if (bulletLines < 3) {
-    score += 6 + (3 - bulletLines);
-    reasons.push(`TOO_FEW_BULLETS_${bulletLines}`);
-  } else if (bulletLines > 3) {
-    score += 4 + (bulletLines - 3);
-    reasons.push(`TOO_MANY_BULLETS_${bulletLines}`);
-  }
-
-  let bulletLooksCollapsed = false;
-  for (const ln of bullets) {
-    const countDot = (ln.match(/・/g) ?? []).length;
-    if (countDot >= 2) {
-      bulletLooksCollapsed = true;
-      break;
-    }
-  }
-  if (bulletLooksCollapsed) {
-    score += 3;
-    reasons.push("BULLETS_COLLAPSED_INTO_ONE_LINE");
-  }
-
-  // ✅ 用途整合（評価側）：goal があるなら、ヘッドに反映されているか
-  // ✅ 合意②：goal が「依頼目的」なら評価しない
-  if (shouldEvaluatePurpose(normalized)) {
-    const goal = (normalized.goal ?? "").toString().trim();
-    if (goal) {
-      if (!isPurposeAligned(head, goal)) {
-        score += 6;
-        reasons.push("PURPOSE_NOT_ALIGNED");
-      }
-    }
-  }
-
-  // ✅ 水増し無し（評価側）：入力に無い数値/単位/仕様語を出したら減点（捏造圧を下げる）
-  if (hasSpecInflation(t, normalized)) {
-    score += 12;
-    reasons.push("SPEC_INFLATION");
-  }
-
-  // ✅ 80点（具体性）：数値 or 仕様が最低1つ
-  // - 仕様入力が無い → NO_SPEC を減点しない（捏造圧を消す）
-  if (inputHasSpec) {
-    if (!hasAnySpecOrNumber(t)) {
-      score += 10;
-      reasons.push("NO_SPEC_OR_NUMBER");
-    }
-  } else {
-    if (!hasAnySpecOrNumber(t)) {
-      if (reasons.length < MAX_REASON_ITEMS) reasons.push("NO_SPEC_OR_NUMBER_SKIPPED_NO_INPUT");
-    }
-  }
-
-  // ✅ 80点（具体性）：箇条書き3行のうち2行以上が「機能→効果」
-  // - 機能入力が無い → 強制（減点）しない
-  if (bullets.length > 0) {
-    const okCount = countBulletsWithFuncEffect(bullets);
-
-    // ✅ 入力依存（B思想）
-    // - 入力に「機能/仕様の根拠」があるときだけ減点する
-    // - 無いときは減点せず、観測ログのみ残す（捏造圧をかけない）
-    if (inputHasFeature) {
-      if (okCount < 2) {
-        score += 6 + (2 - okCount); // 少しだけ緩和（8→6）
-        if (reasons.length < MAX_REASON_ITEMS) {
-          reasons.push(`BULLET_FUNC_EFFECT_TOO_FEW_${okCount}`);
-        }
-      }
-    } else {
-      if (okCount < 2) {
-        if (reasons.length < MAX_REASON_ITEMS) {
-          reasons.push(`BULLET_FUNC_EFFECT_SKIPPED_NO_INPUT_${okCount}`);
-        }
-      }
-    }
-  }
-
-  const hasFaqLike = /FAQ|よくある質問|Q[:：]/.test(t);
-  const hasObjections = Array.isArray((normalized as any).objections) && (normalized as any).objections.length > 0;
-  const hasCtaPref = Array.isArray((normalized as any).cta_preference) && (normalized as any).cta_preference.length > 0;
-  if (hasFaqLike && !(hasObjections || hasCtaPref)) {
-    score += 2;
-    reasons.push("UNNEEDED_FAQ_LIKE");
-  }
-
-  // ✅ L3追加：具体語比率型（Bodyのみ / 既存減点ロジックは触らない）
-  {
-    const signalCount = countConcreteSignalsInBody(body);
-
-    // - 具体シグナル 0個 → score += 4
-    // - 具体シグナル 2個以上 → score -= 2
-    // - 1個 → 変化なし
-    if (signalCount === 0) {
-      score += 4;
-      if (reasons.length < MAX_REASON_ITEMS) reasons.push("BODY_CONCRETE_SIGNALS_0");
-    } else if (signalCount >= 2) {
-      score -= 2;
-      if (reasons.length < MAX_REASON_ITEMS) reasons.push("BODY_CONCRETE_SIGNALS_2PLUS");
-    }
-  }
-
-  // ✅ 失格→減点（止まらない最優先）
-  // - 失格理由が1つでもあれば重めに減点（ただし候補除外はしない）
-  {
-    const hitCount = countDisqualifyHits(reasons);
-    if (hitCount > 0) {
-      score += 20 * hitCount; // ←重さはここで調整（まずは強め）
-      reasons.push(`DISQUALIFY_PENALTY_${hitCount}`);
-    }
-  }
-
-  const facts = {
-    headSentences,
-    hasHeading,
-    bulletLines,
-    hasProductNameInHead1,
-    headHasBannedWord,
-    hasCanDoPhrase,
-    bulletLooksCollapsed,
-  };
-
-  return { score, reasons, facts };
 }
 
-function hasAbstractHeadReason(reasons: string[]): boolean {
-  return (reasons ?? []).some((r) => typeof r === "string" && r.startsWith("ABSTRACT_WORD_HEAD:"));
+export function evaluateFinalProseBoundary(
+  text: string,
+  normalized: NormalizedInput,
+): FinalProseBoundaryResult {
+  const base = evaluateCandidateSelectionBoundary(text, normalized);
+  const reasons = [...base.reasons];
+
+  const { head, body } = splitHeadAndBody(text);
+
+  if (hasHeadAbstractPromotion(head)) {
+    reasons.push("HEAD_ABSTRACT_PROMOTION");
+  }
+
+  if (hasPurposeMisalignment(text, normalized)) {
+    reasons.push("PURPOSE_NOT_ALIGNED");
+  }
+
+  if (hasSourceRestatement(head, normalized)) {
+    reasons.push("HEAD_SOURCE_RESTATEMENT");
+  }
+
+  if (hasSourceRestatement(body, normalized)) {
+    reasons.push("BODY_SOURCE_RESTATEMENT");
+  }
+
+  if (hasAudiencePlacementViolation(head, body, normalized)) {
+    reasons.push("AUDIENCE_NOT_EXACT_ONCE_IN_HEAD");
+  }
+
+  const uniqueReasons = Array.from(new Set(reasons));
+  const score = Math.max(0, 100 - uniqueReasons.length * 25 - base.warnings.length * 5);
+
+  return {
+    ok: uniqueReasons.length === 0,
+    reasons: uniqueReasons,
+    score,
+    warnings: base.warnings,
+  };
 }
 
 /* =========================
-   Decision gates（失格判定 → 減点へ）
+   Finalize Helpers
 ========================= */
 
-// ✅ 合意A：止まらない最優先（失格→減点）
-// - “失格理由” はログ観測用に残すが、候補除外には使わない
-// - 代わりに L3 score にペナルティを加算する
+function normalizeBulletMarkers(text: string): { text: string; changed: boolean } {
+  const raw = (text ?? "").toString().replace(/\r\n/g, "\n");
+  const next = raw
+    .split("\n")
+    .map((line) => {
+      if (/^\s*-\s+/.test(line)) {
+        return line.replace(/^\s*-\s+/, "・ ");
+      }
+      return line.replace(/[ \t]+$/g, "");
+    })
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 
-const DISQUALIFY_REASONS = new Set<string>([
-  "HEAD2_NOT_SCENE_ONLY",
-  "HEAD2_EVALUATIVE_OR_ABSTRACT",
-  "HEAD2_NO_ACTION",
-]);
+  return {
+    text: next,
+    changed: next !== raw.trim(),
+  };
+}
 
-function countDisqualifyHits(reasons: string[]): number {
-  const rs = Array.isArray(reasons) ? reasons : [];
-  let n = 0;
-  for (const r of rs) {
-    if (typeof r === "string" && DISQUALIFY_REASONS.has(r)) n += 1;
-  }
-  return n;
+function safeFinalReplace(text: string): { text: string; didRepair: boolean; keys: string[] } {
+  const raw = (text ?? "").toString();
+  if (!raw) return { text: raw, didRepair: false, keys: [] };
+
+  let t = raw;
+  const keys: string[] = [];
+  const apply = (re: RegExp, to: string, key: string) => {
+    const before = t;
+    t = t.replace(re, to);
+    if (t !== before) keys.push(key);
+  };
+
+  apply(/、\s*、/g, "、", "FINAL_REPAIR_DOUBLE_COMMA");
+  apply(/。\s*。/g, "。", "FINAL_REPAIR_DOUBLE_MARU");
+  apply(/[！!]{2,}/g, "！", "FINAL_REPAIR_MULTI_EXCLAMATION");
+  apply(/[？?]{2,}/g, "？", "FINAL_REPAIR_MULTI_QUESTION");
+
+  return { text: t, didRepair: keys.length > 0, keys };
+}
+
+function finalizeResponseText(selectedText: string): {
+  text: string;
+  changed: boolean;
+  repairKeys: string[];
+} {
+  const normalized = normalizeBulletMarkers(selectedText);
+  const safeReplace = safeFinalReplace(normalized.text);
+  const finalText = safeReplace.text;
+
+  return {
+    text: finalText,
+    changed: finalText !== selectedText,
+    repairKeys: safeReplace.keys,
+  };
 }
 
 /* =========================
-   densityA helpers（同点タイブレーク / 低密度救済）
+   densityA Helpers
 ========================= */
 
-type DensitySnap = {
+function tryComputeDensityA(normalized: NormalizedInput, outputText: string): {
   densityA: number | null;
   inputCount: number | null;
   usedCount: number | null;
-};
-
-function tryComputeDensityA(normalized: NormalizedInput, outputText: string): DensitySnap {
+} {
   try {
     const fn = (DensityA as any)?.evaluateDensityA;
-    if (typeof fn !== "function") return { densityA: null, inputCount: null, usedCount: null };
+    if (typeof fn !== "function") {
+      return { densityA: null, inputCount: null, usedCount: null };
+    }
 
-    // ✅ C-2整合：densityA評価は必須セットのみ（ただし selling_points は最大1件だけで 3/4 を固定）
     const densNorm = normalizedForDensityA(normalized);
+    const result = fn(densNorm, outputText);
 
-    const r = fn(densNorm, outputText);
-    const densityA = typeof r?.densityA === "number" ? r.densityA : null;
-    const inputCount = Array.isArray(r?.inputSet) ? r.inputSet.length : null;
-    const usedCount = Array.isArray(r?.usedSet) ? r.usedSet.length : null;
-    return { densityA, inputCount, usedCount };
+    return {
+      densityA: typeof result?.densityA === "number" ? result.densityA : null,
+      inputCount: Array.isArray(result?.inputSet) ? result.inputSet.length : null,
+      usedCount: Array.isArray(result?.usedSet) ? result.usedSet.length : null,
+    };
   } catch {
     return { densityA: null, inputCount: null, usedCount: null };
   }
-}
-
-/**
- * ✅ threshold（v0改：必須世界=3 or 4 は “欠落なし=1.0”）
- */
-function resolveDensityAThreshold(inputCount: number | null, normalized: NormalizedInput): number {
-  const audienceLen = (normalized?.audience ?? "").toString().trim().length;
-
-  if (inputCount === 4) {
-    if (audienceLen > 0 && audienceLen <= 3) return 0.75;
-    return 1.0;
-  }
-  if (inputCount === 3) return 1.0;
-  return 0.34;
-}
-
-/* =========================
-   Candidate selection（失格は除外せず減点 → L3最優先 → 同点なら densityA → 短い方）
-========================= */
-
-type Candidate = {
-  idx: number;
-  content: string;
-  apiMs: number;
-  status: number;
-  statusText: string;
-};
-
-type ScoredCandidate = Candidate & {
-  didRepair: boolean;
-  score: number;
-  reasons: string[];
-  facts: L3ScoreDetail["facts"];
-  densityA: number | null;
-  inputCount: number | null;
-  usedCount: number | null;
-  contentLen: number;
-  contentHash8: string;
-
-  // ✅ 新設：失格（案B）
-  disqualified: boolean;
-};
-
-function compareCandidates(a: ScoredCandidate, b: ScoredCandidate): number {
-  if (a.score !== b.score) return a.score - b.score;
-
-  const preferencePenalty = (facts: L3ScoreDetail["facts"]) => {
-    let p = 0;
-    if (facts.headSentences !== 2) p += 5;
-    if (!facts.hasProductNameInHead1) p += 6;
-    if (facts.hasHeading) p += 3;
-    if (facts.bulletLines !== 3) p += 4;
-    if (facts.bulletLooksCollapsed) p += 2;
-    return p;
-  };
-
-  const pa = preferencePenalty(a.facts);
-  const pb = preferencePenalty(b.facts);
-  if (pa !== pb) return pa - pb;
-
-  const da = typeof a.densityA === "number" ? a.densityA : -1;
-  const db = typeof b.densityA === "number" ? b.densityA : -1;
-  if (da !== db) return db - da;
-
-  return a.contentLen - b.contentLen;
-}
-
-function chooseBestCandidate(
-  candidates: Candidate[],
-  normalized: NormalizedInput,
-): {
-  best: ScoredCandidate;
-  scored: ScoredCandidate[];
-  bestQualifiedOrNull: ScoredCandidate | null;
-  qualifiedCount: number;
-} {
-  // 1) bullets repair（整形のみ）
-  const bulletRepaired = candidates.map((c) => {
-    const r = repairBulletsToMax3(c.content);
-
-    // ✅ 追加：候補評価の前に audience 原文を1回だけ保証
-    // - これにより densityA/救済判定/unusedTop3 が “最終文” と一致する
-    const enforced = enforceAudienceExactOnce(r.text, normalized.audience);
-
-    return { ...c, content: enforced.text, didRepair: r.didRepair };
-  });
-
-  // 2) score once（文章内容のrepairはしない）
-  const scored: ScoredCandidate[] = bulletRepaired.map((c) => {
-    const detail = scoreByL3Rules(c.content, normalized);
-    const dens = tryComputeDensityA(normalized, c.content);
-    const disqualified = countDisqualifyHits(detail.reasons) > 0;
-
-    return {
-      ...c,
-      score: detail.score,
-      reasons: detail.reasons,
-      facts: detail.facts,
-      densityA: dens.densityA,
-      inputCount: dens.inputCount,
-      usedCount: dens.usedCount,
-      contentLen: c.content.length,
-      contentHash8: sha256Hex(c.content).slice(0, 8),
-      disqualified,
-    };
-  });
-
-  const sortedAll = [...scored].sort(compareCandidates);
-
-  // ✅ A：止まらない最優先 → “除外” はしない（減点で勝てなくする）
-  const best = sortedAll[0] as ScoredCandidate;
-
-  return {
-    best,
-    scored: sortedAll,
-    bestQualifiedOrNull: best,
-    qualifiedCount: sortedAll.length,
-  };
-}
-
-/* =========================
-   densityA Observe（観測のみ・副作用なし）
-========================= */
-
-function limit20(s: unknown): string {
-  return (s ?? "").toString().slice(0, 20);
 }
 
 function observeDensityA(args: {
@@ -1638,165 +1221,1203 @@ function observeDensityA(args: {
   ctaMode: CtaMode;
   hasProductFacts: boolean;
 }) {
-  try {
-    const fn = (DensityA as any)?.evaluateDensityA;
-    if (typeof fn !== "function") return;
-
-    // ✅ C-2整合：densityA観測も必須セットのみ（ただし selling_points は最大1件だけで 3/4 を固定）
-    const densNorm = normalizedForDensityA(args.normalized);
-
-    const r = fn(densNorm, args.outputText);
-
-    const densityA = typeof r?.densityA === "number" ? r.densityA : null;
-    const inputCount = Array.isArray(r?.inputSet) ? r.inputSet.length : null;
-    const usedCount = Array.isArray(r?.usedSet) ? r.usedSet.length : null;
-
-    const masked =
-      Array.isArray(r?.unusedTop3ForLogMasked) && r.unusedTop3ForLogMasked.length > 0
-        ? r.unusedTop3ForLogMasked
-        : [];
-    const unusedTop3ForLogMasked20 = masked.map((x: any) => limit20(x)).slice(0, 3);
-
-    const densityLog = {
-      phase: "densityA_observe" as const,
-      level: "INFO",
-      route: "/api/writer",
-      message: "densityA observed (log-only)",
-      provider: args.provider,
-      model: args.model,
-      requestId: args.requestId,
-      templateKey: args.templateKey,
-      isSNS: args.isSNS,
-      ctaMode: args.ctaMode,
-      hasProductFacts: args.hasProductFacts,
-      densityA,
-      inputCount,
-      usedCount,
-      unusedTop3ForLogMasked: unusedTop3ForLogMasked20,
-    };
-
-    logEvent("ok", densityLog);
-    forceConsoleEvent("ok", densityLog);
-  } catch {
-    // best-effort
-  }
+  const dens = tryComputeDensityA(args.normalized, args.outputText);
+  const event = {
+    phase: "pipeline_densityA" as const,
+    level: "DEBUG",
+    route: "/api/writer",
+    message: "densityA observed",
+    requestId: args.requestId,
+    provider: args.provider,
+    model: args.model,
+    templateKey: args.templateKey,
+    isSNS: args.isSNS,
+    ctaMode: args.ctaMode,
+    hasProductFacts: args.hasProductFacts,
+    densityA: dens.densityA,
+    inputCount: dens.inputCount,
+    usedCount: dens.usedCount,
+  };
+  logEvent("ok", event);
 }
 
 /* =========================
-   Handoff
+   Candidate Helpers
+========================= */
+
+type CandidatePassKind = "initial";
+
+type CandidateRecord = {
+  passKind: CandidatePassKind;
+  candidateIndex: number;
+  diversityHint: CandidateDiversityHint;
+  content: string;
+  apiMs: number;
+  status: number;
+  statusText: string;
+  minimalBoundary: FinalProseBoundaryResult;
+  richerBoundary: FinalProseBoundaryResult;
+  proseUser: string;
+};
+
+type CandidateBatchResult = {
+  candidates: CandidateRecord[];
+  passedCandidates: CandidateRecord[];
+};
+
+type CandidateAiJudgeDecisionMark = "best" | "tie" | "override";
+
+type CandidateAiJudgeDecision = {
+  goalAlignment: CandidateAiJudgeDecisionMark;
+  naturalJapanese: CandidateAiJudgeDecisionMark;
+  sceneConcreteness: CandidateAiJudgeDecisionMark;
+  restatementPenaltyUsed: boolean;
+  overrideUsed: boolean;
+};
+
+type CandidateAiJudgeRejected = {
+  candidateIndex: number;
+  mainReason: string;
+};
+
+type CandidateAiJudgeResult = {
+  ok: boolean;
+  selectedCandidateIndex: number | null;
+  reason: string;
+  raw: string;
+  decision: CandidateAiJudgeDecision | null;
+  rejected: CandidateAiJudgeRejected[];
+  errorKind?:
+    | "openai_error"
+    | "empty"
+    | "invalid_json"
+    | "invalid_index"
+    | "invalid_decision";
+};
+
+function collectMinimalPassedCandidates(
+  candidates: CandidateRecord[],
+): CandidateRecord[] {
+  return candidates.filter((candidate) => candidate.minimalBoundary.ok);
+}
+
+function compareDiagnosticCandidates(
+  current: CandidateRecord | null,
+  next: CandidateRecord,
+): CandidateRecord {
+  if (!current) return next;
+
+  if (next.minimalBoundary.reasons.length !== current.minimalBoundary.reasons.length) {
+    return next.minimalBoundary.reasons.length < current.minimalBoundary.reasons.length
+      ? next
+      : current;
+  }
+
+  if (next.minimalBoundary.warnings.length !== current.minimalBoundary.warnings.length) {
+    return next.minimalBoundary.warnings.length < current.minimalBoundary.warnings.length
+      ? next
+      : current;
+  }
+
+  if (next.minimalBoundary.score !== current.minimalBoundary.score) {
+    return next.minimalBoundary.score > current.minimalBoundary.score ? next : current;
+  }
+
+  return next.candidateIndex < current.candidateIndex ? next : current;
+}
+
+function selectBestDiagnosticCandidate(
+  candidates: CandidateRecord[],
+): CandidateRecord | null {
+  let best: CandidateRecord | null = null;
+
+  for (const candidate of candidates) {
+    best = compareDiagnosticCandidates(best, candidate);
+  }
+
+  return best;
+}
+
+function compareFallbackCandidates(
+  current: CandidateRecord | null,
+  next: CandidateRecord,
+): CandidateRecord {
+  if (!current) return next;
+
+  if (next.richerBoundary.ok !== current.richerBoundary.ok) {
+    return next.richerBoundary.ok ? next : current;
+  }
+
+  if (next.richerBoundary.reasons.length !== current.richerBoundary.reasons.length) {
+    return next.richerBoundary.reasons.length < current.richerBoundary.reasons.length
+      ? next
+      : current;
+  }
+
+  if (next.richerBoundary.warnings.length !== current.richerBoundary.warnings.length) {
+    return next.richerBoundary.warnings.length < current.richerBoundary.warnings.length
+      ? next
+      : current;
+  }
+
+  if (next.richerBoundary.score !== current.richerBoundary.score) {
+    return next.richerBoundary.score > current.richerBoundary.score ? next : current;
+  }
+
+  if (next.minimalBoundary.reasons.length !== current.minimalBoundary.reasons.length) {
+    return next.minimalBoundary.reasons.length < current.minimalBoundary.reasons.length
+      ? next
+      : current;
+  }
+
+  if (next.minimalBoundary.warnings.length !== current.minimalBoundary.warnings.length) {
+    return next.minimalBoundary.warnings.length < current.minimalBoundary.warnings.length
+      ? next
+      : current;
+  }
+
+  if (next.minimalBoundary.score !== current.minimalBoundary.score) {
+    return next.minimalBoundary.score > current.minimalBoundary.score ? next : current;
+  }
+
+  return next.candidateIndex < current.candidateIndex ? next : current;
+}
+
+function selectFallbackCandidate(
+  candidates: CandidateRecord[],
+): CandidateRecord | null {
+  let best: CandidateRecord | null = null;
+
+  for (const candidate of candidates) {
+    best = compareFallbackCandidates(best, candidate);
+  }
+
+  return best;
+}
+
+function selectBestAlternativeCandidate(
+  candidates: CandidateRecord[],
+  selectedCandidateIndex: number,
+): CandidateRecord | null {
+  return selectFallbackCandidate(
+    candidates.filter((candidate) => candidate.candidateIndex !== selectedCandidateIndex),
+  );
+}
+
+function candidateHasRicherReason(candidate: CandidateRecord, reason: string): boolean {
+  return candidate.richerBoundary.reasons.includes(reason);
+}
+
+function candidateHasRicherWarning(candidate: CandidateRecord, warning: string): boolean {
+  return candidate.richerBoundary.warnings.includes(warning);
+}
+
+function hasNonEmptyJudgeReason(reason: string): boolean {
+  return normalizeJaText(reason).length > 0;
+}
+
+function hasStructuredRejectedCandidates(rejected: CandidateAiJudgeRejected[]): boolean {
+  return (
+    rejected.length > 0 &&
+    rejected.every(
+      (item) =>
+        Number.isFinite(item.candidateIndex) && normalizeJaText(item.mainReason).length > 0,
+    )
+  );
+}
+
+function validateAiJudgeSelection(args: {
+  candidates: CandidateRecord[];
+  selectedCandidate: CandidateRecord;
+  decision: CandidateAiJudgeDecision;
+  rejected: CandidateAiJudgeRejected[];
+  reason: string;
+}): { ok: boolean; message?: string; meta?: Record<string, unknown> } {
+  const strongerAlternatives = args.candidates.filter(
+    (candidate) =>
+      candidate.candidateIndex !== args.selectedCandidate.candidateIndex &&
+      candidate.richerBoundary.score > args.selectedCandidate.richerBoundary.score,
+  );
+
+  const selectedHasPurposePenalty = candidateHasRicherReason(
+    args.selectedCandidate,
+    "PURPOSE_NOT_ALIGNED",
+  );
+  const selectedHasRestatementPenalty = candidateHasRicherReason(
+    args.selectedCandidate,
+    "BODY_SOURCE_RESTATEMENT",
+  );
+  const selectedHasRepeatedEnding = candidateHasRicherWarning(
+    args.selectedCandidate,
+    "REPEATED_SENTENCE_ENDING",
+  );
+
+  if (args.decision.overrideUsed && !hasStructuredRejectedCandidates(args.rejected)) {
+    return {
+      ok: false,
+      message: "ai candidate judge used override without structured rejected reasons",
+      meta: {
+        selectedCandidateIndex: args.selectedCandidate.candidateIndex,
+        rejectedCount: args.rejected.length,
+      },
+    };
+  }
+
+  if (selectedHasPurposePenalty) {
+    if (!args.decision.overrideUsed) {
+      return {
+        ok: false,
+        message: "ai candidate judge selected PURPOSE_NOT_ALIGNED candidate without override",
+        meta: {
+          selectedCandidateIndex: args.selectedCandidate.candidateIndex,
+          selectedCandidateRicherReasons: args.selectedCandidate.richerBoundary.reasons,
+        },
+      };
+    }
+
+    if (!hasStructuredRejectedCandidates(args.rejected) || !hasNonEmptyJudgeReason(args.reason)) {
+      return {
+        ok: false,
+        message: "ai candidate judge selected PURPOSE_NOT_ALIGNED candidate without comparison reason",
+        meta: {
+          selectedCandidateIndex: args.selectedCandidate.candidateIndex,
+          selectedCandidateRicherReasons: args.selectedCandidate.richerBoundary.reasons,
+          rejectedCount: args.rejected.length,
+        },
+      };
+    }
+  }
+
+  if (selectedHasRestatementPenalty && !args.decision.restatementPenaltyUsed) {
+    return {
+      ok: false,
+      message: "ai candidate judge selected restatement-penalized candidate without restatement decision flag",
+      meta: {
+        selectedCandidateIndex: args.selectedCandidate.candidateIndex,
+        selectedCandidateRicherReasons: args.selectedCandidate.richerBoundary.reasons,
+      },
+    };
+  }
+
+  if ((selectedHasRestatementPenalty || selectedHasRepeatedEnding) && strongerAlternatives.length > 0) {
+    if (!args.decision.overrideUsed) {
+      return {
+        ok: false,
+        message: "ai candidate judge selected penalized candidate without override against stronger alternatives",
+        meta: {
+          selectedCandidateIndex: args.selectedCandidate.candidateIndex,
+          selectedCandidateRicherReasons: args.selectedCandidate.richerBoundary.reasons,
+          selectedCandidateRicherWarnings: args.selectedCandidate.richerBoundary.warnings,
+          strongerAlternativeIndexes: strongerAlternatives.map((candidate) => candidate.candidateIndex),
+        },
+      };
+    }
+
+    if (!hasStructuredRejectedCandidates(args.rejected)) {
+      return {
+        ok: false,
+        message: "ai candidate judge override lacked structured rejected reasons against stronger alternatives",
+        meta: {
+          selectedCandidateIndex: args.selectedCandidate.candidateIndex,
+          strongerAlternativeIndexes: strongerAlternatives.map((candidate) => candidate.candidateIndex),
+        },
+      };
+    }
+  }
+
+  return { ok: true };
+}
+
+async function emitCandidateLog(args: {
+  provider?: string;
+  model?: string;
+  requestId: string;
+  candidate: CandidateRecord;
+}) {
+  const event = {
+    phase: "pipeline_prose_candidate" as const,
+    level: args.candidate.minimalBoundary.ok ? "DEBUG" : "ERROR",
+    route: "/api/writer",
+    message: args.candidate.minimalBoundary.ok
+      ? "pipeline generated prose candidate"
+      : "pipeline generated candidate but minimal boundary failed",
+    provider: args.provider,
+    model: args.model,
+    requestId: args.requestId,
+    passKind: args.candidate.passKind,
+    candidateIndex: args.candidate.candidateIndex,
+    diversityHint: args.candidate.diversityHint,
+    minimalScore: args.candidate.minimalBoundary.score,
+    minimalReasons: args.candidate.minimalBoundary.reasons,
+    minimalWarnings: args.candidate.minimalBoundary.warnings,
+    richerScore: args.candidate.richerBoundary.score,
+    richerReasons: args.candidate.richerBoundary.reasons,
+    richerWarnings: args.candidate.richerBoundary.warnings,
+    contentHash8: sha256Hex(args.candidate.content).slice(0, 8),
+  };
+  logEvent(args.candidate.minimalBoundary.ok ? "ok" : "error", event);
+  forceConsoleEvent(args.candidate.minimalBoundary.ok ? "ok" : "error", event);
+  await emitWriterEvent(args.candidate.minimalBoundary.ok ? "ok" : "error", event);
+}
+
+function isShapeHardFailBoundary(boundary: FinalProseBoundaryResult): boolean {
+  return (
+    boundary.reasons.includes("HEAD_SENTENCE_COUNT") ||
+    boundary.reasons.includes("BULLET_COUNT") ||
+    boundary.reasons.includes("HEAD1_MISSING_PRODUCT_NAME")
+  );
+}
+
+function countShapeHardFailReasons(boundary: FinalProseBoundaryResult): number {
+  return (
+    Number(boundary.reasons.includes("HEAD_SENTENCE_COUNT")) +
+    Number(boundary.reasons.includes("BULLET_COUNT")) +
+    Number(boundary.reasons.includes("HEAD1_MISSING_PRODUCT_NAME"))
+  );
+}
+
+function chooseBetterShapeCandidate(
+  current: CandidateRecord,
+  next: CandidateRecord,
+): CandidateRecord {
+  const currentShapeFails = countShapeHardFailReasons(current.minimalBoundary);
+  const nextShapeFails = countShapeHardFailReasons(next.minimalBoundary);
+
+  if (nextShapeFails !== currentShapeFails) {
+    return nextShapeFails < currentShapeFails ? next : current;
+  }
+
+  if (next.minimalBoundary.score !== current.minimalBoundary.score) {
+    return next.minimalBoundary.score > current.minimalBoundary.score ? next : current;
+  }
+
+  if (next.minimalBoundary.reasons.length !== current.minimalBoundary.reasons.length) {
+    return next.minimalBoundary.reasons.length < current.minimalBoundary.reasons.length
+      ? next
+      : current;
+  }
+
+  return current;
+}
+
+function buildCandidateRecord(args: {
+  passKind: CandidatePassKind;
+  candidateIndex: number;
+  diversityHint: CandidateDiversityHint;
+  response: {
+    content: string;
+    apiMs: number;
+    status: number;
+    statusText: string;
+  };
+  proseUser: string;
+  normalized: NormalizedInput;
+}): CandidateRecord {
+  return {
+    passKind: args.passKind,
+    candidateIndex: args.candidateIndex,
+    diversityHint: args.diversityHint,
+    content: args.response.content,
+    apiMs: args.response.apiMs,
+    status: args.response.status,
+    statusText: args.response.statusText,
+    minimalBoundary: evaluateCandidateSelectionBoundary(
+      args.response.content,
+      args.normalized,
+    ),
+    richerBoundary: evaluateFinalProseBoundary(args.response.content, args.normalized),
+    proseUser: args.proseUser,
+  };
+}
+
+async function logCandidateGenerationError(args: {
+  response: {
+    ok: false;
+    errorKind: string;
+    status: number;
+    statusText: string;
+    apiMs: number;
+    errorText: string;
+  };
+  provider?: string;
+  model?: string;
+  requestId: string;
+  passKind: CandidatePassKind;
+  candidateIndex: number;
+  stage: "initial" | "shape_rescue";
+}) {
+  const errLog = {
+    phase: "pipeline_prose_candidate" as const,
+    level: args.response.errorKind === "empty" ? "DEBUG" : "ERROR",
+    route: "/api/writer",
+    message:
+      args.response.errorKind === "empty"
+        ? `openai returned empty candidate content during ${args.stage}`
+        : `openai api error on candidate generation during ${args.stage}: ${args.response.status} ${args.response.statusText}`,
+    provider: args.provider,
+    model: args.model,
+    requestId: args.requestId,
+    passKind: args.passKind,
+    candidateIndex: args.candidateIndex,
+    stage: args.stage,
+    status: args.response.status,
+    apiMs: args.response.apiMs,
+    errorTextPreview: args.response.errorText.slice(0, 500),
+  };
+  logEvent(args.response.errorKind === "empty" ? "ok" : "error", errLog as any);
+  forceConsoleEvent(args.response.errorKind === "empty" ? "ok" : "error", errLog as any);
+  await emitWriterEvent(args.response.errorKind === "empty" ? "ok" : "error", errLog as any);
+}
+
+async function generateCandidateWithShapeRescue(args: {
+  apiKey: string;
+  model?: string;
+  provider?: string;
+  requestId: string;
+  normalized: NormalizedInput;
+  proseSystem: string;
+  isSNS: boolean;
+  usableFacts: AtomicFact[];
+  passKind: CandidatePassKind;
+  candidateIndex: number;
+}): Promise<CandidateRecord | null> {
+  const diversityHint = resolveCandidateDiversityHint(args.candidateIndex);
+  const proseUser = buildProseUser({
+    normalized: args.normalized,
+    usableFacts: args.usableFacts,
+    diversityHint,
+  });
+
+  const initialResponse = await createFinalProse({
+    apiKey: args.apiKey,
+    model: args.model,
+    system: args.proseSystem,
+    userMessage: proseUser,
+    reasoningEffort: "none",
+    verbosity: args.isSNS ? "low" : "medium",
+  });
+
+  if (!initialResponse.ok) {
+    await logCandidateGenerationError({
+      response: initialResponse,
+      provider: args.provider,
+      model: args.model,
+      requestId: args.requestId,
+      passKind: args.passKind,
+      candidateIndex: args.candidateIndex,
+      stage: "initial",
+    });
+    return null;
+  }
+
+  const initialCandidate = buildCandidateRecord({
+    passKind: args.passKind,
+    candidateIndex: args.candidateIndex,
+    diversityHint,
+    response: initialResponse,
+    proseUser,
+    normalized: args.normalized,
+  });
+
+  if (!isShapeHardFailBoundary(initialCandidate.minimalBoundary)) {
+    return initialCandidate;
+  }
+
+  const rescueUser = buildShapeRescueUserMessage(proseUser);
+  const rescueResponse = await createFinalProse({
+    apiKey: args.apiKey,
+    model: args.model,
+    system: args.proseSystem,
+    userMessage: rescueUser,
+    reasoningEffort: "none",
+    verbosity: args.isSNS ? "low" : "medium",
+  });
+
+  if (!rescueResponse.ok) {
+    await logCandidateGenerationError({
+      response: rescueResponse,
+      provider: args.provider,
+      model: args.model,
+      requestId: args.requestId,
+      passKind: args.passKind,
+      candidateIndex: args.candidateIndex,
+      stage: "shape_rescue",
+    });
+    return initialCandidate;
+  }
+
+  const rescueCandidate = buildCandidateRecord({
+    passKind: args.passKind,
+    candidateIndex: args.candidateIndex,
+    diversityHint,
+    response: rescueResponse,
+    proseUser: rescueUser,
+    normalized: args.normalized,
+  });
+
+  const selectedCandidate = chooseBetterShapeCandidate(initialCandidate, rescueCandidate);
+
+  const rescueLog = {
+    phase: "pipeline_prose_shape_rescue" as const,
+    level: "DEBUG",
+    route: "/api/writer",
+    message: "pipeline compared initial prose candidate with shape rescue candidate",
+    provider: args.provider,
+    model: args.model,
+    requestId: args.requestId,
+    passKind: args.passKind,
+    candidateIndex: args.candidateIndex,
+    diversityHint,
+    initialScore: initialCandidate.minimalBoundary.score,
+    initialReasons: initialCandidate.minimalBoundary.reasons,
+    rescueScore: rescueCandidate.minimalBoundary.score,
+    rescueReasons: rescueCandidate.minimalBoundary.reasons,
+    selectedStage: selectedCandidate === rescueCandidate ? "shape_rescue" : "initial",
+  };
+  logEvent("ok", rescueLog);
+  forceConsoleEvent("ok", rescueLog);
+  await emitWriterEvent("ok", rescueLog);
+
+  return selectedCandidate;
+}
+
+async function generateIndependentProseCandidates(args: {
+  apiKey: string;
+  model?: string;
+  provider?: string;
+  requestId: string;
+  normalized: NormalizedInput;
+  proseSystem: string;
+  isSNS: boolean;
+  usableFacts: AtomicFact[];
+  passKind: CandidatePassKind;
+  count: number;
+}): Promise<CandidateBatchResult> {
+  const candidates: CandidateRecord[] = [];
+
+  for (let i = 0; i < args.count; i += 1) {
+    const candidate = await generateCandidateWithShapeRescue({
+      apiKey: args.apiKey,
+      model: args.model,
+      provider: args.provider,
+      requestId: args.requestId,
+      normalized: args.normalized,
+      proseSystem: args.proseSystem,
+      isSNS: args.isSNS,
+      usableFacts: args.usableFacts,
+      passKind: args.passKind,
+      candidateIndex: i,
+    });
+
+    if (!candidate) continue;
+
+    candidates.push(candidate);
+    await emitCandidateLog({
+      provider: args.provider,
+      model: args.model,
+      requestId: args.requestId,
+      candidate,
+    });
+  }
+
+  return {
+    candidates,
+    passedCandidates: collectMinimalPassedCandidates(candidates),
+  };
+}
+
+function buildAiSelectionJudgeSystem(): string {
+  return [
+    "あなたはEC商品紹介文の候補を比較して最終候補を1つ選ぶ審査者です。",
+    "あなたの仕事は、『自然に見える候補』を選ぶことではなく、『入力ゴールに整合し、自然な日本語で、既知の欠点が相対的に少ない候補』を選ぶことです。",
+    "minimal fail の候補は選びません。",
+    "PURPOSE_NOT_ALIGNED は強い減点対象です。他候補にも同等以上の欠点がある場合を除き、基本は選ばないでください。",
+    "BODY_SOURCE_RESTATEMENT は中程度以上の減点対象です。特徴の言い換えだけで終わる候補より、使用場面に着地している候補を優先してください。",
+    "REPEATED_SENTENCE_ENDING は中程度の減点対象です。",
+    "AUDIENCE_NOT_EXACT_ONCE_IN_HEAD は軽い減点にとどめますが、同点比較では不利にしてください。",
+    "比較の優先順位は、1. 入力ゴールとの整合 2. 日本語の自然さ 3. 使用場面の具体性 4. source restatement の少なさ 5. 重複・説明くささの少なさ、の順です。",
+    "自然さだけで goal 整合を逆転してはいけません。",
+    "richerBoundary の指摘は参考情報ではなく、必ず比較に使ってください。",
+    "richerBoundary 上は不利な候補を選ぶ場合は overrideUsed=true とし、なぜ他候補より良いのかを rejected に比較形式で入れてください。",
+    "返答は JSON のみです。前置き、補足、コードフェンスは不要です。",
+    `返答形式は必ず {"selectedCandidateIndex": number, "decision": {"goalAlignment": "best|tie|override", "naturalJapanese": "best|tie|override", "sceneConcreteness": "best|tie|override", "restatementPenaltyUsed": boolean, "overrideUsed": boolean}, "reason": string, "rejected": [{"candidateIndex": number, "mainReason": string}]} の形にしてください。`,
+  ].join("\n");
+}
+
+function formatCandidateBoundaryList(values: string[]): string {
+  const items = uniqueNonEmptyStrings(values);
+  return items.length > 0 ? items.join(", ") : "none";
+}
+
+function buildAiSelectionJudgeUser(args: {
+  normalized: NormalizedInput;
+  candidates: CandidateRecord[];
+}): string {
+  const lines: string[] = [
+    "以下は最小外形条件を通過した候補です。最も良い候補を1つだけ選んでください。",
+    "評価観点:",
+    "- 入力ゴールとの整合を最優先する",
+    "- 日本語として自然で読みやすい",
+    "- 使用場面が具体的に読める",
+    "- source restatement が少ない",
+    "- 重複や説明くささが少ない",
+    "",
+  ];
+
+  const productName = normalizeJaText(args.normalized.product_name);
+  const category = normalizeJaText(args.normalized.category);
+  const audience = normalizeJaText(args.normalized.audience);
+  const goal = normalizeJaText(args.normalized.goal);
+
+  if (productName) lines.push(`商品名: ${productName}`);
+  if (category) lines.push(`カテゴリ: ${category}`);
+  if (audience) lines.push(`想定読者: ${audience}`);
+  if (goal) lines.push(`入力ゴール: ${goal}`);
+
+  lines.push("");
+
+  for (const candidate of args.candidates) {
+    lines.push(`候補 ${candidate.candidateIndex}:`);
+    lines.push(candidate.content);
+    lines.push("既知の注意:");
+    lines.push(`- richer reasons: ${formatCandidateBoundaryList(candidate.richerBoundary.reasons)}`);
+    lines.push(`- richer warnings: ${formatCandidateBoundaryList(candidate.richerBoundary.warnings)}`);
+    lines.push(`- minimal warnings: ${formatCandidateBoundaryList(candidate.minimalBoundary.warnings)}`);
+    lines.push("");
+  }
+
+  lines.push(
+    `selectedCandidateIndex には、候補番号 ${args.candidates
+      .map((candidate) => candidate.candidateIndex)
+      .join(", ")} のいずれかを入れてください。`,
+  );
+  lines.push(
+    "overrideUsed を true にする場合は、rejected に非選択候補の主な欠点を必ず入れてください。",
+  );
+
+  return lines.join("\n").trim();
+}
+
+function parseAiJudgeDecisionMark(
+  value: unknown,
+): CandidateAiJudgeDecisionMark | null {
+  const normalized = normalizeJaText(value).toLowerCase();
+  if (normalized === "best" || normalized === "tie" || normalized === "override") {
+    return normalized as CandidateAiJudgeDecisionMark;
+  }
+  return null;
+}
+
+function parseAiJudgeDecision(value: unknown): CandidateAiJudgeDecision | null {
+  const source = value as Record<string, unknown> | null | undefined;
+  if (!source || typeof source !== "object") return null;
+
+  const goalAlignment = parseAiJudgeDecisionMark(source.goalAlignment);
+  const naturalJapanese = parseAiJudgeDecisionMark(source.naturalJapanese);
+  const sceneConcreteness = parseAiJudgeDecisionMark(source.sceneConcreteness);
+  const restatementPenaltyUsed =
+    typeof source.restatementPenaltyUsed === "boolean"
+      ? source.restatementPenaltyUsed
+      : null;
+  const overrideUsed =
+    typeof source.overrideUsed === "boolean" ? source.overrideUsed : null;
+
+  if (!goalAlignment || !naturalJapanese || !sceneConcreteness) return null;
+  if (restatementPenaltyUsed === null || overrideUsed === null) return null;
+
+  return {
+    goalAlignment,
+    naturalJapanese,
+    sceneConcreteness,
+    restatementPenaltyUsed,
+    overrideUsed,
+  };
+}
+
+function parseAiJudgeRejected(value: unknown): CandidateAiJudgeRejected[] {
+  if (!Array.isArray(value)) return [];
+
+  const out: CandidateAiJudgeRejected[] = [];
+  for (const item of value) {
+    const source = item as Record<string, unknown> | null | undefined;
+    if (!source || typeof source !== "object") continue;
+
+    const rawIndex = source.candidateIndex;
+    const candidateIndex =
+      typeof rawIndex === "number"
+        ? rawIndex
+        : Number.parseInt((rawIndex ?? "").toString(), 10);
+
+    if (!Number.isFinite(candidateIndex)) continue;
+
+    const mainReason = normalizeJaText(source.mainReason);
+    if (!mainReason) continue;
+
+    out.push({
+      candidateIndex,
+      mainReason,
+    });
+  }
+
+  return out;
+}
+
+function parseAiSelectionJudgeResponse(
+  content: string,
+): {
+  selectedCandidateIndex: number | null;
+  reason: string;
+  decision: CandidateAiJudgeDecision | null;
+  rejected: CandidateAiJudgeRejected[];
+} | null {
+  const raw = normalizeJaText(content);
+  if (!raw) return null;
+
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+
+  try {
+    const parsed = JSON.parse(cleaned) as Record<string, unknown>;
+
+    const selectedIndexRaw =
+      parsed?.selectedCandidateIndex ?? parsed?.selectedIndex;
+    const selectedCandidateIndex =
+      typeof selectedIndexRaw === "number"
+        ? selectedIndexRaw
+        : Number.parseInt((selectedIndexRaw ?? "").toString(), 10);
+
+    if (!Number.isFinite(selectedCandidateIndex)) return null;
+
+    return {
+      selectedCandidateIndex,
+      reason: normalizeJaText(parsed?.reason),
+      decision: parseAiJudgeDecision(parsed?.decision),
+      rejected: parseAiJudgeRejected(parsed?.rejected),
+    };
+  } catch {
+    const indexMatch = cleaned.match(
+      /"(?:selectedCandidateIndex|selectedIndex)"\s*:\s*(\d+)/i,
+    );
+    if (!indexMatch) return null;
+
+    const reasonMatch = cleaned.match(/"reason"\s*:\s*"([^"]*)"/i);
+
+    return {
+      selectedCandidateIndex: Number.parseInt(indexMatch[1], 10),
+      reason: normalizeJaText(reasonMatch?.[1] ?? ""),
+      decision: null,
+      rejected: [],
+    };
+  }
+}
+
+async function judgePassedCandidatesWithAi(args: {
+  apiKey: string;
+  model?: string;
+  provider?: string;
+  requestId: string;
+  normalized: NormalizedInput;
+  candidates: CandidateRecord[];
+}): Promise<CandidateAiJudgeResult> {
+  const system = buildAiSelectionJudgeSystem();
+  const userMessage = buildAiSelectionJudgeUser({
+    normalized: args.normalized,
+    candidates: args.candidates,
+  });
+
+  const response = await createFinalProse({
+    apiKey: args.apiKey,
+    model: args.model,
+    system,
+    userMessage,
+    reasoningEffort: "none",
+    verbosity: "low",
+  });
+
+  if (!response.ok) {
+    const errorLog = {
+      phase: "pipeline_candidate_ai_judge" as const,
+      level: response.errorKind === "empty" ? "DEBUG" : "ERROR",
+      route: "/api/writer",
+      message:
+        response.errorKind === "empty"
+          ? "ai candidate judge returned empty content"
+          : `ai candidate judge failed: ${response.status} ${response.statusText}`,
+      provider: args.provider,
+      model: args.model,
+      requestId: args.requestId,
+      candidateIndexes: args.candidates.map((candidate) => candidate.candidateIndex),
+      status: response.status,
+      statusText: response.statusText,
+      errorKind: response.errorKind,
+      errorTextPreview: response.errorText.slice(0, 500),
+    };
+    logEvent(response.errorKind === "empty" ? "ok" : "error", errorLog);
+    forceConsoleEvent(response.errorKind === "empty" ? "ok" : "error", errorLog);
+    await emitWriterEvent(response.errorKind === "empty" ? "ok" : "error", errorLog);
+
+    return {
+      ok: false,
+      selectedCandidateIndex: null,
+      reason: "",
+      raw: "",
+      decision: null,
+      rejected: [],
+      errorKind: response.errorKind === "empty" ? "empty" : "openai_error",
+    };
+  }
+
+  const parsed = parseAiSelectionJudgeResponse(response.content);
+  if (!parsed) {
+    const invalidLog = {
+      phase: "pipeline_candidate_ai_judge" as const,
+      level: "ERROR",
+      route: "/api/writer",
+      message: "ai candidate judge returned invalid json",
+      provider: args.provider,
+      model: args.model,
+      requestId: args.requestId,
+      candidateIndexes: args.candidates.map((candidate) => candidate.candidateIndex),
+      rawHash8: sha256Hex(response.content).slice(0, 8),
+      rawPreview: response.content.slice(0, 500),
+    };
+    logEvent("error", invalidLog);
+    forceConsoleEvent("error", invalidLog);
+    await emitWriterEvent("error", invalidLog);
+
+    return {
+      ok: false,
+      selectedCandidateIndex: null,
+      reason: "",
+      raw: response.content,
+      decision: null,
+      rejected: [],
+      errorKind: "invalid_json",
+    };
+  }
+
+  if (!parsed.decision) {
+    const invalidDecisionLog = {
+      phase: "pipeline_candidate_ai_judge" as const,
+      level: "ERROR",
+      route: "/api/writer",
+      message: "ai candidate judge returned json without required decision structure",
+      provider: args.provider,
+      model: args.model,
+      requestId: args.requestId,
+      candidateIndexes: args.candidates.map((candidate) => candidate.candidateIndex),
+      selectedCandidateIndex: parsed.selectedCandidateIndex,
+      rawHash8: sha256Hex(response.content).slice(0, 8),
+      rawPreview: response.content.slice(0, 500),
+    };
+    logEvent("error", invalidDecisionLog);
+    forceConsoleEvent("error", invalidDecisionLog);
+    await emitWriterEvent("error", invalidDecisionLog);
+
+    return {
+      ok: false,
+      selectedCandidateIndex: parsed.selectedCandidateIndex,
+      reason: parsed.reason,
+      raw: response.content,
+      decision: null,
+      rejected: parsed.rejected,
+      errorKind: "invalid_decision",
+    };
+  }
+
+  const allowedIndexes = new Set(
+    args.candidates.map((candidate) => candidate.candidateIndex),
+  );
+  if (!allowedIndexes.has(parsed.selectedCandidateIndex ?? -1)) {
+    const invalidIndexLog = {
+      phase: "pipeline_candidate_ai_judge" as const,
+      level: "ERROR",
+      route: "/api/writer",
+      message: "ai candidate judge returned out-of-range index",
+      provider: args.provider,
+      model: args.model,
+      requestId: args.requestId,
+      candidateIndexes: args.candidates.map((candidate) => candidate.candidateIndex),
+      selectedCandidateIndex: parsed.selectedCandidateIndex,
+      rawHash8: sha256Hex(response.content).slice(0, 8),
+    };
+    logEvent("error", invalidIndexLog);
+    forceConsoleEvent("error", invalidIndexLog);
+    await emitWriterEvent("error", invalidIndexLog);
+
+    return {
+      ok: false,
+      selectedCandidateIndex: parsed.selectedCandidateIndex,
+      reason: parsed.reason,
+      raw: response.content,
+      decision: parsed.decision,
+      rejected: parsed.rejected,
+      errorKind: "invalid_index",
+    };
+  }
+
+  const selectedCandidate = args.candidates.find(
+    (candidate) => candidate.candidateIndex === parsed.selectedCandidateIndex,
+  );
+
+  if (!selectedCandidate) {
+    return {
+      ok: false,
+      selectedCandidateIndex: parsed.selectedCandidateIndex,
+      reason: parsed.reason,
+      raw: response.content,
+      decision: parsed.decision,
+      rejected: parsed.rejected,
+      errorKind: "invalid_index",
+    };
+  }
+
+  const validation = validateAiJudgeSelection({
+    candidates: args.candidates,
+    selectedCandidate,
+    decision: parsed.decision,
+    rejected: parsed.rejected,
+    reason: parsed.reason,
+  });
+
+  if (!validation.ok) {
+    const invalidDecisionLog = {
+      phase: "pipeline_candidate_ai_judge" as const,
+      level: "ERROR",
+      route: "/api/writer",
+      message: validation.message ?? "ai candidate judge decision validation failed",
+      provider: args.provider,
+      model: args.model,
+      requestId: args.requestId,
+      candidateIndexes: args.candidates.map((candidate) => candidate.candidateIndex),
+      selectedCandidateIndex: parsed.selectedCandidateIndex,
+      decision: parsed.decision,
+      rejected: parsed.rejected,
+      selectedCandidateRicherReasons: selectedCandidate.richerBoundary.reasons,
+      selectedCandidateRicherWarnings: selectedCandidate.richerBoundary.warnings,
+      rawHash8: sha256Hex(response.content).slice(0, 8),
+      ...(validation.meta ?? {}),
+    };
+    logEvent("error", invalidDecisionLog);
+    forceConsoleEvent("error", invalidDecisionLog);
+    await emitWriterEvent("error", invalidDecisionLog);
+
+    return {
+      ok: false,
+      selectedCandidateIndex: parsed.selectedCandidateIndex,
+      reason: parsed.reason,
+      raw: response.content,
+      decision: parsed.decision,
+      rejected: parsed.rejected,
+      errorKind: "invalid_decision",
+    };
+  }
+
+  const successLog = {
+    phase: "pipeline_candidate_ai_judge" as const,
+    level: "DEBUG",
+    route: "/api/writer",
+    message: "ai candidate judge selected a candidate",
+    provider: args.provider,
+    model: args.model,
+    requestId: args.requestId,
+    candidateIndexes: args.candidates.map((candidate) => candidate.candidateIndex),
+    selectedCandidateIndex: parsed.selectedCandidateIndex,
+    decision: parsed.decision,
+    rejected: parsed.rejected,
+    reason: parsed.reason,
+    rawHash8: sha256Hex(response.content).slice(0, 8),
+  };
+  logEvent("ok", successLog);
+  forceConsoleEvent("ok", successLog);
+  await emitWriterEvent("ok", successLog);
+
+  return {
+    ok: true,
+    selectedCandidateIndex: parsed.selectedCandidateIndex,
+    reason: parsed.reason,
+    raw: response.content,
+    decision: parsed.decision,
+    rejected: parsed.rejected,
+  };
+}
+
+/* =========================
+   Pipeline API
 ========================= */
 
 export type WriterPipelineArgs = {
   rawPrompt: string;
   normalized: NormalizedInput;
-  provider: string | undefined;
-  model: string | undefined;
+  provider?: string;
+  model?: string;
   temperature: number;
-  systemOverride: string;
   apiKey: string;
   t0: number;
+  elapsed?: () => number;
   requestId: string;
-  elapsed: () => number;
   productId?: string | null;
   productContext?: ProductContext | null;
 };
 
-function safeFinalReplace(text: string): { text: string; didRepair: boolean; keys: string[] } {
-  // ✅ 返却直前の “超安全な限定置換” のみ
-  // - 置換は「意味が変わらず文法を直す」範囲に限定
-  const raw = (text ?? "").toString();
-  if (!raw) return { text: raw, didRepair: false, keys: [] };
-
-  let t = raw;
-  const keys: string[] = [];
-  const apply = (re: RegExp, to: string, key: string) => {
-    const before = t;
-    t = t.replace(re, to);
-    if (t !== before) keys.push(key);
-  };
-
-  // 観測：をための/をために（助詞）
-  apply(/をための/g, "のための", "FINAL_REPAIR_WO_TAMENO");
-  apply(/をために/g, "のために", "FINAL_REPAIR_WO_TAMENI");
-  apply(/にための/g, "のための", "FINAL_REPAIR_NI_TAMENO");
-  apply(/にために/g, "のために", "FINAL_REPAIR_NI_TAMENI");
-
-  // 観測：オフィスやカフェのオフィスで（最小）
-  apply(/(オフィス|職場|デスク|会議|カフェ)や(オフィス|職場|デスク|会議|カフェ)の\1で/g, "$1や$2で", "FINAL_REPAIR_YA_NO_REPEAT");
-  apply(/(オフィス|職場|デスク|会議|カフェ)と(オフィス|職場|デスク|会議|カフェ)の\1で/g, "$1と$2で", "FINAL_REPAIR_TO_NO_REPEAT");
-
-  // 句読点周りの軽微な破綻（安全）
-  apply(/、\s*、/g, "、", "FINAL_REPAIR_DOUBLE_COMMA");
-  apply(/。\s*。/g, "。", "FINAL_REPAIR_DOUBLE_MARU");
-
-  return { text: t, didRepair: keys.length > 0, keys };
+function mapWriterErrorStatus(reason: WriterErrorReason): number {
+  switch (reason) {
+    case "validation":
+    case "bad_request":
+      return 400;
+    case "content_policy":
+      return 403;
+    case "rate_limit":
+      return 429;
+    case "timeout":
+      return 504;
+    case "openai":
+    case "openai_api_error":
+    case "openai_empty_content":
+      return 502;
+    case "boundary_failed":
+    case "candidate_selection_failed":
+      return 422;
+    default:
+      return 500;
+  }
 }
 
-export async function runWriterPipeline(args: WriterPipelineArgs): Promise<Response> {
+function mapOpenAiFailure(args: {
+  errorKind: string;
+  status: number;
+  statusText: string;
+  errorText: string;
+}): Pick<WriterPipelineError, "reason" | "message" | "code" | "meta"> {
+  const errorKind = (args.errorKind ?? "").toString();
+
+  if (errorKind === "empty") {
+    return {
+      reason: "openai_empty_content",
+      code: "openai_empty_content",
+      message: "openai returned empty content",
+      meta: {
+        status: args.status,
+        statusText: args.statusText,
+      },
+    };
+  }
+
+  if (errorKind === "rate_limit") {
+    return {
+      reason: "rate_limit",
+      code: "openai_rate_limit",
+      message: "openai rate limit",
+      meta: {
+        status: args.status,
+        statusText: args.statusText,
+      },
+    };
+  }
+
+  if (errorKind === "timeout") {
+    return {
+      reason: "timeout",
+      code: "openai_timeout",
+      message: "openai timeout",
+      meta: {
+        status: args.status,
+        statusText: args.statusText,
+      },
+    };
+  }
+
+  if (errorKind === "bad_request") {
+    return {
+      reason: "bad_request",
+      code: "openai_bad_request",
+      message: "openai bad request",
+      meta: {
+        status: args.status,
+        statusText: args.statusText,
+      },
+    };
+  }
+
+  return {
+    reason: "openai_api_error",
+    code: "openai_api_error",
+    message: "openai api error",
+    meta: {
+      status: args.status,
+      statusText: args.statusText,
+      errorTextPreview: args.errorText.slice(0, 500),
+    },
+  };
+}
+
+export async function runWriterPipeline(
+  args: WriterPipelineArgs,
+): Promise<Response> {
   const result = await runWriterPipelineCore(args);
 
   if (!result.ok) {
+    const errorResult = result as WriterPipelineError;
     return NextResponse.json(
       {
         ok: false,
         error: {
-          reason: result.reason,
-          message: result.message,
-          ...(result.code ? { code: result.code } : {}),
+          reason: errorResult.reason,
+          message: errorResult.message,
+          ...(errorResult.code ? { code: errorResult.code } : {}),
         },
-        meta: result.meta ?? undefined,
+        meta: errorResult.meta ?? undefined,
       },
-      { status: 502 },
+      { status: mapWriterErrorStatus(errorResult.reason) },
     );
   }
 
-  let finalText = applyPostprocess(result.openai.content, result.ctx.input.normalized as any);
+  const finalized = finalizeResponseText(result.openai.content);
 
-  {
-    const repaired = repairBulletsToMax3(finalText);
-    finalText = repaired.text;
-  }
-
-  // ✅ 生成側（辞書なし）：audience 原文を返却直前で1回だけ保証する
-  {
-    const enforced = enforceAudienceExactOnce(finalText, result.ctx.input.normalized.audience);
-    finalText = enforced.text;
-  }
-
-  // ✅ 方式C：返却直前の超安全な限定置換（文法破綻の救済）
-  {
-    const r = safeFinalReplace(finalText);
-    finalText = r.text;
-  }
+  const finalizeLog = {
+    phase: "pipeline_finalize" as const,
+    level: "DEBUG",
+    route: "/api/writer",
+    message: "pipeline finalized response text",
+    provider: result.ctx.request.provider,
+    model: result.ctx.request.model,
+    requestId: result.ctx.request.requestId,
+    selectedHash8: sha256Hex(result.openai.content).slice(0, 8),
+    finalHash8: sha256Hex(finalized.text).slice(0, 8),
+    finalTextChanged: finalized.changed,
+    selectedLength: result.openai.content.length,
+    finalLength: finalized.text.length,
+    repairKeys: finalized.repairKeys,
+  };
+  logEvent("ok", finalizeLog);
+  forceConsoleEvent("ok", finalizeLog);
+  await emitWriterEvent("ok", finalizeLog);
 
   return NextResponse.json(
     {
       ok: true,
       data: {
-        text: finalText,
+        text: finalized.text,
         meta: {
           style: (result.ctx.input.normalized.style ?? "").toString(),
           tone: (result.ctx.input.normalized.tone ?? "").toString(),
           locale: "ja-JP",
-          toneKey: result.ctx.input.toneKey,
-          template: result.ctx.input.templateKey || null,
-          ctaMode: result.ctx.flags.cta.mode,
         },
       },
-      output: finalText,
+      output: finalized.text,
     },
     { status: 200 },
   );
 }
 
-export async function runWriterPipelineCore(args: WriterPipelineArgs): Promise<WriterPipelineResult> {
+export async function runWriterPipelineCore(
+  args: WriterPipelineArgs,
+): Promise<WriterPipelineResult> {
   const {
     rawPrompt,
     normalized,
     provider,
     model,
     temperature,
-    systemOverride,
     apiKey,
     t0,
     requestId,
@@ -1808,15 +2429,14 @@ export async function runWriterPipelineCore(args: WriterPipelineArgs): Promise<W
   const isSNS = isSnsLikeTemplate(templateKey);
   const toneKey = resolveTonePresetKey(normalized.tone, normalized.style);
   const ctaMode = resolveCtaMode(normalized);
+  const atomicFacts = buildAtomicFacts(normalized);
+  const usableFacts = buildUsableFactsForRenderer(atomicFacts);
 
   logProductContextStatus({
     productId: productId ?? null,
     context: productContext ?? null,
     meta: { source: "writer.pipeline", requestId, path: "/api/writer" },
   });
-
-  // ✅ このフェーズでは Product Facts を使わない（Writer単体入力の80点安定が目的）
-  const USE_PRODUCT_FACTS = false;
 
   const precisionPayload = buildPrecisionProductPayload({
     productId: productId ?? null,
@@ -1825,36 +2445,25 @@ export async function runWriterPipelineCore(args: WriterPipelineArgs): Promise<W
 
   const productFacts = buildProductFactsDto({
     productId: productId ?? null,
-    enabled: USE_PRODUCT_FACTS,
+    enabled: false,
     context: productContext ?? null,
     error: null,
   });
 
-  const productFactsBlock = USE_PRODUCT_FACTS ? buildProductFactsBlock(precisionPayload, productFacts) : null;
-
-  const baseSystemRaw = buildSystemPrompt({
-    overrides: systemOverride,
+  const proseSystem = buildProseSystem({
     toneKey,
+    isSNS,
   });
 
-  const safetyConstraintsBlock = [
-    "制約:",
-    "- 入力に無い具体値（数値・期間・等級・型番・受賞・ランキング・保証条件など）は断定しない。",
-    "- 不足情報は“想像で補わない”。分からない要素は触れない。",
-    "- 過剰なFAQ、強引な断定、煽り見出し（今すぐ/必ず/絶対等）は避ける。",
-    "- 本文のみを出力する。追加ブロック（CTA/FAQなど）は書かない。",
-  ].join("\n");
-
-  const systemParts: string[] = [baseSystemRaw];
-  if (productFactsBlock) systemParts.push(productFactsBlock);
-  systemParts.push(safetyConstraintsBlock);
-  const system = systemParts.join("\n\n");
-
-  const baseUserMessage = makeUserMessage(normalized);
-  const user = `${baseUserMessage}\n${buildOutputRulesSuffix(normalized)}`;
-
   const ctx: WriterPipelineCtx = {
-    request: { requestId, route: "/api/writer", provider, model, temperature, t0 },
+    request: {
+      requestId,
+      route: "/api/writer",
+      provider,
+      model,
+      temperature,
+      t0,
+    },
     input: {
       rawPrompt,
       normalized,
@@ -1865,22 +2474,24 @@ export async function runWriterPipelineCore(args: WriterPipelineArgs): Promise<W
       toneKey,
     },
     flags: { cta: { mode: ctaMode } },
-    contracts: { ctaBlock: buildCtaBlockContract() },
+    contracts: {
+      ctaBlock: buildCtaBlockContract(),
+    },
+    facts: {
+      items: atomicFacts,
+    },
     prompts: {
-      system,
-      user,
+      proseSystem,
+      proseUser: "",
       debug: {
-        baseSystemLength: system.length,
-        userLength: user.length,
-        systemHash8: sha256Hex(system).slice(0, 8),
-        userHash8: sha256Hex(user).slice(0, 8),
-        hasProductFacts: Boolean(productFactsBlock),
+        proseSystemHash8: sha256Hex(proseSystem).slice(0, 8),
+        proseUserHash8: sha256Hex("").slice(0, 8),
       },
     },
     product: {
       precisionPayload,
       productFacts,
-      productFactsBlock: productFactsBlock ?? null,
+      productFactsBlock: null,
     },
   };
 
@@ -1888,7 +2499,7 @@ export async function runWriterPipelineCore(args: WriterPipelineArgs): Promise<W
     phase: "pipeline_decide" as const,
     level: "DEBUG",
     route: "/api/writer",
-    message: "pipeline decided prompts and flags",
+    message: "pipeline prepared minimal facts and ai-first prose request",
     provider,
     model,
     requestId,
@@ -1896,245 +2507,234 @@ export async function runWriterPipelineCore(args: WriterPipelineArgs): Promise<W
     templateKey,
     isSNS,
     ctaMode,
-    systemHash8: ctx.prompts.debug?.systemHash8 ?? null,
-    userHash8: ctx.prompts.debug?.userHash8 ?? null,
-    hasProductFacts: ctx.prompts.debug?.hasProductFacts ?? false,
+    proseSystemHash8: ctx.prompts.debug?.proseSystemHash8 ?? null,
+    atomicFactCount: atomicFacts.length,
+    usableFactIds: usableFacts.map((fact) => fact.id),
   };
   logEvent("ok", decideLog);
   forceConsoleEvent("ok", decideLog);
   await emitWriterEvent("ok", decideLog);
 
-  const openaiPayload = buildOpenAIRequestPayload({
-    model,
-    temperature,
-    system: ctx.prompts.system,
-    userMessage: ctx.prompts.user,
-  });
+  if (isMinimalInputRescueTarget({ normalized, templateKey, rawPrompt })) {
+    const rescueTemplate = resolveMinimalInputRescueTemplate(templateKey);
+    const rescueText = buildMinimalInputRescueText({
+      templateKey,
+      rawPrompt,
+    });
 
-  const callOnce = async (idx: number) => {
-    const r = await callOpenAI({ apiKey, payload: openaiPayload });
-    if (!r.ok) {
-      return {
-        ok: false as const,
-        idx,
-        status: r.status,
-        statusText: r.statusText,
-        apiMs: r.apiMs,
-        errorTextPreview: r.errorText?.slice(0, 500) ?? "",
-      };
-    }
-    return {
-      ok: true as const,
-      idx,
-      content: (r.content ?? "").toString(),
-      status: r.status,
-      statusText: r.statusText,
-      apiMs: r.apiMs,
-    };
-  };
-
-  const results = await Promise.all([callOnce(1), callOnce(2), callOnce(3)]);
-
-  const oks = results.filter((x): x is Extract<(typeof results)[number], { ok: true }> => x.ok);
-  const ngs = results.filter((x): x is Extract<(typeof results)[number], { ok: false }> => !x.ok);
-
-  if (oks.length === 0) {
-    const first = ngs[0];
-    const message = `openai api error: ${first?.status ?? 0} ${first?.statusText ?? "unknown"}`;
-    const errLog = {
-      phase: "pipeline_handoff" as const,
-      level: "ERROR",
+    const rescueLog = {
+      phase: "pipeline_minimal_input_rescue" as const,
+      level: "DEBUG",
       route: "/api/writer",
-      message,
+      message: "pipeline used template-aware minimal-input rescue before normal prose generation",
       provider,
       model,
       requestId,
-      status: first?.status ?? 0,
-      statusText: first?.statusText ?? "unknown",
-      apiMs: first?.apiMs ?? 0,
-      errorTextPreview: first?.errorTextPreview ?? "",
-      attempts: results.map((x) => ({
-        idx: x.idx,
-        ok: x.ok,
-        status: (x as any).status ?? null,
-        apiMs: (x as any).apiMs ?? null,
-      })),
+      templateKey,
+      rescueTemplate,
+      contentHash8: sha256Hex(rescueText).slice(0, 8),
     };
-    logEvent("error", errLog);
-    forceConsoleEvent("error", errLog);
-    await emitWriterEvent("error", errLog);
-    return { ok: false, reason: "openai_api_error", message, meta: { requestId } };
+    logEvent("ok", rescueLog);
+    forceConsoleEvent("ok", rescueLog);
+    await emitWriterEvent("ok", rescueLog);
+
+    return {
+      ok: true,
+      ctx,
+      openai: {
+        content: rescueText,
+        apiMs: 0,
+        status: 200,
+        statusText: "OK",
+      },
+    };
   }
 
-  // ===== Choose best（失格は除外せず減点 → L3 → densityA tie-break）=====
-  let attemptedExtraCount = 0;
-  let extraAttempt: { idx: number; ok: boolean; status: number; apiMs: number; reason: string } | null = null;
-
-  let selection = chooseBestCandidate(
-    oks.map((x) => ({
-      idx: x.idx,
-      content: x.content,
-      apiMs: x.apiMs,
-      status: x.status,
-      statusText: x.statusText,
-    })),
+  const initialBatch = await generateIndependentProseCandidates({
+    apiKey,
+    model,
+    provider,
+    requestId,
     normalized,
-  );
+    proseSystem: ctx.prompts.proseSystem,
+    isSNS,
+    usableFacts,
+    passKind: "initial",
+    count: 3,
+  });
 
-  let best = selection.best;
-  let scored = selection.scored;
+  const passedCandidates = initialBatch.passedCandidates;
+  const diagnosticCandidate = selectBestDiagnosticCandidate(initialBatch.candidates);
 
-  // A案：止まらない最優先 → disqualifyAll は “発火条件” に使わない（観測ログだけ残す）
-  const disqualifyAllTriggered = false;
+  if (passedCandidates.length === 0) {
+    return {
+      ok: false,
+      reason: "candidate_selection_failed",
+      code: "final_prose_boundary_failed",
+      message: "generated prose did not satisfy minimal boundary",
+      meta: {
+        requestId,
+        candidateCount: initialBatch.candidates.length,
+        passedCandidateCount: 0,
+        bestScore: diagnosticCandidate?.minimalBoundary.score ?? null,
+        reasons: diagnosticCandidate?.minimalBoundary.reasons ?? [],
+        warnings: diagnosticCandidate?.minimalBoundary.warnings ?? [],
+        richerReasons: diagnosticCandidate?.richerBoundary.reasons ?? [],
+      },
+    };
+  }
 
-  const densityAThreshold = resolveDensityAThreshold(best.inputCount, normalized);
+  let bestCandidate: CandidateRecord = passedCandidates[0];
+  let selectionSource: "single_pass" | "ai_judge" | "ai_judge_fallback" =
+    "single_pass";
+  let aiJudgeUsed = false;
+  let aiJudgeReason = "";
+  let aiJudgeRawHash8: string | null = null;
+  let aiSelectedIndex: number | null = null;
+  let aiJudgeDecision: CandidateAiJudgeDecision | null = null;
+  let aiRejectedCandidates: CandidateAiJudgeRejected[] = [];
 
-  // （既存）救済条件
-  const rescueTriggeredByAbstractHead = scored.length >= 3 && scored.every((s) => hasAbstractHeadReason(s.reasons));
+  if (passedCandidates.length >= 2) {
+    aiJudgeUsed = true;
 
-  // ✅ 最小修正：densityAが「評価不能（inputCount=0/null）」のときは lowDensity救済を発火させない
-  const canUseLowDensityRescue = best.inputCount === 3 || best.inputCount === 4;
-  const rescueTriggeredByLowDensity =
-    canUseLowDensityRescue && typeof best.densityA === "number" && best.densityA < densityAThreshold;
+    const aiJudgeResult = await judgePassedCandidatesWithAi({
+      apiKey,
+      model,
+      provider,
+      requestId,
+      normalized,
+      candidates: passedCandidates,
+    });
 
-  // ✅ 合意②：全滅なら再生成1回（案A）
-  // ✅ 既存救済も含め「追加生成は全体で最大1回」に統一する
-  const shouldAttemptExtraOnce =
-    attemptedExtraCount === 0 &&
-    (rescueTriggeredByAbstractHead || rescueTriggeredByLowDensity);
+    aiJudgeReason = aiJudgeResult.reason;
+    aiSelectedIndex = aiJudgeResult.selectedCandidateIndex;
+    aiJudgeDecision = aiJudgeResult.decision;
+    aiRejectedCandidates = aiJudgeResult.rejected;
+    aiJudgeRawHash8 = aiJudgeResult.raw
+      ? sha256Hex(aiJudgeResult.raw).slice(0, 8)
+      : null;
 
-  if (shouldAttemptExtraOnce) {
-    attemptedExtraCount = 1;
-
-    const reason = disqualifyAllTriggered
-      ? "DISQUALIFY_ALL"
-      : rescueTriggeredByLowDensity
-        ? "LOW_DENSITY"
-        : rescueTriggeredByAbstractHead
-          ? "ABSTRACT_HEAD_ALL"
-          : "UNKNOWN";
-
-    const extra = await callOnce(4);
-
-    if (extra.ok) {
-      extraAttempt = { idx: extra.idx, ok: true, status: extra.status, apiMs: extra.apiMs, reason };
-
-      const reselect = chooseBestCandidate(
-        [
-          ...oks.map((x) => ({
-            idx: x.idx,
-            content: x.content,
-            apiMs: x.apiMs,
-            status: x.status,
-            statusText: x.statusText,
-          })),
-          {
-            idx: extra.idx,
-            content: extra.content,
-            apiMs: extra.apiMs,
-            status: extra.status,
-            statusText: extra.statusText,
-          },
-        ],
-        normalized,
+    if (aiJudgeResult.ok) {
+      const selectedByAi = passedCandidates.find(
+        (candidate) =>
+          candidate.candidateIndex === aiJudgeResult.selectedCandidateIndex,
       );
 
-      selection = reselect;
-      best = reselect.best;
-      scored = reselect.scored;
+      if (selectedByAi) {
+        bestCandidate = selectedByAi;
+        selectionSource = "ai_judge";
+      } else {
+        const fallbackCandidate = selectFallbackCandidate(passedCandidates);
+        if (fallbackCandidate) {
+          bestCandidate = fallbackCandidate;
+          selectionSource = "ai_judge_fallback";
+        }
+      }
     } else {
-      extraAttempt = { idx: extra.idx, ok: false, status: extra.status, apiMs: extra.apiMs, reason };
+      const fallbackCandidate = selectFallbackCandidate(passedCandidates);
+      if (fallbackCandidate) {
+        bestCandidate = fallbackCandidate;
+        selectionSource = "ai_judge_fallback";
+      }
     }
   }
 
-  const selectLog = {
-    phase: "pipeline_select" as const,
+  const topAlternativeCandidate = selectBestAlternativeCandidate(
+    passedCandidates,
+    bestCandidate.candidateIndex,
+  );
+
+  const selectionLog = {
+    phase: "pipeline_candidate_selection" as const,
     level: "DEBUG",
     route: "/api/writer",
-    message: "selected best candidate by L3 scoring (+ densityA tie-breaker + threshold rescue + disqualify gate)",
+    message: "pipeline selected best candidate from minimal-filtered prose candidates",
     provider,
     model,
     requestId,
-    selectedIdx: best.idx,
-    selectedScore: best.score,
-    selectedDidRepair: Boolean(best.didRepair),
-    selectedDisqualified: Boolean(best.disqualified),
-    selectedReasons: best.reasons.slice(0, 12),
-    selectedFacts: best.facts,
-
-    selectedDensityA: best.densityA,
-    selectedInputCount: best.inputCount,
-    selectedUsedCount: best.usedCount,
-    densityAThreshold,
-
-    disqualifyAllTriggered,
-    rescueTriggeredByLowDensity,
-    rescueTriggeredByAbstractHead,
-
-    attemptedExtraCount,
-    extraAttempt,
-
-    candidateScores: scored.map((s) => ({
-      idx: s.idx,
-      score: s.score,
-      didRepair: Boolean(s.didRepair),
-      disqualified: Boolean(s.disqualified),
-      reasons: s.reasons.slice(0, 8),
-      facts: s.facts,
-      densityA: s.densityA,
-      inputCount: s.inputCount,
-      usedCount: s.usedCount,
-      contentLen: s.contentLen,
-      contentHash8: s.contentHash8,
-      apiMs: s.apiMs,
-      status: s.status,
-    })),
-    failedAttempts: ngs.map((n) => ({
-      idx: n.idx,
-      status: n.status,
-      statusText: n.statusText,
-      apiMs: n.apiMs,
-    })),
+    candidateCount: initialBatch.candidates.length,
+    passedCandidateCount: passedCandidates.length,
+    selectionSource,
+    aiJudgeUsed,
+    aiSelectedIndex,
+    aiJudgeReason,
+    aiJudgeRawHash8,
+    aiJudgeDecision,
+    aiRejectedCandidates,
+    aiOverrideUsed: aiJudgeDecision?.overrideUsed ?? false,
+    selectedPassKind: bestCandidate.passKind,
+    selectedCandidateIndex: bestCandidate.candidateIndex,
+    selectedCandidateDiversityHint: bestCandidate.diversityHint,
+    minimalScore: bestCandidate.minimalBoundary.score,
+    minimalReasons: bestCandidate.minimalBoundary.reasons,
+    minimalWarnings: bestCandidate.minimalBoundary.warnings,
+    richerScore: bestCandidate.richerBoundary.score,
+    richerReasons: bestCandidate.richerBoundary.reasons,
+    richerWarnings: bestCandidate.richerBoundary.warnings,
+    selectedCandidateRicherReasons: bestCandidate.richerBoundary.reasons,
+    selectedCandidateRicherWarnings: bestCandidate.richerBoundary.warnings,
+    topAlternativeCandidateIndex: topAlternativeCandidate?.candidateIndex ?? null,
+    topAlternativeCandidateDiversityHint: topAlternativeCandidate?.diversityHint ?? null,
+    topAlternativeRicherScore: topAlternativeCandidate?.richerBoundary.score ?? null,
+    topAlternativeRicherReasons: topAlternativeCandidate?.richerBoundary.reasons ?? [],
+    topAlternativeRicherWarnings:
+      topAlternativeCandidate?.richerBoundary.warnings ?? [],
+    topAlternativeMinimalWarnings:
+      topAlternativeCandidate?.minimalBoundary.warnings ?? [],
+    contentHash8: sha256Hex(bestCandidate.content).slice(0, 8),
   };
-  logEvent("ok", selectLog);
-  forceConsoleEvent("ok", selectLog);
-  await emitWriterEvent("ok", selectLog);
+  logEvent("ok", selectionLog);
+  forceConsoleEvent("ok", selectionLog);
+  await emitWriterEvent("ok", selectionLog);
 
-  const chosenContent = (best.content ?? "").toString().trim();
-  if (!chosenContent) {
-    const errLog = {
-      phase: "pipeline_handoff" as const,
-      level: "ERROR",
-      route: "/api/writer",
-      message: "empty content",
-      provider,
-      model,
-      requestId,
-      status: best.status,
-      statusText: best.statusText,
-      apiMs: best.apiMs,
-    };
-    logEvent("error", errLog);
-    forceConsoleEvent("error", errLog);
-    await emitWriterEvent("error", errLog);
-    return { ok: false, reason: "openai_empty_content", message: "empty content", meta: { requestId } };
+  ctx.prompts.proseUser = bestCandidate.proseUser;
+  if (ctx.prompts.debug) {
+    ctx.prompts.debug.proseUserHash8 = sha256Hex(ctx.prompts.proseUser).slice(
+      0,
+      8,
+    );
   }
 
   observeDensityA({
     normalized,
-    outputText: chosenContent,
+    outputText: bestCandidate.content,
     requestId,
     provider,
     model,
     templateKey,
     isSNS,
     ctaMode,
-    hasProductFacts: Boolean(productFactsBlock),
+    hasProductFacts: false,
   });
+
+  const proseLog = {
+    phase: "pipeline_prose" as const,
+    level: "DEBUG",
+    route: "/api/writer",
+    message: "pipeline generated prose from ai-first renderer",
+    provider,
+    model,
+    requestId,
+    minimalScore: bestCandidate.minimalBoundary.score,
+    minimalReasons: bestCandidate.minimalBoundary.reasons,
+    minimalWarnings: bestCandidate.minimalBoundary.warnings,
+    richerScore: bestCandidate.richerBoundary.score,
+    richerReasons: bestCandidate.richerBoundary.reasons,
+    richerWarnings: bestCandidate.richerBoundary.warnings,
+    contentHash8: sha256Hex(bestCandidate.content).slice(0, 8),
+  };
+  logEvent("ok", proseLog);
+  forceConsoleEvent("ok", proseLog);
+  await emitWriterEvent("ok", proseLog);
 
   return {
     ok: true,
     ctx,
-    openai: { content: chosenContent, apiMs: best.apiMs, status: best.status, statusText: best.statusText },
+    openai: {
+      content: bestCandidate.content,
+      apiMs: bestCandidate.apiMs,
+      status: bestCandidate.status,
+      statusText: bestCandidate.statusText,
+    },
   };
 }
