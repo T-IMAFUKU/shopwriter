@@ -27,6 +27,8 @@ import { prisma } from "@/lib/prisma";
 
 type BillingGateReason = "PAST_DUE" | "CANCELED_PERIOD_ENDED" | "UNKNOWN_STATUS";
 
+const DEFAULT_WRITER_MODEL = "gpt-5.4-mini";
+
 function paymentRequired(
   reason: BillingGateReason,
   detail: {
@@ -53,7 +55,7 @@ function isLikelyCuid(id: unknown): id is string {
 }
 
 async function checkSubscriptionGate(
-  session: unknown, // ✅ 型ズレ回避（最短で動作を確定する）
+  session: unknown,
   rid: string,
   elapsedMs: number,
 ) {
@@ -62,7 +64,6 @@ async function checkSubscriptionGate(
   const sessionUserId = s?.user?.id ?? null;
   const sessionEmail = s?.user?.email ?? null;
 
-  // セッションが無ければ「無料扱い」= ここでは止めない
   if (!s || (!sessionEmail && !sessionUserId)) {
     await emitWriterEvent("ok", {
       phase: "billing_gate" as const,
@@ -74,7 +75,6 @@ async function checkSubscriptionGate(
     return { ok: true as const };
   }
 
-  // email を第一優先にする（GitHub数値IDが混ざるため）
   let u:
     | {
         subscriptionStatus: string | null;
@@ -100,7 +100,6 @@ async function checkSubscriptionGate(
     });
   }
 
-  // DBに居ないなら無料扱い（ここでは止めない）
   if (!u) {
     await emitWriterEvent("ok", {
       phase: "billing_gate" as const,
@@ -198,62 +197,6 @@ async function checkSubscriptionGate(
   return { ok: true as const };
 }
 
-/**
- * L3 編集ルール（設計憲章 v1.0 確定版）を「生成に強制」するための system 注入。
- * - L0/L1/L2（勝利条件/品質定義/出力構成）は変更しない
- * - ここでの役割：出力の"形"と"禁止事項"を、モデル側の挙動として固定する
- */
-function buildForcedEditingSystem(): string {
-  // 重要：ここは「努力目標」ではなく「制約」
-  // 重要：入力に無い固有情報は出さない（推測/捏造禁止）
-  return [
-    "あなたはEC向け商品説明の編集者です。出力は日本語。以下の制約に必ず従ってください。",
-    "",
-    "【出力フォーマット（必須・固定）】",
-    "1) ヘッド：2文のみ（1文目=用途+主ベネフィット / 2文目=使用シーン）。",
-    "2) ボディ：箇条書きは最大3点まで。順番は「コア機能→困りごと解消→汎用価値」。",
-    "3) 補助：入力に objections または cta_preference がある場合のみ、その情報に対応する短い追記を1〜2行で許可。無ければ絶対に出さない。",
-    "",
-    "【禁止事項（必須）】",
-    "- 見出し（## や「【】見出し」等）を出さない。",
-    "- ヘッドで説明・前置き・水増しをしない（例：「重要」「サポート」「〜でしょう」「おすすめ」「丁寧に」等）。",
-    "- 抽象まとめ・同義反復・言い換えの繰り返しをしない。",
-    "- 短文化は努力目標ではなく制約。冗長なら削る。",
-    "- 固有情報は入力にあるもののみ。推測・捏造・過剰な一般論（例：健康/医療効果、数値根拠、第三者評価）を入れない。",
-    "",
-    "【断言ワード制御（必須）】",
-    "- 「最適」「おすすめ」「ぴったり」「ベスト」「完璧」など“根拠なし断言”は使わない（特にヘッド）。",
-    "- 代替表現は「向いています」「便利です」「普段使いしやすいです」「〜に役立ちます」を使う。",
-    "- ヘッドは「感じ方（快適・心地よい等）」を書かず、「どうなるか（状態）」だけを書く。",
-    "- 例：「快適に過ごせます」→「飲み頃の温度を保ったまま飲めます」/「作業中も温度が変わりにくいです」",
-    "- 感情語・評価語（快適/心地よい/ストレスフリー等）は、ヘッドでは禁止（ボディでも極力避ける）。",
-    "",
-    "【書き方の規則（必須）】",
-    "- ヘッド2文はそれぞれ一息で読める長さにする。",
-    "- 箇条書きは各1行で簡潔に（最大3行）。",
-    "- 句読点は自然に。語尾の連発を避ける。",
-    "",
-    "出力は本文のみ。コードブロック・注釈・自己評価・説明は書かない。",
-  ].join("\n");
-}
-
-/**
- * systemOverride はユーザー/上位層から渡りうるが、
- * L3強制の制約を緩めることはできない（強制ルールを先頭に固定注入）。
- */
-function composeSystemOverride(forced: string, userOverride: string): string {
-  const u = (userOverride ?? "").toString().trim();
-  if (!u) return forced;
-
-  return [forced, "", "【追加指示（ただし上の制約は優先）】", u].join("\n");
-}
-
-/**
- * meta.template / meta.cta を route.ts で確実に拾う
- * - 目的：UIの選択値がサーバで確実に観測できる状態にする
- * - 実装方針：normalizeInput(rawPrompt) の結果に「上書き/補完」する
- *   （pipeline 側は n.platform / metaCta などを吸収する前提）
- */
 function normalizeTemplateKey(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const t = raw.trim();
@@ -261,8 +204,6 @@ function normalizeTemplateKey(raw: unknown): string | null {
 
   const low = t.toLowerCase();
 
-  // UI: "lp" | "email" | "sns_short" | "headline_only" 想定
-  // 旧: "LP" などの可能性も吸収
   if (low === "lp") return "lp";
   if (low === "email") return "email";
   if (low === "sns_short") return "sns_short";
@@ -292,8 +233,6 @@ function normalizeCtaBool(raw: unknown): boolean | null {
 
 /* =========================
    ✅ UI必須4項目（別フィールド）を n に反映
-   - 商品名 / 用途・目的 / 特徴・強み / ターゲット
-   - UIキー名の揺れを吸収して安全に補完する
 ========================= */
 
 function S(raw: unknown): string {
@@ -304,7 +243,6 @@ function arrOfStrings(raw: unknown): string[] {
   if (Array.isArray(raw)) return raw.map((x) => S(x)).filter(Boolean);
   const s = S(raw);
   if (!s) return [];
-  // 改行/スラッシュ/中点/カンマ/全角スペースで雑に分割（UI入力の揺れ吸収）
   return s
     .split(/[\n\r]+|[\/／]|[・]|[,，]|[　]+/)
     .map((x) => x.trim())
@@ -316,7 +254,6 @@ function pickFirst(obj: any, keys: string[]): unknown {
     if (!k) continue;
     const v = obj?.[k];
     if (v === undefined || v === null) continue;
-    // 空文字はスキップ
     if (typeof v === "string" && v.trim().length === 0) continue;
     return v;
   }
@@ -327,13 +264,11 @@ function applyUiRequiredFieldsToNormalized(n: any, reqInputAny: any) {
   const root = reqInputAny ?? {};
   const meta = root?.meta ?? {};
 
-  // “別フィールド”候補（UI側の命名揺れを吸収）
   const rawProductName = pickFirst(root, ["productName", "product_name", "product", "name", "title"]);
   const rawGoal = pickFirst(root, ["purpose", "goal", "useCase", "usage", "intent"]);
   const rawSellingPoints = pickFirst(root, ["strengths", "sellingPoints", "selling_points", "features", "featureList"]);
   const rawAudience = pickFirst(root, ["target", "audience", "persona", "customer", "reader"]);
 
-  // meta 内に入ってしまう実装も吸収（念のため）
   const rawProductName2 = pickFirst(meta, ["productName", "product_name", "product", "name", "title"]);
   const rawGoal2 = pickFirst(meta, ["purpose", "goal", "useCase", "usage", "intent"]);
   const rawSellingPoints2 = pickFirst(meta, ["strengths", "sellingPoints", "selling_points", "features", "featureList"]);
@@ -348,8 +283,6 @@ function applyUiRequiredFieldsToNormalized(n: any, reqInputAny: any) {
     ...arrOfStrings(rawSellingPoints2),
   ];
 
-  // ✅ “補完 or 上書き” 方針：
-  // - UIで必須4項目を入力している前提なので、来ていれば上書き優先。
   if (productName) n.product_name = productName;
   if (goal) n.goal = goal;
   if (audience) n.audience = audience;
@@ -365,7 +298,9 @@ function applyUiRequiredFieldsToNormalized(n: any, reqInputAny: any) {
 
 export async function POST(req: Request) {
   const t0 = Date.now();
-  const rid = (globalThis as any).crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
+  const rid =
+    (globalThis as any).crypto?.randomUUID?.() ??
+    Math.random().toString(36).slice(2);
 
   const elapsed = () => Date.now() - t0;
 
@@ -376,19 +311,22 @@ export async function POST(req: Request) {
     const ctxResult = await buildWriterRequestContext(req);
 
     if (!ctxResult.ok) {
-      return handleInvalidRequestError(ctxResult.error?.message ?? "invalid request", rid, elapsed());
+      return handleInvalidRequestError(
+        ctxResult.error?.message ?? "invalid request",
+        rid,
+        elapsed(),
+      );
     }
 
-    // ✅ composedSystem / composedUser は旧設計の残骸。新pipelineでは使わない。
     const { raw: reqInput } = ctxResult.data;
 
     provider = String((reqInput as any).provider ?? "openai").toLowerCase();
     const rawPrompt = ((reqInput as any).prompt ?? "").toString();
-    model = ((reqInput as any).model ?? "gpt-4o-mini").toString();
-    const temperature = typeof (reqInput as any).temperature === "number" ? (reqInput as any).temperature : 0.7;
-
-    // ここで受け取る systemOverride は「追加指示」扱いに落とし、L3強制は常に優先させる
-    const systemOverrideRaw = (((reqInput as any).system ?? "") as string).toString();
+    model = ((reqInput as any).model ?? DEFAULT_WRITER_MODEL).toString();
+    const temperature =
+      typeof (reqInput as any).temperature === "number"
+        ? (reqInput as any).temperature
+        : 0.7;
 
     await writerLog({
       phase: "request",
@@ -409,44 +347,34 @@ export async function POST(req: Request) {
       return handleMissingApiKeyError(provider, model, rid, elapsed());
     }
 
-    // ✅ 課金ゲート（ここで止める）
     const session = await getServerSession(authOptions);
     const gate = await checkSubscriptionGate(session, rid, elapsed());
     if (!gate.ok) return gate.response;
 
     const n = normalizeInput(rawPrompt) as any;
 
-    // --- UI meta の観測＆補完（template/cta） ---
     const unsafeRawInput = reqInput as any;
-
     const meta = unsafeRawInput?.meta ?? null;
     const metaTemplate = normalizeTemplateKey(meta?.template);
     const metaCta = normalizeCtaBool(meta?.cta);
 
-    // ✅ pipelineの resolveCtaMode は n.metaCta を見に行くため、ここで渡す（SSOTへの入力）
     if (metaCta !== null) {
       n.metaCta = metaCta;
     }
 
-    // 互換：template を n.platform に反映（pipeline 側が templateKey 判定で拾えるように）
     if (metaTemplate) {
       n.platform = metaTemplate;
     }
 
-    // 互換：cta を n.cta に反映（falseなら確実に無効化）
-    // true のときは「既に normalizeInput が詳細文字列を持っている」可能性があるので上書きしすぎない
     if (metaCta === false) {
       n.cta = null;
     } else if (metaCta === true) {
       if (!n.cta) n.cta = "あり";
     }
 
-    // ✅ UI必須4項目（別フィールド）を n に反映（密度Aの土台）
     const required4 = applyUiRequiredFieldsToNormalized(n, unsafeRawInput);
 
-    // --- productId ---
     const rawProductId = unsafeRawInput?.productId;
-
     let productId: string | null = null;
 
     if (typeof rawProductId === "string") {
@@ -469,13 +397,9 @@ export async function POST(req: Request) {
           category: n.category,
           goal: n.goal,
           platform: n.platform ?? null,
-          // 観測用（UIの選択値がサーバに到達しているかを確定させる）
           metaTemplate: metaTemplate ?? null,
           metaCta: metaCta ?? null,
-          // 参考：productId有無
           productId: productId ?? null,
-
-          // ✅ 必須4項目が “別フィールドで届いているか” の観測（中身はログに出さない）
           required4,
         },
         hash: {
@@ -487,18 +411,12 @@ export async function POST(req: Request) {
       await emitWriterEvent("ok", payloadPre);
     }
 
-    // ✅ L3編集ルールを system に強制注入（生成の形を固定する）
-    const forcedSystem = buildForcedEditingSystem();
-    const systemOverride = composeSystemOverride(forcedSystem, systemOverrideRaw);
-
-    // ✅ 新pipelineへ：composedSystem/composedUser は渡さない
     const pipelineResponse = await runWriterPipeline({
       rawPrompt,
       normalized: n,
       provider,
       model,
       temperature,
-      systemOverride,
       apiKey,
       t0,
       requestId: rid,
@@ -507,29 +425,22 @@ export async function POST(req: Request) {
       productContext,
     });
 
-    // --- ✅ SSOT + JSON健全性ガード（最小・原因捕捉用） ---
-    // 成功(200)のときだけ「JSONとして読めるか」「data.text/outputが同一か」をここで確定させる。
-    // JSONが壊れている場合は壊れたJSONを返さず、500で止める（原因特定の土台）。
     if (pipelineResponse?.status === 200) {
       try {
         const payload = await pipelineResponse.clone().json();
 
-        // okレスポンスのときだけSSOT強制
         if (payload && payload.ok === true && payload.data && typeof payload.data === "object") {
           const textRaw = (payload.data as any).text;
           const finalText = typeof textRaw === "string" ? textRaw : String(textRaw ?? "");
 
-          // SSOT：textは1回だけ確定 → 両方に同一参照
           (payload.data as any).text = finalText;
           (payload as any).output = finalText;
 
           return NextResponse.json(payload, { status: 200 });
         }
 
-        // okでない / 形が違う場合はそのまま返す（互換維持）
         return pipelineResponse;
-      } catch (e) {
-        // JSONが壊れている（ConvertFrom-Jsonが落ちる問題のサーバ側検知）
+      } catch {
         await emitWriterEvent("ok", {
           phase: "route_json_guard" as const,
           ok: false,
@@ -553,7 +464,6 @@ export async function POST(req: Request) {
       }
     }
 
-    // 200以外はそのまま返す（エラー互換維持）
     return pipelineResponse;
   } catch (e: unknown) {
     return handleUnexpectedError(e, {

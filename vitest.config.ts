@@ -1,4 +1,3 @@
-// vitest.config.ts （全文置換）
 import { defineConfig } from "vitest/config";
 import tsconfigPaths from "vite-tsconfig-paths";
 
@@ -8,7 +7,10 @@ export default defineConfig({
 
   test: {
     environment: "node",
-    include: ["tests/**/*.test.ts"],
+    include: [
+      "tests/**/*.test.ts",
+      "app/api/writer/__tests__/**/*.test.ts",
+    ],
     passWithNoTests: false,
     reporters: ["default"],
 
