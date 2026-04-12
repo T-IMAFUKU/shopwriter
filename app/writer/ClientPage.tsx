@@ -47,7 +47,7 @@ const DUR = {
 /* =========================
    A1 dynamic（入力のみ / Top-1 / 非数値理由のみ）
    - 「数値不足」はヒント発火理由にしない
-   - 用途・目的不足 / 特徴・強み不足 / 利用シーン不足だけを見る
+   - 商品の用途・使う場面不足 / 商品の特徴・情報不足 / 使う場面不足だけを見る
    - 主経路以外の旧A1補助ロジックは残さない
 ========================= */
 const A1_SCENE_WORDS = [
@@ -117,32 +117,32 @@ function getInputA1State(args: { purpose: string; features: string }) {
   if (!purposeOk) {
     hint = {
       key: "H_PURPOSE",
-      text: "用途・目的に「誰が / 何のために」を1つだけ追加（短文でOK）",
-      example: "例：初めての人向け／忙しい平日用／在宅作業の集中用",
+      text: "商品の用途・使う場面に「何のために / どんな場面で使うか」を1つだけ追加（短文でOK）",
+      example: "例：EC担当者が下書きを短時間で作りたいとき",
     };
   } else if (!featuresOk) {
     hint = {
       key: "H_FEATURES",
-      text: "特徴・強みに「仕様 / 条件 / 機能」を1つだけ追加（単語でもOK）",
-      example: "例：防水仕様／真空断熱構造／持ち手付き／当日受け取り可",
+      text: "商品の特徴・情報に「仕様 / 機能 / 使いやすさ」を1つだけ追加（単語でもOK）",
+      example: "例：テンプレ切替対応／入力がシンプル／下書きを自動生成",
     };
   } else if (!hasScene) {
     hint = {
       key: "H_SCENE",
-      text: "利用シーンを1つだけ追加（用途・目的に追記されます）",
-      example: "例：ランチ前／雨の日の店頭／在宅デスク",
+      text: "使う場面を1つだけ追加（商品の用途・使う場面に追記されます）",
+      example: "例：商品登録後すぐ／LP案を急いで作る前／公開前の下書き作成時",
     };
   }
 
   const points: string[] = [];
   if (!purposeOk) {
-    points.push("① 用途・目的：誰が何のために使うかを短く足すと伝わりやすくなります");
+    points.push("① 商品の用途・使う場面：何のために、どんな場面で使うかを短く足すと伝わりやすくなります");
   }
   if (!featuresOk) {
-    points.push("③ 特徴・強み：仕様や条件を1つ足すと具体性が上がります");
+    points.push("③ 商品の特徴・情報：仕様や使いやすさを1つ足すと具体性が上がります");
   }
   if (points.length < 2 && !hasScene) {
-    points.push("② 利用シーン：1つ追加すると用途・目的に追記されます");
+    points.push("② 使う場面：1つ追加すると商品の用途・使う場面に追記されます");
   }
 
   return {
@@ -169,11 +169,11 @@ const FormSchema = z.object({
   product: z.string().min(2, "商品名は2文字以上で入力してください"),
   purpose: z
     .string()
-    .min(4, "用途/目的は4文字以上で入力してください")
+    .min(4, "商品の用途・使う場面は4文字以上で入力してください")
     .max(120, "120文字以内で要約してください"),
   features: z
     .string()
-    .min(MIN_FEATURES, `特徴・強みは${MIN_FEATURES}文字以上で入力してください`),
+    .min(MIN_FEATURES, `商品の特徴・情報は${MIN_FEATURES}文字以上で入力してください`),
   audience: z.string().min(2, "ターゲットは2文字以上で入力してください"),
   tone: z.enum(["friendly", "professional", "casual", "energetic"]).default("friendly"),
   template: z.enum(["lp", "email", "sns_short", "headline_only"]).default("lp"),
@@ -325,7 +325,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
 
   // A2: パネル開閉 + 補足入力（元フォームは「適用」まで触らない）
   const [a2Open, setA2Open] = useState(false); // A2: open/close
-  const [a2Scene, setA2Scene] = useState(""); // A2: 利用シーン（補足）
+  const [a2Scene, setA2Scene] = useState(""); // A2: 使う場面（補足）
   const [a2Feature, setA2Feature] = useState(""); // A2: 具体的な特徴（補足）
 
   const skeletonTimerRef = useRef<number | null>(null);
@@ -716,7 +716,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
       if (vals.template === "headline_only") sections.push("- ヘッドライン案を3つ");
       const prompt = sections.join("\n");
 
-      // ✅ required4 SSOT: 特徴・強みを配列化して送る（サーバ側で sellingPointsCount を立てる）
+      // ✅ required4 SSOT: 商品の特徴・情報を配列化して送る（サーバ側で sellingPointsCount を立てる）
       const sellingPoints = (vals.features ?? "")
         .split(/\r?\n|・|•|\-|\u2022|,|、|;/)
         .map((s) => s.trim())
@@ -956,7 +956,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
               </span>
             </h1>
             <p className="mt-3 text-sm leading-relaxed text-neutral-700 md:text-base md:leading-relaxed md:max-w-prose text-center">
-              目的・強み・話し方を入力すると、そのまま使える紹介文やLP用コピーを仕上げます。
+              商品の用途・特徴・話し方を入力すると、そのまま使える紹介文やLP用コピーを仕上げます。
             </p>
             <div className="mt-5 flex justify-center">
               <div className="flex flex-wrap items-center gap-2 text-[11px] text-neutral-600">
@@ -1134,25 +1134,29 @@ export default function ClientPage({ productId }: ClientPageProps) {
 
               <div>
                 <Label className="text-sm text-neutral-700 dark:text-neutral-300">
-                  用途・目的
+                  商品の用途・使う場面
                 </Label>
                 <Input
-                  placeholder="例）EC事業者向けに、商品紹介文やLP用コピーを効率よく作成したい"
+                  placeholder="例）EC担当者が、商品情報をもとに紹介文の下書きを短時間で作りたいときに使う"
                   aria-invalid={!!errors.purpose}
                   className={clsx(
                     errors.purpose && "border-red-300 focus-visible:ring-red-400",
                   )}
                   {...register("purpose")}
                 />
-                {errors.purpose && (
+                {errors.purpose ? (
                   <p className="text-xs text-red-500">{errors.purpose.message}</p>
+                ) : (
+                  <p className="text-xs text-neutral-500">
+                    この商品を何のために、どんな場面で使うかを入力してください
+                  </p>
                 )}
               </div>
 
               <div>
                 <div className="flex items-center justify-between">
                   <Label className="text-sm text-neutral-700 dark:text-neutral-300">
-                    特徴・強み
+                    商品の特徴・情報
                   </Label>
                   <span className="text-[11px] text-neutral-500">
                     {featuresLen} / {MIN_FEATURES}
@@ -1160,7 +1164,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                 </div>
                 <Textarea
                   rows={4}
-                  placeholder="例）AIが商品情報と用途をもとに、すぐに使える文章を自動生成。テンプレ設計により、LP・SNS向けの構成にも対応。入力がシンプルで、誰でも迷わず文章作成ができる。"
+                  placeholder="例）AIが商品情報をもとに文章を生成。テンプレ切替に対応し、入力がシンプルで使いやすい"
                   aria-invalid={!!errors.features}
                   className={clsx(
                     errors.features && "border-red-300 focus-visible:ring-red-400",
@@ -1170,9 +1174,12 @@ export default function ClientPage({ productId }: ClientPageProps) {
                 {errors.features ? (
                   <p className="text-xs text-red-500">{errors.features.message}</p>
                 ) : (
-                  <p className="text-xs text-neutral-500">
-                    ※ {MIN_FEATURES}文字以上で入力してください
-                  </p>
+                  <div className="space-y-1 text-xs text-neutral-500">
+                    <p>
+                      成分、仕様、使いやすさ、配慮点など、商品について伝えたい情報を入力してください
+                    </p>
+                    <p>※ {MIN_FEATURES}文字以上で入力してください</p>
+                  </div>
                 )}
               </div>
 
@@ -1510,7 +1517,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                   <div className="min-w-0">
                     <p className="text-xs font-semibold text-neutral-900">補足入力（1分）</p>
                     <p className="mt-0.5 text-[11px] leading-relaxed text-neutral-600">
-                      ここで入力した内容は「適用して再生成」で反映されます（利用シーン→用途・目的／具体的な特徴→特徴・強み）。
+                      ここで入力した内容は「適用して再生成」で反映されます（使う場面→商品の用途・使う場面／具体的な特徴→商品の特徴・情報）。
                     </p>
                   </div>
                   <button
@@ -1538,7 +1545,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                 <div className="mt-3 grid gap-3">
                   <div className="grid gap-1.5">
                     <Label className="text-[11px] font-semibold text-neutral-700">
-                      利用シーン（用途・目的に追記）
+                      使う場面（商品の用途・使う場面に追記）
                     </Label>
                     <Textarea
                       value={a2Scene}
@@ -1550,7 +1557,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
 
                   <div className="grid gap-1.5">
                     <Label className="text-[11px] font-semibold text-neutral-700">
-                      具体的な特徴（特徴・強みに追記）
+                      具体的な特徴（商品の特徴・情報に追記）
                     </Label>
                     <Textarea
                       value={a2Feature}
