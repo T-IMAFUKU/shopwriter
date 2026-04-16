@@ -12,6 +12,7 @@ import { logProductContextStatus } from "./logger";
 import {
   buildPrecisionProductPayload,
   buildProductFactsDto,
+  buildProductFactsBlock,
 } from "@/server/products/dto";
 import * as DensityA from "@/lib/densityA";
 
@@ -162,7 +163,7 @@ export type WriterPipelineCtx = {
   product: {
     precisionPayload: ReturnType<typeof buildPrecisionProductPayload>;
     productFacts: ReturnType<typeof buildProductFactsDto>;
-    productFactsBlock: string | null;
+    productFactsBlock: ReturnType<typeof buildProductFactsBlock>;
   };
 };
 
@@ -187,6 +188,19 @@ function uniqueNonEmptyStrings(list: unknown): string[] {
   }
   return out;
 }
+
+function hasUsableProductFactsBlock(
+  block: ReturnType<typeof buildProductFactsBlock> | null | undefined,
+): boolean {
+  if (!block) return false;
+  return (
+    block.scene.length > 0 ||
+    block.value.length > 0 ||
+    block.evidence.length > 0 ||
+    block.guard.length > 0
+  );
+}
+
 
 function resolveTemplateKey(n: NormalizedInput): string {
   const metaTemplate = n.meta?.template;
@@ -651,6 +665,7 @@ function buildShapeRescueUserMessage(baseUser: string): string {
 function buildPromptContextBlock(args: {
   normalized: NormalizedInput;
   usableFacts: AtomicFact[];
+  productFactsBlock: ReturnType<typeof buildProductFactsBlock>;
 }): string[] {
   const lines: string[] = [];
 
@@ -678,6 +693,39 @@ function buildPromptContextBlock(args: {
       lines.push(`- ${value}`);
     }
     lines.push("上の材料は本文にそのまま貼らず、自然な日本語にほどいて使ってください。");
+  }
+
+  if (args.productFactsBlock.scene.length > 0) {
+    lines.push("商品情報（使う場面）:");
+    for (const value of args.productFactsBlock.scene.slice(0, 3)) {
+      lines.push(`- ${value}`);
+    }
+    lines.push("使う場面は、本文の場面選びや流れづくりの参考にしてください。");
+  }
+
+  if (args.productFactsBlock.value.length > 0) {
+    lines.push("商品情報（商品の良さ）:");
+    for (const value of args.productFactsBlock.value.slice(0, 3)) {
+      lines.push(`- ${value}`);
+    }
+    lines.push("商品の良さは、その場面で何がうれしいかを考える材料として使ってください。");
+  }
+
+  if (args.productFactsBlock.evidence.length > 0) {
+    lines.push("商品情報（仕様・属性の事実）:");
+    for (const item of args.productFactsBlock.evidence.slice(0, 5)) {
+      const unit = item.unit ? item.unit : "";
+      lines.push(`- ${item.label}: ${item.value}${unit}`);
+    }
+    lines.push("仕様や属性は、必要なときだけ具体化の根拠として使ってください。毎回すべては出さないでください。");
+  }
+
+  if (args.productFactsBlock.guard.length > 0) {
+    lines.push("商品情報（補足）:");
+    for (const value of args.productFactsBlock.guard.slice(0, 2)) {
+      lines.push(`- ${value}`);
+    }
+    lines.push("補足は主役にせず、言い過ぎ防止やニュアンス補完として使ってください。");
   }
 
   return lines;
@@ -728,6 +776,7 @@ function buildProseUser(args: {
   normalized: NormalizedInput;
   usableFacts: AtomicFact[];
   diversityHint: CandidateDiversityHint;
+  productFactsBlock: ReturnType<typeof buildProductFactsBlock>;
 }): string {
   const productName = normalizeJaText(args.normalized.product_name);
 
@@ -1675,6 +1724,7 @@ async function generateCandidateWithShapeRescue(args: {
   proseSystem: string;
   isSNS: boolean;
   usableFacts: AtomicFact[];
+  productFactsBlock: ReturnType<typeof buildProductFactsBlock>;
   passKind: CandidatePassKind;
   candidateIndex: number;
 }): Promise<CandidateRecord | null> {
@@ -1683,6 +1733,7 @@ async function generateCandidateWithShapeRescue(args: {
     normalized: args.normalized,
     usableFacts: args.usableFacts,
     diversityHint,
+    productFactsBlock: args.productFactsBlock,
   });
 
   const initialResponse = await createFinalProse({
@@ -1786,6 +1837,7 @@ async function generateIndependentProseCandidates(args: {
   proseSystem: string;
   isSNS: boolean;
   usableFacts: AtomicFact[];
+  productFactsBlock: ReturnType<typeof buildProductFactsBlock>;
   passKind: CandidatePassKind;
   count: number;
 }): Promise<CandidateBatchResult> {
@@ -1801,6 +1853,7 @@ async function generateIndependentProseCandidates(args: {
       proseSystem: args.proseSystem,
       isSNS: args.isSNS,
       usableFacts: args.usableFacts,
+      productFactsBlock: args.productFactsBlock,
       passKind: args.passKind,
       candidateIndex: i,
     });
@@ -2434,7 +2487,14 @@ export async function runWriterPipelineCore(
 
   const productFacts = buildProductFactsDto({
     productId: productId ?? null,
-    enabled: false,
+    enabled: true,
+    context: productContext ?? null,
+    error: null,
+  });
+
+  const productFactsBlock = buildProductFactsBlock({
+    productId: productId ?? null,
+    enabled: true,
     context: productContext ?? null,
     error: null,
   });
@@ -2480,7 +2540,7 @@ export async function runWriterPipelineCore(
     product: {
       precisionPayload,
       productFacts,
-      productFactsBlock: null,
+      productFactsBlock,
     },
   };
 
@@ -2499,6 +2559,11 @@ export async function runWriterPipelineCore(
     proseSystemHash8: ctx.prompts.debug?.proseSystemHash8 ?? null,
     atomicFactCount: atomicFacts.length,
     usableFactIds: usableFacts.map((fact) => fact.id),
+    productFactsStatus: productFactsBlock.meta.status,
+    productFactsSceneCount: productFactsBlock.scene.length,
+    productFactsValueCount: productFactsBlock.value.length,
+    productFactsEvidenceCount: productFactsBlock.evidence.length,
+    productFactsGuardCount: productFactsBlock.guard.length,
   };
   logEvent("ok", decideLog);
   await emitWriterEvent("ok", decideLog);
@@ -2546,6 +2611,7 @@ export async function runWriterPipelineCore(
     proseSystem: ctx.prompts.proseSystem,
     isSNS,
     usableFacts,
+    productFactsBlock,
     passKind: "initial",
     count: 3,
   });
@@ -2690,7 +2756,7 @@ export async function runWriterPipelineCore(
     templateKey,
     isSNS,
     ctaMode,
-    hasProductFacts: false,
+    hasProductFacts: hasUsableProductFactsBlock(productFactsBlock),
   });
 
   const proseLog = {

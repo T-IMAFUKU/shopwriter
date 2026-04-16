@@ -7,10 +7,11 @@
  *   Precision Engine / LLM に渡すための PrecisionProductPayload に変換する。
  *
  * 方針:
- * - 型定義は app/api/writer/product-dto.ts の公式 DTO に完全準拠する
- * - ProductContext から id / name に加え、
- *   specs / attributes / notices / locale など「LLM に渡してよい情報だけ」を抽出する
- * - 仕様が未定な部分は warnings で補足し、status/source で状態を明示する
+ * - 型定義は app/api/writer/product-dto.ts の公式 DTO に準拠する
+ * - ProductContext から id / name / specs / attributes / factsNote など
+ *   「LLM に渡してよい情報だけ」を抽出する
+ * - 生成本線へ渡す block は scene / value / evidence / guard に責務分解する
+ * - schema に存在しない notices / locale 前提はここでは持ち込まない
  */
 
 import type { ProductContext } from "./repository";
@@ -39,6 +40,26 @@ export type BuildPrecisionProductOptions = {
   error?: unknown;
 };
 
+export type ProductFactsBlockStatus = "found" | "missing" | "skipped";
+export type ProductFactsBlockSource = "db" | "unknown";
+
+export type ProductFactsBlockEvidenceItem = {
+  label: string;
+  value: string;
+  unit?: string;
+};
+
+export type ProductFactsBlock = {
+  scene: string[];
+  value: string[];
+  evidence: ProductFactsBlockEvidenceItem[];
+  guard: string[];
+  meta: {
+    status: ProductFactsBlockStatus;
+    source: ProductFactsBlockSource;
+  };
+};
+
 /**
  * internal helper: PrecisionProductPayload を組み立てる
  */
@@ -64,6 +85,21 @@ function asNonEmptyString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function uniqueNonEmptyStrings(list: Array<unknown>): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  for (const item of list) {
+    const value = asNonEmptyString(item);
+    if (!value) continue;
+    if (seen.has(value)) continue;
+    seen.add(value);
+    out.push(value);
+  }
+
+  return out;
 }
 
 /**
@@ -99,7 +135,8 @@ function mapSpecsFromContext(
 
 /**
  * ProductContext から attributes 配列を DTO 用にマッピングする。
- * - context.attributes を主なソースとする（ProductContext ログの attributeCount に対応）
+ * - schema 実態に合わせて key / value を読む
+ * - Precision DTO 側では name / note に寄せる
  */
 function mapAttributesFromContext(
   context: ProductContext | null | undefined,
@@ -111,61 +148,134 @@ function mapAttributesFromContext(
     .map((raw) => {
       if (!raw || typeof raw !== "object") return null;
 
-      const name = asNonEmptyString((raw as any).name);
-      if (!name) return null;
+      const key = asNonEmptyString((raw as any).key);
+      const value = asNonEmptyString((raw as any).value);
+      if (!key || !value) return null;
 
-      const kindRaw = asNonEmptyString((raw as any).kind);
-      const note = asNonEmptyString((raw as any).note);
-
-      const dto: PrecisionProductAttributeDto = { name };
-
-      if (
-        kindRaw === "feature" ||
-        kindRaw === "benefit" ||
-        kindRaw === "warning" ||
-        kindRaw === "target" ||
-        kindRaw === "other"
-      ) {
-        dto.kind = kindRaw;
-      }
-
-      if (note) {
-        dto.note = note;
-      }
+      const dto: PrecisionProductAttributeDto = {
+        name: key,
+        note: value,
+      };
 
       return dto;
     })
     .filter((a): a is PrecisionProductAttributeDto => !!a);
 }
 
-/**
- * notices は context.notices または product.notices から取得する。
- * - 文字列配列のみを採用し、空要素は捨てる。
- */
-function mapNoticesFromContext(
+function collectPurposeValues(
   context: ProductContext | null | undefined,
-  productRecord: ProductContext["product"],
-): string[] | undefined {
-  const ctxRaw = (context as any)?.notices;
-  const productRaw = (productRecord as any)?.notices;
+): string[] {
+  const attrsRaw = (context as any)?.attributes;
+  if (!Array.isArray(attrsRaw)) return [];
 
-  const src = Array.isArray(ctxRaw)
-    ? ctxRaw
-    : Array.isArray(productRaw)
-      ? productRaw
-      : [];
-
-  const notices = src
-    .map((n) => asNonEmptyString(n))
-    .filter((n): n is string => !!n);
-
-  return notices.length > 0 ? notices : undefined;
+  return uniqueNonEmptyStrings(
+    (attrsRaw as Array<any>)
+      .filter((raw) => raw && typeof raw === "object" && asNonEmptyString((raw as any).key) === "purpose")
+      .map((raw) => (raw as any).value),
+  );
 }
 
-function mapLocaleFromContext(
-  productRecord: ProductContext["product"],
-): string | undefined {
-  return asNonEmptyString((productRecord as any)?.locale);
+function collectValueValues(
+  context: ProductContext | null | undefined,
+): string[] {
+  const attrsRaw = (context as any)?.attributes;
+  if (!Array.isArray(attrsRaw)) return [];
+
+  return uniqueNonEmptyStrings(
+    (attrsRaw as Array<any>)
+      .filter((raw) => raw && typeof raw === "object" && asNonEmptyString((raw as any).key) === "value")
+      .map((raw) => (raw as any).value),
+  );
+}
+
+function collectFactsNoteValues(
+  productRecord: ProductContext["product"] | null | undefined,
+): string[] {
+  const factNote = asNonEmptyString((productRecord as any)?.factsNote);
+  return factNote ? [factNote] : [];
+}
+
+function buildEvidenceFromContext(
+  context: ProductContext | null | undefined,
+): ProductFactsBlockEvidenceItem[] {
+  const specs = mapSpecsFromContext(context);
+  const attributesRaw = Array.isArray((context as any)?.attributes)
+    ? ((context as any)?.attributes as Array<any>)
+    : [];
+
+  const evidence: ProductFactsBlockEvidenceItem[] = [];
+  const seen = new Set<string>();
+
+  const push = (item: ProductFactsBlockEvidenceItem | null) => {
+    if (!item) return;
+    const key = `${item.label}:${item.value}:${item.unit ?? ""}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    evidence.push(item);
+  };
+
+  for (const spec of specs) {
+    push({
+      label: spec.key,
+      value: spec.value,
+      ...(spec.unit ? { unit: spec.unit } : {}),
+    });
+  }
+
+  for (const raw of attributesRaw) {
+    if (!raw || typeof raw !== "object") continue;
+    const key = asNonEmptyString((raw as any).key);
+    const value = asNonEmptyString((raw as any).value);
+    if (!key || !value) continue;
+    if (key === "purpose" || key === "value") continue;
+
+    push({
+      label: key,
+      value,
+    });
+  }
+
+  return evidence;
+}
+
+function buildBlockMeta(
+  options: BuildPrecisionProductOptions,
+): ProductFactsBlock["meta"] {
+  const { productId, enabled = true, context, error } = options ?? {};
+  if (!enabled || !productId) {
+    return { status: "skipped", source: "unknown" };
+  }
+  if (error) {
+    return { status: "skipped", source: "db" };
+  }
+  if (!context?.product) {
+    return { status: "missing", source: "db" };
+  }
+  return { status: "found", source: "db" };
+}
+
+/**
+ * ProductContext / BuildPrecisionProductOptions から
+ * renderer 用の責務分解 block を組み立てる。
+ *
+ * - scene: ProductAttribute(key="purpose")
+ * - value: ProductAttribute(key="value")
+ * - evidence: specs + purpose/value 以外の attributes
+ * - guard: Product.factsNote
+ */
+export function buildProductFactsBlock(
+  options: BuildPrecisionProductOptions,
+): ProductFactsBlock {
+  const { context } = options ?? {};
+  const productRecord = context?.product ?? null;
+
+  return {
+    scene: collectPurposeValues(context ?? null),
+    value: collectValueValues(context ?? null),
+    evidence: buildEvidenceFromContext(context ?? null),
+    guard: collectFactsNoteValues(productRecord),
+    meta: buildBlockMeta(options),
+  };
 }
 
 /**
@@ -179,14 +289,13 @@ function mapLocaleFromContext(
  * 3. context.product が無い
  *    → status="missing" / source="db" / product=null
  * 4. context.product がある
- *    → status="found" / source="db" / product= PrecisionProductDto（id/name + specs/attributes/notices 等）
+ *    → status="found" / source="db" / product= PrecisionProductDto（id/name + specs/attributes 等）
  */
 export function buildPrecisionProductPayload(
   options: BuildPrecisionProductOptions,
 ): PrecisionProductPayload {
   const { productId, enabled = true, context, error } = options ?? {};
 
-  // 1) 機能OFF または productId が指定されていない場合は「完全スキップ」
   if (!enabled || !productId) {
     const warnings: string[] = [];
 
@@ -201,7 +310,6 @@ export function buildPrecisionProductPayload(
     });
   }
 
-  // 2) Repository レイヤーで例外が発生した場合
   if (error) {
     return createPayload({
       status: "skipped",
@@ -211,7 +319,6 @@ export function buildPrecisionProductPayload(
     });
   }
 
-  // 3) DB から Product が取得できなかった場合
   const productRecord = context?.product ?? null;
   if (!productRecord) {
     return createPayload({
@@ -222,24 +329,18 @@ export function buildPrecisionProductPayload(
     });
   }
 
-  // 4) 正常に Product が取得できた場合
   const specs = mapSpecsFromContext(context ?? null);
   const attributes = mapAttributesFromContext(context ?? null);
-  const notices = mapNoticesFromContext(context ?? null, productRecord);
-  const locale = mapLocaleFromContext(productRecord);
 
   const dtoProduct: PrecisionProductDto = {
     id: (productRecord as any).id,
     name: (productRecord as any).name,
-    // Phase3-P3-7 現時点では、category / brand / description 系は未使用のため undefined のまま
-    category: undefined,
-    brand: undefined,
-    shortDescription: undefined,
+    category: asNonEmptyString((productRecord as any).category),
+    brand: asNonEmptyString((productRecord as any).brand),
+    shortDescription: asNonEmptyString((productRecord as any).description),
     longDescription: undefined,
     specs,
     attributes,
-    ...(notices ? { notices } : {}),
-    ...(locale ? { locale } : {}),
   };
 
   return createPayload({
@@ -256,80 +357,63 @@ export function buildPrecisionProductPayload(
  * ProductContext / BuildPrecisionProductOptions から
  * PRODUCT_FACTS 用の ProductFactsDto を組み立てる。
  *
- * - PrecisionProductPayload と同じ状態遷移ルールをざっくり踏襲し、
- *   「事実情報を安全に LLM に渡せる状態」のときだけ DTO を返す。
- * - payload.product.name など「商品名」は PRODUCT_FACTS 側で別途扱うため、
- *   ここでは specs / attributes / notices のみを facts.items に詰める。
+ * - 生成本線 block と同じソースを使う
+ * - specs / attributes / factsNote を観測用に安全な item 配列へ落とす
  */
 export function buildProductFactsDto(
   options: BuildPrecisionProductOptions,
 ): ProductFactsDto | null {
   const { productId, enabled = true, context, error } = options ?? {};
 
-  // 機能OFF / productId 不在 / error / product 不在 の場合は facts も生成しない
   if (!enabled || !productId) return null;
   if (error) return null;
 
   const productRecord = context?.product ?? null;
   if (!productRecord) return null;
 
-  const specs = mapSpecsFromContext(context ?? null);
-  const attributes = mapAttributesFromContext(context ?? null);
-  const notices = mapNoticesFromContext(context ?? null, productRecord);
-
+  const block = buildProductFactsBlock(options);
   const items: ProductFactsItemDto[] = [];
 
-  // 1) specs → kind="spec"
-  for (const spec of specs) {
-    const label = spec.key;
-    const value = spec.value;
+  for (const item of block.evidence) {
+    const label = item.label;
+    const value = item.value;
     if (!label || !value) continue;
 
-    const item: ProductFactsItemDto = {
+    items.push({
       kind: "spec",
       label,
       value,
-      sourceId: spec.key,
-      ...(spec.unit ? { unit: spec.unit } : {}),
-    };
-
-    items.push(item);
+      sourceId: label,
+      ...(item.unit ? { unit: item.unit } : {}),
+    });
   }
 
-  // 2) attributes → kind="attribute"
-  for (const attr of attributes) {
-    const label = attr.name;
-    if (!label) continue;
-
-    const value = attr.note ?? attr.name;
-
-    const item: ProductFactsItemDto = {
+  for (const scene of block.scene) {
+    items.push({
       kind: "attribute",
-      label,
-      value,
-      sourceId: attr.name,
-      ...(attr.note ? { note: attr.note } : {}),
-    };
-
-    items.push(item);
+      label: "purpose",
+      value: scene,
+      sourceId: "purpose",
+    });
   }
 
-  // 3) notices → kind="notice"
-  if (Array.isArray(notices)) {
-    for (const notice of notices) {
-      if (!notice) continue;
+  for (const value of block.value) {
+    items.push({
+      kind: "attribute",
+      label: "value",
+      value,
+      sourceId: "value",
+    });
+  }
 
-      const item: ProductFactsItemDto = {
-        kind: "notice",
-        label: "注意書き",
-        value: notice,
-      };
-
-      items.push(item);
-    }
+  for (const note of block.guard) {
+    items.push({
+      kind: "notice",
+      label: "補足情報",
+      value: note,
+    });
   }
 
   if (!items.length) return null;
-
   return { items };
 }
