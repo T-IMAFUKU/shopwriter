@@ -9,10 +9,16 @@
 // 注意:
 // - 本番DBはアプリ運用専用。migrate dev は dev DB（Neon branch）でのみ実施。
 // - このページは「入力→保存」が成立する最小実装（中途半端にしない）。
+//
+// 今回の更新:
+// - 一般ユーザー向けにUI文言を整理
+// - 内部設計語（中核 / 参照 / 補助 / 第1〜第4グループ）を画面表示から削除
+// - 保存ロジック / Server Action / Writer導線は維持
 
 export const dynamic = "force-dynamic";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { PrismaClient, SubscriptionStatus } from "@prisma/client";
@@ -68,17 +74,46 @@ function ErrorBanner({ code }: { code?: string }) {
   if (!code) return null;
 
   let msg = "入力内容を確認してください。";
-  if (code === "purpose_required") msg = "「用途（必須）」を入力してください。";
-  if (code === "value_required") msg = "「特長（必須保証B）」を入力してください。";
-  if (code === "spec_key_required") msg = "スペックの「項目名」を入力してください。";
-  if (code === "spec_value_required") msg = "スペックの「値」を入力してください。";
-  if (code === "attr_key_required") msg = "属性の「項目名」を入力してください。";
-  if (code === "attr_value_required") msg = "属性の「値」を入力してください。";
+  if (code === "purpose_required") msg = "「使う場面」を入力してください。";
+  if (code === "value_required") msg = "「商品の良さ」を入力してください。";
+  if (code === "spec_key_required") msg = "「仕様・サイズなど」で項目名を入力してください。";
+  if (code === "spec_value_required") msg = "「仕様・サイズなど」で値を入力してください。";
+  if (code === "attr_key_required") msg = "「補足情報」で項目名を入力してください。";
+  if (code === "attr_value_required") msg = "「補足情報」で値を入力してください。";
 
   return (
     <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm">
       {msg}
     </div>
+  );
+}
+
+function SectionCard({
+  title,
+  description,
+  emphasis = "normal",
+  children,
+}: {
+  title: string;
+  description: string;
+  emphasis?: "primary" | "secondary" | "normal";
+  children: ReactNode;
+}) {
+  const toneClass =
+    emphasis === "primary"
+      ? "border-primary/30 bg-primary/[0.04]"
+      : emphasis === "secondary"
+        ? "border-dashed border-border bg-background"
+        : "border-border bg-background";
+
+  return (
+    <Card className={toneClass}>
+      <CardHeader className="space-y-2">
+        <CardTitle className="text-base sm:text-lg">{title}</CardTitle>
+        <p className="text-sm text-muted-foreground">{description}</p>
+      </CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
   );
 }
 
@@ -258,12 +293,12 @@ export default async function ProductDetailPage({
   );
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4 p-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="truncate text-xl font-semibold">商品詳細</h1>
-          <p className="truncate text-sm text-muted-foreground">
-            Product Facts（用途/特長/スペック/属性/補足）を編集できます
+    <main className="mx-auto w-full max-w-4xl space-y-6 p-4 md:p-6">
+      <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0 space-y-2">
+          <h1 className="truncate text-xl font-semibold sm:text-2xl">{product.name}</h1>
+          <p className="text-sm text-muted-foreground">
+            文章作成に使う商品情報をここで整えます。必要なところから少しずつ入力できます。
           </p>
         </div>
 
@@ -276,16 +311,18 @@ export default async function ProductDetailPage({
             <Link href="/products">一覧に戻る</Link>
           </Button>
         </div>
-      </div>
+      </header>
 
       <ErrorBanner code={searchParams?.e} />
 
       <Card>
-        <CardHeader>
-          <CardTitle className="truncate">{product.name}</CardTitle>
+        <CardHeader className="space-y-3">
+          <CardTitle className="text-base">商品の基本情報</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            この商品の識別情報と更新状況です。入力作業は下の項目から進められます。
+          </p>
         </CardHeader>
-
-        <CardContent className="space-y-4">
+        <CardContent className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="rounded-md border bg-muted/30 p-3">
             <div className="text-sm text-muted-foreground">商品ID</div>
             <div className="break-all font-mono text-sm">{product.id}</div>
@@ -293,201 +330,238 @@ export default async function ProductDetailPage({
 
           <div className="rounded-md border bg-muted/30 p-3">
             <div className="text-sm text-muted-foreground">更新日</div>
-            <div className="text-sm">
-              {new Date(product.updatedAt).toLocaleDateString()}
-            </div>
-          </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">文章作成に使う基本情報</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <form action={updateCore} className="space-y-3">
-                <input type="hidden" name="productId" value={product.id} />
-
-                <div className="space-y-1">
-                  <div className="text-sm font-medium">用途（必須）</div>
-                  <div className="text-xs text-muted-foreground">
-                    Writer入力の「用途・目的」と同一。ここに入れると毎回ラクになります。
-                  </div>
-                  <input
-                    name="purpose"
-                    defaultValue={purpose}
-                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                    placeholder="例：ECの商品説明（購入を後押し） / SNS投稿 / 広告 など"
-                    required
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <div className="text-sm font-medium">特長（必須保証B）</div>
-                  <div className="text-xs text-muted-foreground">
-                    “買う理由”の核。短くてもいいので必ず1つは入れる。
-                  </div>
-                  <textarea
-                    name="value"
-                    defaultValue={value}
-                    className="min-h-[88px] w-full rounded-md border bg-background px-3 py-2 text-sm"
-                    placeholder="例：軽いのに丈夫。毎日使っても型崩れしにくい。"
-                    required
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <div className="text-sm font-medium">補足メモ（任意）</div>
-                  <div className="text-xs text-muted-foreground">
-                    文脈・注意点・制約・NGなど。迷ったらここに書く。
-                  </div>
-                  <textarea
-                    name="factsNote"
-                    defaultValue={product.factsNote ?? ""}
-                    className="min-h-[96px] w-full rounded-md border bg-background px-3 py-2 text-sm"
-                    placeholder="例：対象は初心者。専門用語は避ける。返品条件は触れない。"
-                  />
-                </div>
-
-                <div className="flex justify-end">
-                  <Button type="submit">保存</Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">スペック（事実）</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {specs.length === 0 ? (
-                <div className="text-sm text-muted-foreground">
-                  まだ登録がありません（例：サイズ、重量、素材、型番、発売日…）
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {specs.map((s) => (
-                    <div
-                      key={s.id}
-                      className="flex flex-col gap-2 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium">{s.key}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {s.value}
-                          {s.unit ? ` ${s.unit}` : ""}
-                        </div>
-                      </div>
-
-                      <form action={deleteSpec} className="shrink-0">
-                        <input type="hidden" name="productId" value={product.id} />
-                        <input type="hidden" name="specId" value={s.id} />
-                        <Button type="submit" variant="outline">
-                          削除
-                        </Button>
-                      </form>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <form action={addSpec} className="space-y-2 rounded-md border p-3">
-                <input type="hidden" name="productId" value={product.id} />
-                <div className="text-sm font-medium">スペックを追加</div>
-
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  <input
-                    name="specKey"
-                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                    placeholder="項目名（例：重量）"
-                  />
-                  <input
-                    name="specValue"
-                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                    placeholder="値（例：1.2）"
-                  />
-                  <input
-                    name="specUnit"
-                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                    placeholder="単位（例：kg）任意"
-                  />
-                </div>
-
-                <div className="flex justify-end">
-                  <Button type="submit" variant="secondary">
-                    追加
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">属性（事実/価値の補助）</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {otherAttrs.length === 0 ? (
-                <div className="text-sm text-muted-foreground">
-                  まだ登録がありません（例：カラー、素材、タグ、ターゲット…）
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {otherAttrs.map((a) => (
-                    <div
-                      key={a.id}
-                      className="flex flex-col gap-2 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium">{a.key}</div>
-                        <div className="text-sm text-muted-foreground">{a.value}</div>
-                      </div>
-
-                      <form action={deleteAttr} className="shrink-0">
-                        <input type="hidden" name="productId" value={product.id} />
-                        <input type="hidden" name="attrId" value={a.id} />
-                        <Button type="submit" variant="outline">
-                          削除
-                        </Button>
-                      </form>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <form action={addAttr} className="space-y-2 rounded-md border p-3">
-                <input type="hidden" name="productId" value={product.id} />
-                <div className="text-sm font-medium">属性を追加</div>
-                <div className="text-xs text-muted-foreground">
-                  ※「purpose」「value」は専用欄で管理するためここでは追加しません。
-                </div>
-
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <input
-                    name="attrKey"
-                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                    placeholder="項目名（例：カラー）"
-                  />
-                  <input
-                    name="attrValue"
-                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                    placeholder="値（例：ネイビー）"
-                  />
-                </div>
-
-                <div className="flex justify-end">
-                  <Button type="submit" variant="secondary">
-                    追加
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-
-          <div className="text-xs text-muted-foreground">
-            Writerには productId を渡します（/writer?productId=...）。②で「初期値反映→編集可」を実装します。
+            <div className="text-sm">{new Date(product.updatedAt).toLocaleDateString()}</div>
           </div>
         </CardContent>
       </Card>
-    </div>
+
+      <div className="space-y-4">
+        <SectionCard
+          title="使う場面"
+          description="何のために、どんな場面で使う商品かを書きます。最初に整えておくと使いやすい項目です。"
+          emphasis="primary"
+        >
+          <form action={updateCore} className="space-y-4">
+            <input type="hidden" name="productId" value={product.id} />
+            <input type="hidden" name="value" value={value} />
+            <input type="hidden" name="factsNote" value={product.factsNote ?? ""} />
+
+            <div className="space-y-2">
+              <div className="text-sm font-medium">何のために / どんな場面で使うか</div>
+              <div className="text-xs text-muted-foreground">
+                Writer の「用途・目的」に近い内容です。毎回の入力をラクにしたいときは、ここで先に整えておきます。
+              </div>
+              <input
+                name="purpose"
+                defaultValue={purpose}
+                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                placeholder="例：商品登録後すぐに紹介文の下書きを作りたいとき"
+                required
+              />
+            </div>
+
+            <div className="flex justify-end">
+              <Button type="submit">使う場面を保存</Button>
+            </div>
+          </form>
+        </SectionCard>
+
+        <SectionCard
+          title="商品の良さ"
+          description="この商品を選ぶ理由になる良さを書きます。短くても大丈夫です。"
+          emphasis="primary"
+        >
+          <form action={updateCore} className="space-y-4">
+            <input type="hidden" name="productId" value={product.id} />
+            <input type="hidden" name="purpose" value={purpose} />
+            <input type="hidden" name="factsNote" value={product.factsNote ?? ""} />
+
+            <div className="space-y-2">
+              <div className="text-sm font-medium">商品の良さ</div>
+              <div className="text-xs text-muted-foreground">
+                売り込み文句ではなく、この商品ならではの良さを書きます。短文でも問題ありません。
+              </div>
+              <textarea
+                name="value"
+                defaultValue={value}
+                className="min-h-[104px] w-full rounded-md border bg-background px-3 py-2 text-sm"
+                placeholder="例：軽いのに丈夫で、毎日使っても扱いやすい。"
+                required
+              />
+            </div>
+
+            <div className="flex justify-end">
+              <Button type="submit">商品の良さを保存</Button>
+            </div>
+          </form>
+        </SectionCard>
+
+        <SectionCard
+          title="仕様・サイズなど"
+          description="サイズや素材など、事実として伝えたい情報を入れます。必要なときに文章作成で使いやすくなります。"
+        >
+          <div className="space-y-4">
+            {specs.length === 0 ? (
+              <div className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
+                まだ登録がありません（例：サイズ、重量、素材、型番、発売日など）
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {specs.map((s) => (
+                  <div
+                    key={s.id}
+                    className="flex flex-col gap-2 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium">{s.key}</div>
+                      <div className="text-sm text-muted-foreground">
+                        {s.value}
+                        {s.unit ? ` ${s.unit}` : ""}
+                      </div>
+                    </div>
+
+                    <form action={deleteSpec} className="shrink-0">
+                      <input type="hidden" name="productId" value={product.id} />
+                      <input type="hidden" name="specId" value={s.id} />
+                      <Button type="submit" variant="outline">
+                        削除
+                      </Button>
+                    </form>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <form action={addSpec} className="space-y-3 rounded-md border bg-background p-3">
+              <input type="hidden" name="productId" value={product.id} />
+              <div>
+                <div className="text-sm font-medium">仕様を追加</div>
+                <div className="text-xs text-muted-foreground">
+                  数値・単位・素材など、客観的な情報を追加します。
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <input
+                  name="specKey"
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                  placeholder="項目名（例：重量）"
+                />
+                <input
+                  name="specValue"
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                  placeholder="値（例：1.2）"
+                />
+                <input
+                  name="specUnit"
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                  placeholder="単位（例：kg）任意"
+                />
+              </div>
+
+              <div className="flex justify-end">
+                <Button type="submit" variant="secondary">
+                  追加
+                </Button>
+              </div>
+            </form>
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          title="補足情報"
+          description="気をつけたいことや、補足しておきたい内容を書けます。迷った情報の置き場としても使えます。"
+          emphasis="secondary"
+        >
+          <div className="space-y-4">
+            <form action={updateCore} className="space-y-4 rounded-md border bg-background p-3">
+              <input type="hidden" name="productId" value={product.id} />
+              <input type="hidden" name="purpose" value={purpose} />
+              <input type="hidden" name="value" value={value} />
+
+              <div className="space-y-2">
+                <div className="text-sm font-medium">補足メモ</div>
+                <div className="text-xs text-muted-foreground">
+                  注意点、NG、読者への配慮など、補足しておきたい内容を書きます。
+                </div>
+                <textarea
+                  name="factsNote"
+                  defaultValue={product.factsNote ?? ""}
+                  className="min-h-[112px] w-full rounded-md border bg-background px-3 py-2 text-sm"
+                  placeholder="例：初心者向けにやさしく書く。専門用語は避ける。返品条件には触れない。"
+                />
+              </div>
+
+              <div className="flex justify-end">
+                <Button type="submit" variant="secondary">
+                  補足メモを保存
+                </Button>
+              </div>
+            </form>
+
+            {otherAttrs.length === 0 ? (
+              <div className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
+                まだ登録がありません（例：カラー、素材、タグ、ターゲットなど）
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {otherAttrs.map((a) => (
+                  <div
+                    key={a.id}
+                    className="flex flex-col gap-2 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium">{a.key}</div>
+                      <div className="text-sm text-muted-foreground">{a.value}</div>
+                    </div>
+
+                    <form action={deleteAttr} className="shrink-0">
+                      <input type="hidden" name="productId" value={product.id} />
+                      <input type="hidden" name="attrId" value={a.id} />
+                      <Button type="submit" variant="outline">
+                        削除
+                      </Button>
+                    </form>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <form action={addAttr} className="space-y-3 rounded-md border bg-background p-3">
+              <input type="hidden" name="productId" value={product.id} />
+              <div>
+                <div className="text-sm font-medium">補足情報を追加</div>
+                <div className="text-xs text-muted-foreground">
+                  ※「使う場面」「商品の良さ」は専用欄で管理します。
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <input
+                  name="attrKey"
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                  placeholder="項目名（例：カラー）"
+                />
+                <input
+                  name="attrValue"
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                  placeholder="値（例：ネイビー）"
+                />
+              </div>
+
+              <div className="flex justify-end">
+                <Button type="submit" variant="secondary">
+                  追加
+                </Button>
+              </div>
+            </form>
+          </div>
+        </SectionCard>
+      </div>
+
+      <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
+        Writer には productId を渡します（/writer?productId=...）。この画面で商品情報を整えてから、文章作成に進めます。
+      </div>
+    </main>
   );
 }
