@@ -9,6 +9,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -27,7 +28,6 @@ import {
   Loader2,
   Sparkles,
   Zap,
-  Star,
   CheckCircle2,
   Info,
 } from "lucide-react";
@@ -1012,18 +1012,18 @@ export default function ClientPage({ productId }: ClientPageProps) {
               商品の用途・特徴・話し方を入力すると、そのまま使える紹介文やLP用コピーを仕上げます。
             </p>
             <div className="mt-5 flex justify-center">
-              <div className="flex flex-wrap items-center gap-2 text-[11px] text-neutral-600">
-                <span className="inline-flex items-center gap-1 rounded-full border px-2 py-1 bg-white/70">
-                  <Star className="size-3 text-yellow-500" />
-                  CSAT 4.8 / 5.0
-                </span>
+              <div className="flex flex-wrap items-center justify-center gap-2 text-[11px] text-neutral-600">
                 <span className="inline-flex items-center gap-1 rounded-full border px-2 py-1 bg-white/70">
                   <Sparkles className="size-3 text-indigo-500" />
-                  3分で構成→出力→共有
+                  商品説明文を生成
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full border px-2 py-1 bg-white/70">
+                  <CheckCircle2 className="size-3 text-emerald-600" />
+                  用途に合わせて調整
                 </span>
                 <span className="inline-flex items-center gap-1 rounded-full border px-2 py-1 bg-white/70">
                   <span className="inline-block size-1.5 rounded-full bg-emerald-500" />
-                  標準生成に最適化
+                  下書き作成をサポート
                 </span>
               </div>
             </div>
@@ -1148,15 +1148,23 @@ export default function ClientPage({ productId }: ClientPageProps) {
           transition={{ duration: 0.35 }}
         >
           <Card className="p-5 md:p-6">
-            <div className="flex items-center justify-between mb-3">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="inline-flex items-center gap-2">
                 <span className="inline-flex size-6 items-center justify-center rounded-full bg-indigo-600/15 text-indigo-700 text-xs font-semibold">
                   1
                 </span>
                 <h2 className="text-sm font-semibold">入力（最短指定）</h2>
               </div>
-              <div className="text-xs text-neutral-500 hidden sm:block">
-                Ctrl/⌘ + Enter で生成
+              <div className="flex flex-col gap-2 sm:items-end">
+                <Link
+                  href="/products"
+                  className="inline-flex items-center justify-center rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+                >
+                  商品情報管理へ
+                </Link>
+                <div className="text-xs text-neutral-500 hidden sm:block">
+                  Ctrl/⌘ + Enter で生成
+                </div>
               </div>
             </div>
 
