@@ -1,7 +1,7 @@
 "use client";
 
 // app/(dashboard)/products/new/ClientForm.tsx
-// - 特徴・強み：textarea + 8文字以上（常時注意喚起 / 未達は送信ブロック）
+// - 商品の良さ：textarea + 8文字以上（常時注意喚起 / 未達は送信ブロック）
 // - 送信：POST /api/products（既存）
 // - 成功：/products/[id] へ遷移（id取得できない場合は /products）
 
@@ -60,8 +60,9 @@ export function ClientForm() {
 
     const payload = {
       name: name.trim(),
+      // 「使う場面」→ category として保存（既存APIの互換性を維持）
       category: category.trim(),
-      // 「特徴・強み」→ description として保存（最小で意味が通る）
+      // 「商品の良さ」→ description として保存（最小で意味が通る）
       description: strengths.trim(),
       // 「補足メモ」→ factsNote として保存（任意）
       factsNote: memo.trim() ? memo.trim() : undefined,
@@ -137,29 +138,29 @@ export function ClientForm() {
       </div>
 
       <div className="space-y-2">
-        <label className="text-sm font-medium">用途（必須）</label>
+        <label className="text-sm font-medium">使う場面（必須）</label>
         <Input
           value={category}
           onChange={(e) => setCategory(e.target.value)}
-          placeholder="例：アウトドア／通勤／ギフト など"
+          placeholder="例：自宅やオフィスでの飲み物用、ギフト用、外出時に使う など"
           autoComplete="off"
         />
         <p className="text-xs text-muted-foreground">
-          ※ 商品の「分類・使いどころ」を、短い言葉でOKです。
+          この商品を何のために、どんな場面で使うかを短く入力してください。
         </p>
       </div>
 
       <div className="space-y-2">
-        <label className="text-sm font-medium">特徴・強み（必須）</label>
+        <label className="text-sm font-medium">商品の良さ（必須）</label>
         <Textarea
           value={strengths}
           onChange={(e) => setStrengths(e.target.value)}
-          placeholder="例：保温力が高い／軽くて持ち運びやすい／洗いやすい など"
+          placeholder="例：保温力が高い、軽くて持ち運びやすい、洗いやすい など"
           rows={5}
         />
         <div className="flex items-center justify-between gap-3">
           <p className="text-xs text-muted-foreground">
-            8文字以上で入力してください（Writerの制約と同等です）
+            この商品の良いところや、選ぶ理由になる点を8文字以上で入力してください。
           </p>
           <p className="text-xs text-muted-foreground">{strengthsLen}/8</p>
         </div>
@@ -176,7 +177,7 @@ export function ClientForm() {
         <Textarea
           value={memo}
           onChange={(e) => setMemo(e.target.value)}
-          placeholder="例：色はブラックが人気／同梱物：本体＋取説 など"
+          placeholder="例：注意点、NG、読者への配慮、同梱物、色違いなど"
           rows={4}
         />
       </div>

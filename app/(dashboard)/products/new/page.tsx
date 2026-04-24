@@ -51,7 +51,7 @@ export default async function NewProductPage() {
         <div className="space-y-2">
           <h1 className="text-xl font-semibold">商品を新規作成</h1>
           <p className="text-sm text-muted-foreground">
-            まずは必要最小の情報だけ登録します（スペック・属性は作成後に追加できます）。
+            まずは必要最小の情報だけ登録します。仕様・サイズなどは作成後に追加できます。
           </p>
         </div>
 
@@ -64,7 +64,7 @@ export default async function NewProductPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">基本情報</CardTitle>
+          <CardTitle className="text-base">商品の基本情報</CardTitle>
         </CardHeader>
         <CardContent>
           <ClientForm />
