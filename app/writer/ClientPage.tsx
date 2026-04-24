@@ -9,7 +9,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useForm, Controller } from "react-hook-form";
+import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
@@ -20,7 +20,6 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 
 import {
   Copy,
@@ -124,7 +123,7 @@ function getInputA1State(args: { purpose: string; features: string }) {
     hint = {
       key: "H_FEATURES",
       text: "商品の特徴・情報に「仕様 / 機能 / 使いやすさ」を1つだけ追加（単語でもOK）",
-      example: "例：テンプレ切替対応／入力がシンプル／下書きを自動生成",
+      example: "例：語り口を選べる／説明を調整できる／下書きを自動生成",
     };
   } else if (!hasScene) {
     hint = {
@@ -175,12 +174,62 @@ const FormSchema = z.object({
     .string()
     .min(MIN_FEATURES, `商品の特徴・情報は${MIN_FEATURES}文字以上で入力してください`),
   audience: z.string().min(2, "ターゲットは2文字以上で入力してください"),
-  tone: z.enum(["friendly", "professional", "casual", "energetic"]).default("friendly"),
-  template: z.enum(["lp", "email", "sns_short", "headline_only"]).default("lp"),
-  length: z.enum(["short", "medium", "long"]).default("medium"),
-  cta: z.boolean().default(true),
+  articleType: z
+    .enum(["product_page", "recommend", "faq", "announcement"])
+    .default("product_page"),
+  detail: z.enum(["concise", "standard", "detailed"]).default("standard"),
 });
 type FormValues = z.infer<typeof FormSchema>;
+
+const ARTICLE_TYPE_OPTIONS: Array<{
+  value: FormValues["articleType"];
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "product_page",
+    label: "商品ページ用",
+    description: "商品ページにそのまま載せやすい紹介文",
+  },
+  {
+    value: "recommend",
+    label: "こんな人におすすめ",
+    description: "向いている人や使う場面を伝える文章",
+  },
+  {
+    value: "faq",
+    label: "よくある質問",
+    description: "購入前の疑問に答えるQ&A形式",
+  },
+  {
+    value: "announcement",
+    label: "新商品・入荷案内",
+    description: "新商品や新入荷のお知らせ向け",
+  },
+];
+
+const ARTICLE_TYPE_LABELS: Record<FormValues["articleType"], string> =
+  ARTICLE_TYPE_OPTIONS.reduce(
+    (acc, item) => ({ ...acc, [item.value]: item.label }),
+    {} as Record<FormValues["articleType"], string>,
+  );
+
+const DETAIL_LABELS: Record<FormValues["detail"], string> = {
+  concise: "簡潔",
+  standard: "標準",
+  detailed: "やや詳しめ",
+};
+
+function mapDetailToRequestDetail(value: FormValues["detail"]): "short" | "medium" | "long" {
+  switch (value) {
+    case "concise":
+      return "short";
+    case "detailed":
+      return "long";
+    default:
+      return "medium";
+  }
+}
 
 /* =========================
    Props
@@ -377,20 +426,16 @@ export default function ClientPage({ productId }: ClientPageProps) {
       purpose: "",
       features: "",
       audience: "",
-      tone: "friendly",
-      template: "lp",
-      length: "medium",
-      cta: true,
+      articleType: "product_page",
+      detail: "standard",
     },
   });
 
   const product = watch("product");
   const purpose = watch("purpose");
   const features = watch("features");
+  const articleType = watch("articleType");
   const featuresLen = [...(features ?? "")].length;
-
-  // ★ CTAトグル（UI側だけで差分を出す / API送信は不変）
-  const ctaEnabled = !!watch("cta");
 
   // ✅ dynamicA1（入力のみ / 記憶なし / Top-1）
   const dynamicA1 = useMemo(() => {
@@ -402,11 +447,20 @@ export default function ClientPage({ productId }: ClientPageProps) {
 
   const a1HintItems = dynamicA1.hintItems;
 
+  // ✅ 出力表示のSSOT: コピー元と同じ result を画面表示の正とする
+  // - result が空の生成途中だけ、leadHtml / restParasHtml の段階描画を使う
+  // - result が入った後は、画面表示もコピーも同じ本文を参照してズレを防ぐ
+  const resultHtml = useMemo(() => {
+    return result ? basicMarkdownToHtml(result) : "";
+  }, [result]);
+
+  const hasVisibleOutput = Boolean(result || leadHtml || restParasHtml.length > 0);
+
   // A2: 表示条件（A1と同じ安全条件 + A1 on）
   const a2CanShow =
     !isLoading &&
     !error &&
-    (leadHtml || restParasHtml.length > 0) &&
+    hasVisibleOutput &&
     dynamicA1.isOn; // ✅ A1が出ている時だけA2を出す（設計維持）
 
   // ✅ A2: document click ハック撤去（SSOTは A1ボタン onClick）
@@ -697,23 +751,23 @@ export default function ClientPage({ productId }: ClientPageProps) {
       }
 
       tSubmitRef.current = performance.now();
+      const articleTypeLabel = ARTICLE_TYPE_LABELS[vals.articleType];
+      const detailLabel = DETAIL_LABELS[vals.detail];
+      const requestDetail = mapDetailToRequestDetail(vals.detail);
 
       const sections: string[] = [
         `# プロダクト: ${vals.product}`,
         `# 用途: ${vals.purpose}`,
         `# 特徴: ${vals.features}`,
         `# ターゲット: ${vals.audience}`,
-        `# トーン: ${vals.tone}`,
-        `# テンプレ: ${vals.template} / 長さ: ${vals.length} / CTA: ${vals.cta ? "あり" : "なし"}`,
+        `# 文章タイプ: ${articleTypeLabel}`,
+        `# 詳しさ: ${detailLabel}`,
         "",
         "## 出力要件",
         "- 日本語",
-        "- 具体的・簡潔・販売導線を意識",
+        "- 具体的で読みやすい商品紹介文",
+        "- 商品の用途・特徴・ターゲットが自然につながること",
       ];
-      if (vals.template === "lp") sections.push("- 見出し→特長→CTA の順でセクション化");
-      if (vals.template === "email") sections.push("- 件名→本文（導入/要点/CTA）");
-      if (vals.template === "sns_short") sections.push("- 140字以内を目安、ハッシュタグ2つまで");
-      if (vals.template === "headline_only") sections.push("- ヘッドライン案を3つ");
       const prompt = sections.join("\n");
 
       // ✅ required4 SSOT: 商品の特徴・情報を配列化して送る（サーバ側で sellingPointsCount を立てる）
@@ -724,10 +778,9 @@ export default function ClientPage({ productId }: ClientPageProps) {
 
       const payload = {
         meta: {
-          template: vals.template,
-          tone: vals.tone,
-          length: vals.length,
-          cta: vals.cta,
+          articleType: vals.articleType,
+          detail: vals.detail,
+          mappedDetail: requestDetail,
         },
 
         // ✅ required4 の元（別フィールド）
@@ -970,7 +1023,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                 </span>
                 <span className="inline-flex items-center gap-1 rounded-full border px-2 py-1 bg-white/70">
                   <span className="inline-block size-1.5 rounded-full bg-emerald-500" />
-                  テンプレ最適化済み
+                  標準生成に最適化
                 </span>
               </div>
             </div>
@@ -1164,7 +1217,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                 </div>
                 <Textarea
                   rows={4}
-                  placeholder="例）AIが商品情報をもとに文章を生成。テンプレ切替に対応し、入力がシンプルで使いやすい"
+                  placeholder="例）AIが商品情報をもとに文章を生成。入力がシンプルで、下書きとして使いやすい"
                   aria-invalid={!!errors.features}
                   className={clsx(
                     errors.features && "border-red-300 focus-visible:ring-red-400",
@@ -1183,96 +1236,80 @@ export default function ClientPage({ productId }: ClientPageProps) {
                 )}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label className="text-sm text-neutral-700 dark:text-neutral-300">
-                    ターゲット
-                  </Label>
-                  <Input
-                    placeholder="例）EC事業者／オンラインショップ運営者／マーケティング担当者"
-                    aria-invalid={!!errors.audience}
-                    {...register("audience")}
-                  />
-                  {errors.audience && (
-                    <p className="text-xs text-red-500">
-                      {errors.audience.message}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <Label className="text-sm text-neutral-700 dark:text-neutral-300">
-                    トーン
-                  </Label>
-                  <select
-                    className="w-full border rounded-md h-9 px-2 bg-background opacity-70 cursor-not-allowed"
-                    disabled
-                    aria-disabled="true"
-                    {...register("tone")}
-                  >
-                    <option value="friendly">Coming soon</option>
-                  </select>
-                </div>
+              <div>
+                <Label className="text-sm text-neutral-700 dark:text-neutral-300">
+                  ターゲット
+                </Label>
+                <Input
+                  placeholder="例）EC事業者／オンラインショップ運営者／マーケティング担当者"
+                  aria-invalid={!!errors.audience}
+                  {...register("audience")}
+                />
+                {errors.audience && (
+                  <p className="text-xs text-red-500">
+                    {errors.audience.message}
+                  </p>
+                )}
               </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-4">
                 <div>
                   <Label className="text-sm text-neutral-700 dark:text-neutral-300">
-                    テンプレ
+                    文章タイプ
                   </Label>
+                  <input type="hidden" {...register("articleType")} />
+                  <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+                    {ARTICLE_TYPE_OPTIONS.map((option) => {
+                      const selected = articleType === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() =>
+                            setValue("articleType", option.value, {
+                              shouldDirty: true,
+                              shouldTouch: true,
+                              shouldValidate: true,
+                            })
+                          }
+                          className={clsx(
+                            "rounded-xl border px-3 py-3 text-left transition",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2",
+                            selected
+                              ? "border-indigo-500 bg-indigo-50 text-indigo-950 shadow-sm dark:border-indigo-400 dark:bg-indigo-950/40 dark:text-indigo-50"
+                              : "border-neutral-200 bg-white/70 text-neutral-800 hover:border-indigo-200 hover:bg-indigo-50/40 dark:border-neutral-700 dark:bg-neutral-900/50 dark:text-neutral-100 dark:hover:border-indigo-700",
+                          )}
+                          aria-pressed={selected}
+                        >
+                          <span className="block text-sm font-semibold">
+                            {option.label}
+                          </span>
+                          <span className="mt-1 block text-xs leading-relaxed text-neutral-500 dark:text-neutral-400">
+                            {option.description}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-1 text-xs text-neutral-500">
+                    何のための文章かを選びます
+                  </p>
+                </div>
 
+                <div>
+                  <Label className="text-sm text-neutral-700 dark:text-neutral-300">
+                    詳しさ
+                  </Label>
                   <select
                     className="w-full border rounded-md h-9 px-2 bg-background"
-                    {...register("template")}
+                    {...register("detail")}
                   >
-                    <option value="lp">標準（おすすめ）</option>
-                    <option value="sns_short">SNS</option>
-
-                    <option value="" disabled>
-                      ──────────────
-                    </option>
-
-                    <option value="email" disabled>
-                      広告（Coming soon）
-                    </option>
-                    <option value="headline_only" disabled>
-                      プロモーション（Coming soon）
-                    </option>
+                    <option value="concise">簡潔</option>
+                    <option value="standard">標準</option>
+                    <option value="detailed">やや詳しめ</option>
                   </select>
-                </div>
-
-                <div>
-                  <Label className="text-sm text-neutral-700 dark:text-neutral-300">
-                    長さ
-                  </Label>
-                  <select
-                    className="w-full border rounded-md h-9 px-2 bg-background opacity-70 cursor-not-allowed"
-                    disabled
-                    aria-disabled="true"
-                    {...register("length")}
-                  >
-                    <option value="medium">Coming soon</option>
-                  </select>
-                </div>
-
-                <div className="flex items-center justify-between border rounded-md px-3">
-                  <div>
-                    <Label className="text-sm text-neutral-700 dark:text-neutral-300">
-                      CTAを入れる
-                    </Label>
-                    <p className="text-xs text-neutral-500">購入/申込の導線を明示</p>
-                  </div>
-                  <Controller
-                    name="cta"
-                    control={control}
-                    render={({ field }) => (
-                      <Switch
-                        checked={!!field.value}
-                        onCheckedChange={field.onChange}
-                        aria-label="CTAを入れる"
-                      />
-                    )}
-                  />
+                  <p className="mt-1 text-xs text-neutral-500">
+                    同じ文章タイプの中で説明の厚みを選べます
+                  </p>
                 </div>
               </div>
 
@@ -1302,10 +1339,8 @@ export default function ClientPage({ productId }: ClientPageProps) {
                       purpose: "",
                       features: "",
                       audience: "",
-                      tone: "friendly",
-                      template: "lp",
-                      length: "medium",
-                      cta: true,
+                      articleType: "product_page",
+                      detail: "standard",
                     })
                   }
                   disabled={isLoading}
@@ -1411,6 +1446,11 @@ export default function ClientPage({ productId }: ClientPageProps) {
                   <div className="h-4 w-2/3 bg-neutral-200 rounded" />
                   <div className="h-4 w-5/6 bg-neutral-200 rounded" />
                 </div>
+              ) : resultHtml ? (
+                <div
+                  className="whitespace-normal break-words"
+                  dangerouslySetInnerHTML={{ __html: resultHtml }}
+                />
               ) : leadHtml || restParasHtml.length > 0 ? (
                 <div className="whitespace-normal break-words">
                   {leadHtml && <div dangerouslySetInnerHTML={{ __html: leadHtml }} />}
@@ -1429,10 +1469,10 @@ export default function ClientPage({ productId }: ClientPageProps) {
               )}
             </div>
 
-            {/* A1: 改善導線（出力直下 / 既存CTAの直前 / CTAトグルと独立） */}
+            {/* A1: 改善導線（出力直下 / 既存配置を維持） */}
             {!isLoading &&
               !error &&
-              (leadHtml || restParasHtml.length > 0) &&
+              hasVisibleOutput &&
               dynamicA1.isOn && (
                 <div
                   className="mt-4 rounded-xl border border-amber-200/70 bg-amber-50/60 px-4 py-3 select-none"
@@ -1506,7 +1546,7 @@ export default function ClientPage({ productId }: ClientPageProps) {
                 </div>
               )}
 
-            {/* A2: 簡易入力UI（A1表示中のみ / 出力直下 / CTAの直前） */}
+            {/* A2: 簡易入力UI（A1表示中のみ / 出力直下） */}
             {a2CanShow && a2Open && (
               <div
                 ref={a2PanelRef}
@@ -1587,37 +1627,6 @@ export default function ClientPage({ productId }: ClientPageProps) {
                   >
                     閉じる
                   </Button>
-                </div>
-              </div>
-            )}
-
-            {ctaEnabled && (leadHtml || restParasHtml.length > 0) && !isLoading && !error && (
-              <div className="mt-4 rounded-xl border border-indigo-200/70 bg-gradient-to-r from-indigo-50 to-violet-50 px-4 py-3">
-                <div className="flex items-start gap-3">
-                  <div className="mt-0.5 inline-flex size-8 items-center justify-center rounded-full bg-indigo-600/15 text-indigo-700">
-                    <Sparkles className="size-4" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-neutral-900">
-                      次のアクション（CTA）
-                    </p>
-                    <p className="mt-1 text-xs leading-relaxed text-neutral-700">
-                      {(product ?? "").trim()
-                        ? `『${(product ?? "").trim()}』が気になったら、まずは価格・在庫・返品条件をチェックして、迷った点は比較してから注文へ。`
-                        : "気になったら、まずは価格・在庫・返品条件をチェックして、迷った点は比較してから注文へ。"}
-                    </p>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <span className="inline-flex items-center rounded-full border bg-white/70 px-2.5 py-1 text-[11px] text-neutral-700">
-                        ① 価格/在庫
-                      </span>
-                      <span className="inline-flex items-center rounded-full border bg-white/70 px-2.5 py-1 text-[11px] text-neutral-700">
-                        ② 返品条件
-                      </span>
-                      <span className="inline-flex items-center rounded-full border bg-white/70 px-2.5 py-1 text-[11px] text-neutral-700">
-                        ③ 迷ったら比較
-                      </span>
-                    </div>
-                  </div>
                 </div>
               </div>
             )}

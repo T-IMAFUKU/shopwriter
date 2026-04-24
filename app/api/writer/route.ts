@@ -204,15 +204,22 @@ function normalizeTemplateKey(raw: unknown): string | null {
 
   const low = t.toLowerCase();
 
-  if (low === "lp") return "lp";
-  if (low === "email") return "email";
-  if (low === "sns_short") return "sns_short";
-  if (low === "headline_only") return "headline_only";
-  if (low === "sns") return "sns_short";
-  if (low === "headline") return "headline_only";
+  if (low === "product_intro") return "product_intro";
+  if (low === "product_compare") return "product_compare";
+  if (low === "notice") return "notice";
 
-  if (t === "LP") return "lp";
-  return low;
+  if (
+    low === "lp" ||
+    low === "email" ||
+    low === "sns_short" ||
+    low === "headline_only" ||
+    low === "sns" ||
+    low === "headline"
+  ) {
+    return "product_intro";
+  }
+
+  return "product_intro";
 }
 
 function normalizeCtaBool(raw: unknown): boolean | null {
@@ -228,6 +235,36 @@ function normalizeCtaBool(raw: unknown): boolean | null {
   if (s === "1") return true;
   if (s === "0") return false;
 
+  return null;
+}
+
+function normalizePublicArticleType(
+  raw: unknown,
+): "product_page" | "recommend" | "faq" | "announcement" | null {
+  if (typeof raw !== "string") return null;
+  const value = raw.trim().toLowerCase();
+  if (value === "product_page" || value === "product" || value === "product_intro") return "product_page";
+  if (value === "recommend" || value === "recommendation") return "recommend";
+  if (value === "faq" || value === "qa" || value === "q_and_a") return "faq";
+  if (value === "announcement" || value === "notice" || value === "new_arrival") return "announcement";
+  return null;
+}
+
+function normalizePublicDetail(raw: unknown): "concise" | "standard" | "detailed" | null {
+  if (typeof raw !== "string") return null;
+  const value = raw.trim().toLowerCase();
+  if (value === "concise") return "concise";
+  if (value === "standard") return "standard";
+  if (value === "detailed") return "detailed";
+  return null;
+}
+
+function mapPublicDetailToLengthHint(
+  detail: "concise" | "standard" | "detailed" | null,
+): string | null {
+  if (detail === "concise") return "short";
+  if (detail === "detailed") return "long";
+  if (detail === "standard") return "medium";
   return null;
 }
 
@@ -357,6 +394,13 @@ export async function POST(req: Request) {
     const meta = unsafeRawInput?.meta ?? null;
     const metaTemplate = normalizeTemplateKey(meta?.template);
     const metaCta = normalizeCtaBool(meta?.cta);
+    const metaNoticeReason =
+      typeof meta?.noticeReason === "string" ? meta.noticeReason.trim() : "";
+    const metaArticleType = normalizePublicArticleType(
+      meta?.articleType ?? meta?.type ?? meta?.writingType,
+    );
+    const metaDetail = normalizePublicDetail(meta?.detail ?? meta?.length ?? meta?.mappedDetail);
+    const internalLengthHint = mapPublicDetailToLengthHint(metaDetail);
 
     if (metaCta !== null) {
       n.metaCta = metaCta;
@@ -366,10 +410,35 @@ export async function POST(req: Request) {
       n.platform = metaTemplate;
     }
 
+    n.meta = {
+      ...(typeof n.meta === "object" && n.meta ? n.meta : {}),
+      ...(metaTemplate ? { template: metaTemplate } : {}),
+      ...(metaCta !== null ? { cta: metaCta } : {}),
+      ...(metaArticleType ? { articleType: metaArticleType } : {}),
+      ...(metaDetail ? { detail: metaDetail } : {}),
+      noticeReason: metaNoticeReason || null,
+    };
+
     if (metaCta === false) {
       n.cta = null;
     } else if (metaCta === true) {
       if (!n.cta) n.cta = "あり";
+    }
+
+    if (metaArticleType) {
+      n.articleType = metaArticleType;
+    }
+
+    if (internalLengthHint) {
+      n.length_hint = internalLengthHint;
+    }
+
+    if (metaTemplate === "notice" && metaNoticeReason.length === 0) {
+      return handleInvalidRequestError(
+        "お知らせ向けでは『今知らせたいこと』を入力してください",
+        rid,
+        elapsed(),
+      );
     }
 
     const required4 = applyUiRequiredFieldsToNormalized(n, unsafeRawInput);
@@ -399,6 +468,9 @@ export async function POST(req: Request) {
           platform: n.platform ?? null,
           metaTemplate: metaTemplate ?? null,
           metaCta: metaCta ?? null,
+          metaNoticeReason: metaNoticeReason || null,
+          metaArticleType: metaArticleType ?? null,
+          metaDetail: metaDetail ?? null,
           productId: productId ?? null,
           required4,
         },
