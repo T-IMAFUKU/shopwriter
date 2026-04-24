@@ -6,7 +6,12 @@ import {
   emitWriterEvent,
 } from "./_shared/logger";
 import { createFinalProse } from "./openai-client";
-import { resolveTonePresetKey, buildSystemPrompt } from "./tone-utils";
+import {
+  buildSystemPrompt,
+  getArticleTypeLabel,
+  resolveArticleType,
+  type ArticleType,
+} from "./tone-utils";
 import type { ProductContext } from "@/server/products/repository";
 import { logProductContextStatus } from "./logger";
 import {
@@ -50,6 +55,8 @@ export type NormalizedInput = {
   meta?: {
     template?: string | null;
     cta?: unknown;
+    noticeReason?: string | null;
+    articleType?: string | null;
   } | null;
 };
 
@@ -89,6 +96,8 @@ export type WriterPipelineResult = WriterPipelineOk | WriterPipelineError;
 
 export type CtaMode = "on" | "off";
 
+export type DetailLevel = "concise" | "standard" | "detailed";
+
 export type CtaBlockContract = {
   heading: "おすすめのアクション";
   variants: readonly [
@@ -103,6 +112,52 @@ export type CtaBlockContract = {
   bulletRules: {
     minBulletLines: 2;
   };
+};
+
+export type DetailBudget = {
+  usableFacts: {
+    spec: number;
+    evidence: number;
+    keyword: number;
+    constraint: number;
+    total: number;
+  };
+  promptContext: {
+    materialFacts: number;
+    scene: number;
+    value: number;
+    evidence: number;
+    guard: number;
+  };
+  selection: {
+    targetTotalChars: number;
+    targetBulletAverageChars: number;
+    scoreDriftTolerance: number;
+    alignmentScoreMinGap: number;
+  };
+};
+
+export type CandidateDetailBand = "concise" | "standard" | "detailed";
+
+export type CandidateDetailPlanName = "strict" | "center" | "upper_edge";
+
+export type CandidateDetailPlan = {
+  name: CandidateDetailPlanName;
+  requestedDetailLevel: DetailLevel;
+  budget: DetailBudget;
+};
+
+export type CandidateDetailProfile = {
+  totalChars: number;
+  headChars: number;
+  bulletChars: number;
+  bulletCount: number;
+  averageBulletChars: number;
+  band: CandidateDetailBand;
+  alignmentScore: number;
+  requestedDetailLevel: DetailLevel;
+  requestedPlanName: CandidateDetailPlanName;
+  isInRequestedBand: boolean;
 };
 
 export type AtomicFactKind =
@@ -139,7 +194,7 @@ export type WriterPipelineCtx = {
     productContext?: ProductContext | null;
     templateKey: string;
     isSNS: boolean;
-    toneKey: string;
+    articleType: ArticleType;
   };
   flags: {
     cta: {
@@ -205,11 +260,28 @@ function hasUsableProductFactsBlock(
 function resolveTemplateKey(n: NormalizedInput): string {
   const metaTemplate = n.meta?.template;
   const raw = (metaTemplate ?? n.platform ?? "").toString().trim().toLowerCase();
-  return raw || "lp";
+
+  if (!raw) return "product_intro";
+  if (raw === "product_intro") return "product_intro";
+  if (raw === "product_compare") return "product_compare";
+  if (raw === "notice") return "notice";
+
+  if (
+    raw === "lp" ||
+    raw === "email" ||
+    raw === "sns_short" ||
+    raw === "headline_only" ||
+    raw === "sns" ||
+    raw === "headline"
+  ) {
+    return "product_intro";
+  }
+
+  return "product_intro";
 }
 
-function isSnsLikeTemplate(templateKey: string): boolean {
-  return /sns/.test(templateKey) || /sns_short/.test(templateKey);
+function isSnsLikeTemplate(_templateKey: string): boolean {
+  return false;
 }
 
 function parseBooleanLike(v: unknown): boolean | null {
@@ -233,7 +305,27 @@ function resolveCtaMode(n: NormalizedInput): CtaMode {
     const parsed = parseBooleanLike(candidate);
     if (parsed !== null) return parsed ? "on" : "off";
   }
-  return "on";
+  return "off";
+}
+
+function resolveDetailLevel(n: NormalizedInput): DetailLevel {
+  const rawCandidates = [
+    n.length_hint,
+    (n as any)?.detail,
+    (n as any)?.metaDetail,
+    (n as any)?.meta?.detail,
+    (n as any)?.meta?.length,
+  ];
+
+  for (const candidate of rawCandidates) {
+    const value = normalizeJaText(candidate).toLowerCase();
+    if (!value) continue;
+    if (value === "concise" || value === "short") return "concise";
+    if (value === "detailed" || value === "long") return "detailed";
+    if (value === "standard" || value === "medium") return "standard";
+  }
+
+  return "standard";
 }
 
 function looksMojibakeLike(line: string): boolean {
@@ -273,18 +365,18 @@ function hasSubstantialProductDetailInput(normalized: NormalizedInput): boolean 
   );
 }
 
-type MinimalInputRescueTemplate = "lp" | "email" | "sns_short";
+type MinimalInputRescueTemplate = "product_intro" | "product_compare" | "notice";
 
 function resolveMinimalInputRescueTemplate(
   templateKey: string,
 ): MinimalInputRescueTemplate | null {
   const key = normalizeJaText(templateKey).toLowerCase();
 
-  if (key === "lp" || /landing/.test(key)) return "lp";
-  if (key.includes("email") || key.includes("mail")) return "email";
-  if (key.includes("sns")) return "sns_short";
+  if (key === "product_intro") return "product_intro";
+  if (key === "product_compare") return "product_compare";
+  if (key === "notice") return "notice";
 
-  return null;
+  return "product_intro";
 }
 
 function isMinimalInputRescueTarget(args: {
@@ -323,7 +415,7 @@ function extractPromptTopic(rawPrompt: string): string {
   return topic.slice(0, 60);
 }
 
-function buildMinimalInputLpRescueText(rawPrompt: string): string {
+function buildMinimalInputProductIntroRescueText(rawPrompt: string): string {
   const topic = extractPromptTopic(rawPrompt);
   const headline = topic ? `# ${topic}` : "# ランディングページ用コピー";
 
@@ -340,7 +432,7 @@ function buildMinimalInputLpRescueText(rawPrompt: string): string {
   ].join("\n");
 }
 
-function buildMinimalInputEmailRescueText(rawPrompt: string): string {
+function buildMinimalInputProductCompareRescueText(rawPrompt: string): string {
   const topic = extractPromptTopic(rawPrompt);
   const subject = topic ? `${topic}のご案内` : "ご案内";
 
@@ -348,9 +440,9 @@ function buildMinimalInputEmailRescueText(rawPrompt: string): string {
     `件名: ${subject}`,
     "",
     topic
-      ? `${topic}について、要点を短く確認しやすいメール下書きです。`
-      : "要点を短く確認しやすいメール下書きです。",
-    "詳細が固まり次第、そのまま本文へ追記しやすい最小構成にしています。",
+      ? `${topic}を比べながら選ぶときの要点を短く確認しやすい下書きです。`
+      : "比較・選び方向けの要点を短く確認しやすい下書きです。",
+    "詳細が固まり次第、そのまま比較の判断材料を書き足しやすい最小構成にしています。",
     "",
     "・冒頭で伝えたい内容を短く示します",
     "・必要な情報を順番に確認しやすく並べます",
@@ -358,13 +450,13 @@ function buildMinimalInputEmailRescueText(rawPrompt: string): string {
   ].join("\n");
 }
 
-function buildMinimalInputSnsShortRescueText(rawPrompt: string): string {
+function buildMinimalInputNoticeRescueText(rawPrompt: string): string {
   const topic = extractPromptTopic(rawPrompt);
 
   return [
     topic
-      ? `${topic}の要点を短くまとめたSNS向けの下書きです。`
-      : "SNS向けの短い下書きです。",
+      ? `${topic}についてお知らせしたい内容を短く整える下書きです。`
+      : "お知らせ向けの短い下書きです。",
     "詳細が固まり次第、そのまま投稿文へ言い回しを足しやすい形にしています。",
     "",
     "・要点を短く伝えます",
@@ -380,14 +472,14 @@ function buildMinimalInputRescueText(args: {
   const rescueTemplate = resolveMinimalInputRescueTemplate(args.templateKey);
 
   switch (rescueTemplate) {
-    case "lp":
-      return buildMinimalInputLpRescueText(args.rawPrompt);
-    case "email":
-      return buildMinimalInputEmailRescueText(args.rawPrompt);
-    case "sns_short":
-      return buildMinimalInputSnsShortRescueText(args.rawPrompt);
+    case "product_intro":
+      return buildMinimalInputProductIntroRescueText(args.rawPrompt);
+    case "product_compare":
+      return buildMinimalInputProductCompareRescueText(args.rawPrompt);
+    case "notice":
+      return buildMinimalInputNoticeRescueText(args.rawPrompt);
     default:
-      return buildMinimalInputLpRescueText(args.rawPrompt);
+      return buildMinimalInputProductIntroRescueText(args.rawPrompt);
   }
 }
 
@@ -552,7 +644,285 @@ function uniqueFacts(facts: Array<AtomicFact | null | undefined>): AtomicFact[] 
   return out;
 }
 
-function buildUsableFactsForRenderer(facts: AtomicFact[]): AtomicFact[] {
+function cloneDetailBudget(budget: DetailBudget): DetailBudget {
+  return {
+    usableFacts: { ...budget.usableFacts },
+    promptContext: { ...budget.promptContext },
+    selection: { ...budget.selection },
+  };
+}
+
+function resolveDetailBudget(detailLevel: DetailLevel): DetailBudget {
+  if (detailLevel === "concise") {
+    return {
+      usableFacts: {
+        spec: 1,
+        evidence: 0,
+        keyword: 0,
+        constraint: 0,
+        total: 3,
+      },
+      promptContext: {
+        materialFacts: 1,
+        scene: 0,
+        value: 0,
+        evidence: 0,
+        guard: 0,
+      },
+      selection: {
+        targetTotalChars: 110,
+        targetBulletAverageChars: 12,
+        scoreDriftTolerance: 10,
+        alignmentScoreMinGap: 5,
+      },
+    };
+  }
+
+  if (detailLevel === "detailed") {
+    return {
+      usableFacts: {
+        spec: 3,
+        evidence: 2,
+        keyword: 1,
+        constraint: 1,
+        total: 8,
+      },
+      promptContext: {
+        materialFacts: 6,
+        scene: 3,
+        value: 2,
+        evidence: 3,
+        guard: 1,
+      },
+      selection: {
+        targetTotalChars: 184,
+        targetBulletAverageChars: 29,
+        scoreDriftTolerance: 14,
+        alignmentScoreMinGap: 6,
+      },
+    };
+  }
+
+  return {
+    usableFacts: {
+      spec: 2,
+      evidence: 1,
+      keyword: 0,
+      constraint: 0,
+      total: 5,
+    },
+    promptContext: {
+      materialFacts: 3,
+      scene: 1,
+      value: 1,
+      evidence: 1,
+      guard: 0,
+    },
+    selection: {
+      targetTotalChars: 150,
+      targetBulletAverageChars: 21,
+      scoreDriftTolerance: 12,
+      alignmentScoreMinGap: 6,
+    },
+  };
+}
+
+function resolveCandidateDetailPlanName(
+  candidateIndex: number,
+): CandidateDetailPlanName {
+  switch (candidateIndex) {
+    case 0:
+      return "strict";
+    case 1:
+      return "center";
+    default:
+      return "upper_edge";
+  }
+}
+
+function resolveDetailPlanLabel(name: CandidateDetailPlanName): string {
+  switch (name) {
+    case "strict":
+      return "下限寄り";
+    case "upper_edge":
+      return "上限寄り";
+    default:
+      return "中央";
+  }
+}
+
+function resolveCandidateDetailPlan(
+  detailLevel: DetailLevel,
+  candidateIndex: number,
+): CandidateDetailPlan {
+  const name = resolveCandidateDetailPlanName(candidateIndex);
+  const budget = cloneDetailBudget(resolveDetailBudget(detailLevel));
+
+  if (detailLevel === "concise") {
+    if (name === "strict") {
+      budget.usableFacts = {
+        spec: 1,
+        evidence: 0,
+        keyword: 0,
+        constraint: 0,
+        total: 3,
+      };
+      budget.promptContext = {
+        materialFacts: 1,
+        scene: 0,
+        value: 0,
+        evidence: 0,
+        guard: 0,
+      };
+      budget.selection.targetTotalChars = 102;
+      budget.selection.targetBulletAverageChars = 11;
+    } else if (name === "center") {
+      budget.usableFacts = {
+        spec: 1,
+        evidence: 0,
+        keyword: 0,
+        constraint: 0,
+        total: 3,
+      };
+      budget.promptContext = {
+        materialFacts: 1,
+        scene: 1,
+        value: 0,
+        evidence: 0,
+        guard: 0,
+      };
+      budget.selection.targetTotalChars = 112;
+      budget.selection.targetBulletAverageChars = 13;
+    } else if (name === "upper_edge") {
+      budget.usableFacts = {
+        spec: 1,
+        evidence: 0,
+        keyword: 0,
+        constraint: 0,
+        total: 4,
+      };
+      budget.promptContext = {
+        materialFacts: 1,
+        scene: 1,
+        value: 0,
+        evidence: 0,
+        guard: 0,
+      };
+      budget.selection.targetTotalChars = 122;
+      budget.selection.targetBulletAverageChars = 15;
+    }
+  } else if (detailLevel === "standard") {
+    if (name === "strict") {
+      budget.usableFacts = {
+        spec: 1,
+        evidence: 1,
+        keyword: 0,
+        constraint: 0,
+        total: 4,
+      };
+      budget.promptContext = {
+        materialFacts: 2,
+        scene: 1,
+        value: 0,
+        evidence: 0,
+        guard: 0,
+      };
+      budget.selection.targetTotalChars = 142;
+      budget.selection.targetBulletAverageChars = 18;
+    } else if (name === "center") {
+      budget.usableFacts = {
+        spec: 2,
+        evidence: 1,
+        keyword: 0,
+        constraint: 0,
+        total: 5,
+      };
+      budget.promptContext = {
+        materialFacts: 2,
+        scene: 1,
+        value: 1,
+        evidence: 1,
+        guard: 0,
+      };
+      budget.selection.targetTotalChars = 152;
+      budget.selection.targetBulletAverageChars = 21;
+    } else if (name === "upper_edge") {
+      budget.usableFacts = {
+        spec: 2,
+        evidence: 1,
+        keyword: 0,
+        constraint: 0,
+        total: 6,
+      };
+      budget.promptContext = {
+        materialFacts: 3,
+        scene: 2,
+        value: 1,
+        evidence: 1,
+        guard: 0,
+      };
+      budget.selection.targetTotalChars = 164;
+      budget.selection.targetBulletAverageChars = 24;
+    }
+  } else {
+    if (name === "strict") {
+      budget.usableFacts = {
+        spec: 2,
+        evidence: 2,
+        keyword: 0,
+        constraint: 0,
+        total: 6,
+      };
+      budget.promptContext = {
+        materialFacts: 4,
+        scene: 2,
+        value: 1,
+        evidence: 2,
+        guard: 1,
+      };
+      budget.selection.targetTotalChars = 174;
+      budget.selection.targetBulletAverageChars = 27;
+    } else if (name === "center") {
+      budget.selection.targetTotalChars = 184;
+      budget.selection.targetBulletAverageChars = 29;
+    } else if (name === "upper_edge") {
+      budget.usableFacts = {
+        spec: 3,
+        evidence: 2,
+        keyword: 1,
+        constraint: 1,
+        total: 9,
+      };
+      budget.promptContext = {
+        materialFacts: 7,
+        scene: 3,
+        value: 3,
+        evidence: 4,
+        guard: 1,
+      };
+      budget.selection.targetTotalChars = 196;
+      budget.selection.targetBulletAverageChars = 32;
+    }
+  }
+
+  return {
+    name,
+    requestedDetailLevel: detailLevel,
+    budget,
+  };
+}
+
+function isInRequestedDetailBand(
+  band: CandidateDetailBand,
+  requestedDetailLevel: DetailLevel,
+): boolean {
+  return band === requestedDetailLevel;
+}
+function buildUsableFactsForRenderer(
+  facts: AtomicFact[],
+  detailPlan: CandidateDetailPlan,
+): AtomicFact[] {
+  const budget = detailPlan.budget;
   const productFact = pickPrimaryFactByKind(facts, "PRODUCT_NAME");
   const categoryFact = pickPrimaryFactByKind(facts, "CATEGORY");
   const audienceFact = pickPrimaryFactByKind(facts, "AUDIENCE");
@@ -561,31 +931,119 @@ function buildUsableFactsForRenderer(facts: AtomicFact[]): AtomicFact[] {
   const keywordFacts = filterFactsByKind(facts, "KEYWORD");
   const constraintFacts = filterFactsByKind(facts, "CONSTRAINT");
 
+  const primaryAnchorFact = audienceFact ?? categoryFact;
+  const secondaryAnchorFact =
+    audienceFact && categoryFact
+      ? primaryAnchorFact?.id === audienceFact.id
+        ? categoryFact
+        : audienceFact
+      : null;
+
+  const materialFacts = uniqueFacts([
+    ...specFacts,
+    ...evidenceFacts,
+    ...keywordFacts,
+    ...constraintFacts,
+  ]);
+
+  if (detailPlan.requestedDetailLevel === "concise") {
+    const fallbackAnchorFact = primaryAnchorFact ?? secondaryAnchorFact;
+
+    if (detailPlan.name === "strict") {
+      return uniqueFacts([
+        productFact,
+        fallbackAnchorFact,
+        materialFacts[0] ?? null,
+      ]).slice(0, budget.usableFacts.total);
+    }
+
+    if (detailPlan.name === "upper_edge") {
+      return uniqueFacts([
+        productFact,
+        fallbackAnchorFact,
+        materialFacts[0] ?? null,
+        materialFacts[1] ?? null,
+      ]).slice(0, budget.usableFacts.total);
+    }
+
+    return uniqueFacts([
+      productFact,
+      fallbackAnchorFact,
+      materialFacts[0] ?? null,
+    ]).slice(0, budget.usableFacts.total);
+  }
+
+  if (detailPlan.requestedDetailLevel === "standard") {
+    if (detailPlan.name === "strict") {
+      return uniqueFacts([
+        productFact,
+        primaryAnchorFact,
+        materialFacts[0] ?? null,
+        materialFacts[1] ?? null,
+      ]).slice(0, budget.usableFacts.total);
+    }
+
+    if (detailPlan.name === "upper_edge") {
+      return uniqueFacts([
+        productFact,
+        primaryAnchorFact,
+        materialFacts[0] ?? null,
+        materialFacts[1] ?? null,
+        secondaryAnchorFact,
+        materialFacts[2] ?? null,
+      ]).slice(0, budget.usableFacts.total);
+    }
+
+    return uniqueFacts([
+      productFact,
+      primaryAnchorFact,
+      materialFacts[0] ?? null,
+      materialFacts[1] ?? null,
+      secondaryAnchorFact,
+    ]).slice(0, budget.usableFacts.total);
+  }
+
   return uniqueFacts([
     productFact,
-    categoryFact,
-    audienceFact,
-    specFacts[0],
-    evidenceFacts[0],
-    specFacts[1],
-    evidenceFacts[1],
-    keywordFacts[0],
-    constraintFacts[0],
-  ]).slice(0, 8);
+    primaryAnchorFact,
+    secondaryAnchorFact,
+    ...materialFacts,
+  ]).slice(0, budget.usableFacts.total);
 }
 
 /* =========================
    Prose Prompt
 ========================= */
 
+function buildDetailGuidanceLines(detailLevel: DetailLevel): string[] {
+  if (detailLevel === "concise") {
+    return [
+      "要求された詳しさは簡潔帯です。必要な情報だけを残し、補足理由を重ねすぎないでください。",
+      "ヘッドと箇条書きで同じ内容を言い換えて繰り返さず、一項目ごとの情報を短く止めてください。",
+    ];
+  }
+
+  if (detailLevel === "detailed") {
+    return [
+      "要求された詳しさはやや詳しめ帯です。自然な日本語のまま、入力材料の範囲で一段だけ厚みを持たせてください。",
+      "ただし説明を広げすぎず、使用場面と扱いやすさがつながる密度に留めてください。",
+    ];
+  }
+
+  return [
+    "要求された詳しさは標準帯です。自然な日本語のまま、短すぎず長すぎない必要十分な密度を保ってください。",
+    "場面・特徴・扱いやすさのうち必要な分だけを使い、説明の重複を避けてください。",
+  ];
+}
+
 function buildProseSystem(args: {
-  toneKey: string;
+  articleType: ArticleType;
   isSNS: boolean;
+  detailLevel: DetailLevel;
 }): string {
   const baseSystem = buildSystemPrompt({
-    toneKey: args.toneKey,
     overrides: undefined,
-  } as any);
+  });
 
   const systemLines = [
     "あなたはEC向けの商品紹介文を書くライターです。出力は日本語の本文のみです。",
@@ -593,7 +1051,10 @@ function buildProseSystem(args: {
     "意味判断は入力からあなたが行ってください。機械側の分類名や推定ラベルは本文に持ち込まないでください。",
     "入力にない具体値や比較優位は足さないでください。",
     "英字の項目名や変数名は本文に出さないでください。",
-    "見出し、FAQ、自己評価、注釈は出さないでください。",
+    args.articleType === "faq"
+      ? "FAQ形式では、Q. と A. の組み合わせだけで書いてください。自己評価や注釈は出さないでください。"
+      : "見出し、FAQ、自己評価、注釈は出さないでください。",
+    ...buildDetailGuidanceLines(args.detailLevel),
   ];
 
   if (args.isSNS) {
@@ -639,6 +1100,114 @@ function buildBodyShapeBlock(): string[] {
     "箇条書きでは、入力にある情報だけを使って具体的に書いてください。",
   ];
 }
+function isLowFactDetailedContext(args: {
+  detailPlan: CandidateDetailPlan;
+  usableFacts: AtomicFact[];
+  productFactsBlock: ReturnType<typeof buildProductFactsBlock>;
+}): boolean {
+  if (args.detailPlan.requestedDetailLevel !== "detailed") return false;
+
+  const materialFactCount = args.usableFacts.filter((fact) =>
+    ["SPEC", "EVIDENCE", "KEYWORD", "CONSTRAINT"].includes(fact.kind),
+  ).length;
+
+  const productFactCount =
+    args.productFactsBlock.scene.length +
+    args.productFactsBlock.value.length +
+    args.productFactsBlock.evidence.length;
+
+  return materialFactCount <= 3 && productFactCount <= 1;
+}
+
+function buildDetailGuidanceBlock(args: {
+  detailLevel: DetailLevel;
+  detailPlan: CandidateDetailPlan;
+  lowFactDetailed: boolean;
+}): string[] {
+  const planLabel = resolveDetailPlanLabel(args.detailPlan.name);
+
+  if (args.detailLevel === "concise") {
+    if (args.detailPlan.name === "strict") {
+      return [
+        `今回の候補は簡潔帯の${planLabel}です。必要なことだけを残し、補足の説明で広げすぎないでください。`,
+        "場面は一つに留め、別の用途や感想語を足して長くしないでください。",
+      ];
+    }
+
+    if (args.detailPlan.name === "upper_edge") {
+      return [
+        `今回の候補は簡潔帯の${planLabel}です。短さを保ったまま、一段だけ補足してかまいません。`,
+        "ただし同じ価値の言い換えや、二つ目の用途への脱線は避けてください。",
+      ];
+    }
+
+    return [
+      `今回の候補は簡潔帯の${planLabel}です。短く伝わる核を優先し、一つの流れでまとめてください。`,
+      "箇条書きは一項目につき一つの情報で止め、理由を重ねすぎないでください。",
+    ];
+  }
+
+  if (args.detailLevel === "detailed") {
+    if (args.lowFactDetailed) {
+      if (args.detailPlan.name === "strict") {
+        return [
+          `今回の候補はやや詳しめ帯の${planLabel}です。使える事実が少ない前提なので、事実の言い換えで長くせず、置く場所か収まり方を一段だけ具体化してください。`,
+          "厚みは『どこに置くか』『どう収まるか』『片づけ動作がどう楽か』のどれか一つで作り、同じ事実を head と bullet で繰り返さないでください。",
+        ];
+      }
+
+      if (args.detailPlan.name === "upper_edge") {
+        return [
+          `今回の候補はやや詳しめ帯の${planLabel}です。低事実量でも厚みを出してよいですが、説明を盛るのではなく、置き方・収まり方・使い分けのどれか一つを自然につないでください。`,
+          "別の事実を増やそうとせず、同じ事実の焼き直しにも頼らず、一段だけ場面を具体化してください。",
+        ];
+      }
+
+      return [
+        `今回の候補はやや詳しめ帯の${planLabel}です。使える事実が少ない前提で、使用場面と収まり方を一段だけ具体化してください。`,
+        "詳しさは増やしてよいですが、同じ事実の言い換えや bullet 間の重複は避けてください。",
+      ];
+    }
+
+    if (args.detailPlan.name === "strict") {
+      return [
+        `今回の候補はやや詳しめ帯の${planLabel}です。使用場面と扱いやすさを一段だけ具体化してください。`,
+        "詳しさは増やしてよいですが、言い換えで文字数を増やさないでください。",
+      ];
+    }
+
+    if (args.detailPlan.name === "upper_edge") {
+      return [
+        `今回の候補はやや詳しめ帯の${planLabel}です。入力材料の範囲で厚みを持たせてよいですが、説明を盛りすぎないでください。`,
+        "場面・特徴・使いやすさを全部一文に詰め込まず、自然な流れを優先してください。",
+      ];
+    }
+
+    return [
+      `今回の候補はやや詳しめ帯の${planLabel}です。自然な日本語のまま、使用場面と扱いやすさを一段だけ具体化してください。`,
+      "詳しさは増やしてよいですが、同じ内容の言い換えは避けてください。",
+    ];
+  }
+
+  if (args.detailPlan.name === "strict") {
+    return [
+      `今回の候補は標準帯の${planLabel}です。短すぎず長すぎない密度で、必要な説明だけを残してください。`,
+      "場面は一つに留め、特徴や効用を一項目に重ねすぎないでください。",
+    ];
+  }
+
+  if (args.detailPlan.name === "upper_edge") {
+    return [
+      `今回の候補は標準帯の${planLabel}です。情報は一段だけ増やせますが、詳しめ帯のように広げすぎないでください。`,
+      "各箇条書きの役割を分け、同じ価値を繰り返さないでください。",
+    ];
+  }
+
+  return [
+    `今回の候補は標準帯の${planLabel}です。場面と特徴の必要な分だけを自然につないでください。`,
+    "過不足の少ない密度を保ち、説明を厚くしすぎないでください。",
+  ];
+}
 
 function buildMinimalSafetyLines(): string[] {
   return [
@@ -662,22 +1231,54 @@ function buildShapeRescueUserMessage(baseUser: string): string {
   return [baseUser, "", ...buildShapeRescueLines()].join("\n");
 }
 
+function buildTemplateGuidanceLines(args: {
+  templateKey: string;
+  noticeReason: string;
+}): string[] {
+  if (args.templateKey === "product_compare") {
+    return [
+      "このテンプレは、商品の基本紹介に加えて、選ぶときの見方や判断材料が自然に伝わるようにするためのものです。",
+      "冒頭2文では、使う場面だけでなく、どんな重視軸で選ぶと合いやすいかが少し見える入りにしてください。",
+    ];
+  }
+
+  if (args.templateKey === "notice") {
+    const lines = [
+      "このテンプレは、理由のある案内文です。まず知らせたいことを自然に伝え、その後で商品説明を補足してください。",
+      "入力にない告知事実は足さず、今回の案内理由に沿ってまとめてください。",
+    ];
+
+    if (args.noticeReason) {
+      lines.push(`今回知らせたいこと: ${args.noticeReason}`);
+    }
+
+    return lines;
+  }
+
+  return [
+    "このテンプレは、商品の基本情報や良さを標準的に伝える商品紹介文です。",
+    "バランスを重視し、説明に偏りすぎず自然な紹介文にしてください。",
+  ];
+}
 function buildPromptContextBlock(args: {
   normalized: NormalizedInput;
   usableFacts: AtomicFact[];
   productFactsBlock: ReturnType<typeof buildProductFactsBlock>;
+  detailPlan: CandidateDetailPlan;
+  lowFactDetailed: boolean;
 }): string[] {
   const lines: string[] = [];
-
+  const budget = args.detailPlan.budget;
+  const detailLevel = args.detailPlan.requestedDetailLevel;
   const productName = normalizeJaText(args.normalized.product_name);
   const category = normalizeJaText(args.normalized.category);
   const audience = normalizeJaText(args.normalized.audience);
   const goal = normalizeJaText(args.normalized.goal);
 
   if (productName) lines.push(`商品名: ${productName}`);
-  if (category) lines.push(`カテゴリ: ${category}`);
-  if (audience) lines.push(`想定読者: ${audience}`);
   if (goal) lines.push(`入力ゴール: ${goal}`);
+  if (audience) lines.push(`想定読者: ${audience}`);
+  if (category) lines.push(`カテゴリ: ${category}`);
 
   const materialFacts = uniqueNonEmptyStrings(
     args.usableFacts
@@ -685,47 +1286,81 @@ function buildPromptContextBlock(args: {
         ["SPEC", "EVIDENCE", "KEYWORD", "CONSTRAINT"].includes(fact.kind),
       )
       .map((fact) => fact.text),
-  ).slice(0, 6);
+  ).slice(0, budget.promptContext.materialFacts);
+
+  const referenceFacts: string[] = [];
+  for (const value of args.productFactsBlock.scene.slice(0, budget.promptContext.scene)) {
+    referenceFacts.push(`場面: ${value}`);
+  }
+  for (const value of args.productFactsBlock.value.slice(0, budget.promptContext.value)) {
+    referenceFacts.push(`良さ: ${value}`);
+  }
+  for (const item of args.productFactsBlock.evidence.slice(0, budget.promptContext.evidence)) {
+    const unit = item.unit ? item.unit : "";
+    referenceFacts.push(`事実: ${item.label}: ${item.value}${unit}`);
+  }
+  for (const value of args.productFactsBlock.guard.slice(0, budget.promptContext.guard)) {
+    referenceFacts.push(`補足: ${value}`);
+  }
 
   if (materialFacts.length > 0) {
     lines.push("使ってよい材料:");
     for (const value of materialFacts) {
       lines.push(`- ${value}`);
     }
-    lines.push("上の材料は本文にそのまま貼らず、自然な日本語にほどいて使ってください。");
   }
 
-  if (args.productFactsBlock.scene.length > 0) {
-    lines.push("商品情報（使う場面）:");
-    for (const value of args.productFactsBlock.scene.slice(0, 3)) {
+  if (referenceFacts.length > 0) {
+    lines.push("必要なら使ってよい補助情報:");
+    for (const value of referenceFacts) {
       lines.push(`- ${value}`);
     }
-    lines.push("使う場面は、本文の場面選びや流れづくりの参考にしてください。");
   }
 
-  if (args.productFactsBlock.value.length > 0) {
-    lines.push("商品情報（商品の良さ）:");
-    for (const value of args.productFactsBlock.value.slice(0, 3)) {
-      lines.push(`- ${value}`);
+  if (detailLevel === "concise") {
+    lines.push("一つの場面に必要な分だけを選び、説明を広げすぎないでください。");
+    if (args.detailPlan.name === "strict") {
+      lines.push("簡潔帯の下限です。補足理由や別用途を足さず、短く止めてください。");
+    } else if (args.detailPlan.name === "upper_edge") {
+      lines.push("簡潔帯の上限です。短い補足は一段だけに留めてください。");
+    } else {
+      lines.push("簡潔帯の中央です。核だけを残し、言い換えで伸ばさないでください。");
     }
-    lines.push("商品の良さは、その場面で何がうれしいかを考える材料として使ってください。");
+    return lines;
   }
 
-  if (args.productFactsBlock.evidence.length > 0) {
-    lines.push("商品情報（仕様・属性の事実）:");
-    for (const item of args.productFactsBlock.evidence.slice(0, 5)) {
-      const unit = item.unit ? item.unit : "";
-      lines.push(`- ${item.label}: ${item.value}${unit}`);
+  if (detailLevel === "standard") {
+    lines.push("一つの場面を軸に、特徴と扱いやすさの必要な分だけを自然につないでください。");
+    if (args.detailPlan.name === "strict") {
+      lines.push("標準帯の下限です。情報を足しすぎず、必要十分で止めてください。");
+    } else if (args.detailPlan.name === "upper_edge") {
+      lines.push("標準帯の上限です。少し厚みを足してよいですが、詳しめ帯のように広げすぎないでください。");
+    } else {
+      lines.push("標準帯の中央です。場面・特徴・扱いやすさの役割を分けてください。");
     }
-    lines.push("仕様や属性は、必要なときだけ具体化の根拠として使ってください。毎回すべては出さないでください。");
+    return lines;
   }
 
-  if (args.productFactsBlock.guard.length > 0) {
-    lines.push("商品情報（補足）:");
-    for (const value of args.productFactsBlock.guard.slice(0, 2)) {
-      lines.push(`- ${value}`);
+  if (args.lowFactDetailed) {
+    lines.push("やや詳しめ帯です。使える事実が少ない前提なので、事実の焼き直しではなく、置き方・収まり方・使い分け・片づけ動作のどれか一つを一段だけ具体化してください。");
+    lines.push("同じ事実を head と bullet で重ねず、bullet ごとに一項目一義を保ってください。");
+    if (args.detailPlan.name === "upper_edge") {
+      lines.push("厚みは増やしてよいですが、別の事実を増やそうとせず、場面の具体化だけで detailed を作ってください。");
+    } else if (args.detailPlan.name === "strict") {
+      lines.push("詳しさは一段だけ足し、言い換えで長くしないでください。");
+    } else {
+      lines.push("補助情報が乏しい場合でも、置く場所や収まり方の自然な流れを優先してください。");
     }
-    lines.push("補足は主役にせず、言い過ぎ防止やニュアンス補完として使ってください。");
+    return lines;
+  }
+
+  lines.push("やや詳しめ帯です。使用場面と扱いやすさを一段だけ具体化してください。");
+  if (args.detailPlan.name === "upper_edge") {
+    lines.push("情報は増やせますが、説明を盛るのではなく自然な流れで厚みを出してください。");
+  } else if (args.detailPlan.name === "strict") {
+    lines.push("詳しさは増やしてよいですが、同じ内容の言い換えで文字数を増やさないでください。");
+  } else {
+    lines.push("補助情報は必要な分だけ使い、観点を詰め込みすぎないでください。");
   }
 
   return lines;
@@ -749,27 +1384,95 @@ function resolveCandidateDiversityHint(
   }
 }
 
-function buildCandidateDiversityLines(
-  diversityHint: CandidateDiversityHint,
-): string[] {
-  switch (diversityHint) {
+function buildCompareOpeningFocusLines(): string[] {
+  return [
+    "product_compare では、冒頭2文の早い位置で、どんな見方で選ぶと合いやすいかが少し伝わるようにしてください。",
+    "比較表のように説明だけを並べるのではなく、自然な商品紹介の流れの中で選び方の視点がにじむ程度に留めてください。",
+  ];
+}
+
+function buildCandidateDiversityLines(args: {
+  templateKey: string;
+  diversityHint: CandidateDiversityHint;
+  detailLevel: DetailLevel;
+}): string[] {
+  const bandNote =
+    args.detailLevel === "concise"
+      ? "短さを壊さない範囲で入口の視点だけを変えてください。説明を増やさないでください。"
+      : args.detailLevel === "detailed"
+        ? "一段厚くしてよいですが、入口の視点を変えるために情報を盛りすぎないでください。"
+        : "標準帯の密度を保ったまま、入口の視点だけを変えてください。";
+
+  if (args.templateKey === "product_compare") {
+    switch (args.diversityHint) {
+      case "goal_first":
+        return ["この候補では、入力ゴールへの整合を入口にしてください。", bandNote];
+      case "scene_first":
+        return ["この候補では、短い使用場面を入口にしてください。", bandNote];
+      case "feature_to_scene":
+        return [
+          "この候補では、特徴を一つだけ入口にし、その特徴が生きる場面へ自然につないでください。",
+          bandNote,
+        ];
+    }
+  }
+
+  switch (args.diversityHint) {
     case "goal_first":
-      return [
-        "この候補では、入力ゴールへの整合を最優先してください。",
-        "何をしやすくしたいか、何を変えたいかが本文の早い位置で自然に読めるようにしてください。",
-        "ただし目的説明だけで閉じず、短い使用場面にも自然に着地してください。",
-      ];
+      return ["この候補では、入力ゴールへの整合を入口にしてください。", bandNote];
     case "scene_first":
-      return [
-        "この候補では、2〜3秒の短い使用場面を先に自然に立ち上げてください。",
-        "手に取る瞬間や置く場面、使い始める流れが先に浮かび、そのあと使いやすさや意味につながるようにしてください。",
-      ];
+      return ["この候補では、短い使用場面を入口にしてください。", bandNote];
     case "feature_to_scene":
       return [
-        "この候補では、扱いやすさや特徴を入口にしてかまいません。",
-        "ただし特徴説明だけで止めず、その特徴がどんな場面で役に立つかへ自然につなげてください。",
+        "この候補では、特徴を一つだけ入口にし、その特徴が生きる場面へ自然につないでください。",
+        bandNote,
       ];
   }
+}
+
+
+function resolveArticleTypeFromNormalized(normalized: NormalizedInput): ArticleType {
+  return resolveArticleType(
+    (normalized as any)?.articleType,
+    normalized.meta?.articleType,
+  );
+}
+
+function buildArticleTypeGuidanceLines(articleType: ArticleType): string[] {
+  switch (articleType) {
+    case "recommend":
+      return [
+        "文章タイプは『こんな人におすすめ』です。誰に向いている商品かを前面に出してください。",
+        "冒頭では、商品が向いている人や使う場面を自然に示してください。単なる商品説明だけで終わらせないでください。",
+        "箇条書きは『〜したい方に』『〜を探している方に』のように、おすすめ対象が分かる内容にしてください。",
+      ];
+    case "faq":
+      return [
+        "文章タイプは『よくある質問』です。購入前の疑問に答えるQ&A形式で書いてください。",
+        "出力は Q. と A. の3組だけにしてください。通常の商品説明文や箇条書きにはしないでください。",
+        "各回答は、入力にある事実の範囲で自然に答えてください。商品名は少なくとも1回は原文のまま入れてください。",
+      ];
+    case "announcement":
+      return [
+        "文章タイプは『新商品・入荷案内』です。新しく登場した、または入荷したことを伝える案内文にしてください。",
+        "冒頭では、商品名と入荷・登場の案内感が分かるようにしてください。単なる通常の商品説明だけで終わらせないでください。",
+        "箇条書きは、新生活・季節の買い替え・新入荷のお知らせとして読みやすい要点にしてください。",
+      ];
+    default:
+      return [
+        "文章タイプは『商品ページ用』です。商品ページにそのまま載せやすい標準的な商品紹介文にしてください。",
+        "冒頭2文と箇条書き3点で、用途・特徴・扱いやすさを自然につないでください。",
+      ];
+  }
+}
+
+function buildFaqShapeBlock(): string[] {
+  return [
+    "出力形式は、Q. と A. の3組だけです。",
+    "見出し、前置き、箇条書き、まとめ文は書かないでください。",
+    "各Qは購入前に気になる自然な疑問にしてください。",
+    "各Aは1〜2文で、入力にある情報だけを使って答えてください。",
+  ];
 }
 
 function buildProseUser(args: {
@@ -777,17 +1480,98 @@ function buildProseUser(args: {
   usableFacts: AtomicFact[];
   diversityHint: CandidateDiversityHint;
   productFactsBlock: ReturnType<typeof buildProductFactsBlock>;
+  templateKey: string;
+  noticeReason: string;
+  detailLevel: DetailLevel;
+  detailPlan: CandidateDetailPlan;
+  articleType: ArticleType;
 }): string {
+  const lowFactDetailed = isLowFactDetailedContext({
+    detailPlan: args.detailPlan,
+    usableFacts: args.usableFacts,
+    productFactsBlock: args.productFactsBlock,
+  });
   const productName = normalizeJaText(args.normalized.product_name);
+  const templateGuidanceLines = buildTemplateGuidanceLines({
+    templateKey: args.templateKey,
+    noticeReason: args.noticeReason,
+  });
+  const diversityLines = buildCandidateDiversityLines({
+    templateKey: args.templateKey,
+    diversityHint: args.diversityHint,
+    detailLevel: args.detailLevel,
+  });
+  const compareOpeningFocusLines =
+    args.templateKey === "product_compare"
+      ? buildCompareOpeningFocusLines()
+      : [];
+  const articleTypeGuidanceLines = buildArticleTypeGuidanceLines(args.articleType);
 
-  const promptLines = [
-    ...buildHeadFirstHardFloorBlock({ productName }),
-    ...buildMinimalSceneHandoffBlock(),
-    ...buildBodyShapeBlock(),
-    ...buildMinimalSafetyLines(),
-    ...buildCandidateDiversityLines(args.diversityHint),
-    ...buildPromptContextBlock(args),
-  ];
+  const promptLines =
+    args.articleType === "faq"
+      ? [
+          ...articleTypeGuidanceLines,
+          ...buildFaqShapeBlock(),
+          ...buildDetailGuidanceBlock({
+            detailLevel: args.detailLevel,
+            detailPlan: args.detailPlan,
+            lowFactDetailed,
+          }),
+          ...buildMinimalSafetyLines(),
+          ...templateGuidanceLines,
+          ...diversityLines,
+          ...buildPromptContextBlock({
+            normalized: args.normalized,
+            usableFacts: args.usableFacts,
+            productFactsBlock: args.productFactsBlock,
+            detailPlan: args.detailPlan,
+            lowFactDetailed,
+          }),
+        ]
+      : args.templateKey === "product_compare"
+        ? [
+            ...buildHeadFirstHardFloorBlock({ productName }),
+            ...articleTypeGuidanceLines,
+            ...templateGuidanceLines,
+            ...compareOpeningFocusLines,
+            ...buildMinimalSceneHandoffBlock(),
+            ...buildBodyShapeBlock(),
+            ...buildDetailGuidanceBlock({
+              detailLevel: args.detailLevel,
+              detailPlan: args.detailPlan,
+              lowFactDetailed,
+            }),
+            ...buildMinimalSafetyLines(),
+            ...diversityLines,
+            ...buildPromptContextBlock({
+              normalized: args.normalized,
+              usableFacts: args.usableFacts,
+              productFactsBlock: args.productFactsBlock,
+              detailPlan: args.detailPlan,
+              lowFactDetailed,
+            }),
+          ]
+        : [
+            ...buildHeadFirstHardFloorBlock({ productName }),
+            ...articleTypeGuidanceLines,
+            ...buildMinimalSceneHandoffBlock(),
+            ...buildBodyShapeBlock(),
+            ...buildDetailGuidanceBlock({
+              detailLevel: args.detailLevel,
+              detailPlan: args.detailPlan,
+              lowFactDetailed,
+            }),
+            ...buildMinimalSafetyLines(),
+            ...templateGuidanceLines,
+            ...diversityLines,
+            ...buildPromptContextBlock({
+              normalized: args.normalized,
+              usableFacts: args.usableFacts,
+              productFactsBlock: args.productFactsBlock,
+              detailPlan: args.detailPlan,
+              lowFactDetailed,
+            }),
+          ];
 
   return promptLines.join("\n");
 }
@@ -839,6 +1623,96 @@ function collectBulletLines(body: string): string[] {
     .map((line) => line.trim())
     .filter(Boolean)
     .filter((line) => /^[・\-]\s*/.test(line));
+}
+
+
+function countVisibleTextChars(text: string): number {
+  return (text ?? "")
+    .toString()
+    .replace(/\r\n/g, "\n")
+    .replace(/^[・\-]\s*/gm, "")
+    .replace(/\s+/g, "")
+    .length;
+}
+
+function detectCandidateDetailBand(profile: {
+  totalChars: number;
+  averageBulletChars: number;
+}): CandidateDetailBand {
+  if (
+    (profile.totalChars <= 146 && profile.averageBulletChars <= 19) ||
+    (profile.totalChars <= 136 && profile.averageBulletChars <= 21)
+  ) {
+    return "concise";
+  }
+
+  if (
+    profile.totalChars >= 186 ||
+    profile.averageBulletChars >= 32 ||
+    (profile.totalChars >= 170 && profile.averageBulletChars >= 27)
+  ) {
+    return "detailed";
+  }
+
+  return "standard";
+}
+
+function computeDetailAlignmentScore(
+  detailBudget: DetailBudget,
+  profile: {
+    totalChars: number;
+    averageBulletChars: number;
+  },
+): number {
+  const totalPenalty = Math.abs(
+    profile.totalChars - detailBudget.selection.targetTotalChars,
+  );
+  const bulletPenalty =
+    Math.abs(
+      profile.averageBulletChars -
+        detailBudget.selection.targetBulletAverageChars,
+    ) * 3;
+
+  return Math.max(0, 100 - totalPenalty - bulletPenalty);
+}
+
+function buildCandidateDetailProfile(
+  text: string,
+  detailPlan: CandidateDetailPlan,
+): CandidateDetailProfile {
+  const { head, body } = splitHeadAndBody(text);
+  const bulletLines = collectBulletLines(body).map((line) =>
+    line.replace(/^[・\-]\s*/, "").trim(),
+  );
+  const headChars = countVisibleTextChars(head);
+  const bulletChars = bulletLines.reduce(
+    (sum, line) => sum + countVisibleTextChars(line),
+    0,
+  );
+  const bulletCount = bulletLines.length;
+  const averageBulletChars =
+    bulletCount > 0 ? Math.round(bulletChars / bulletCount) : 0;
+  const totalChars = headChars + bulletChars;
+  const band = detectCandidateDetailBand({ totalChars, averageBulletChars });
+
+  return {
+    totalChars,
+    headChars,
+    bulletChars,
+    bulletCount,
+    averageBulletChars,
+    band,
+    alignmentScore: computeDetailAlignmentScore(detailPlan.budget, {
+      totalChars,
+      averageBulletChars,
+    }),
+    requestedDetailLevel: detailPlan.requestedDetailLevel,
+    requestedPlanName: detailPlan.name,
+    isInRequestedBand: isInRequestedDetailBand(
+      band,
+      detailPlan.requestedDetailLevel,
+    ),
+  };
 }
 
 /* =========================
@@ -1019,6 +1893,157 @@ function hasSourceRestatement(textPart: string, normalized: NormalizedInput): bo
   });
 }
 
+function detectSourceRestatementHits(
+  textPart: string,
+  normalized: NormalizedInput,
+): Array<{
+  fragment: string;
+  normalizedFragment: string;
+  occurrences: number;
+  lineHits: number;
+}> {
+  const target = normalizeBoundaryMatchText(textPart);
+  if (!target) return [];
+
+  const lines = (textPart ?? "")
+    .toString()
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/^[・\-]\s*/, "").trim())
+    .filter(Boolean)
+    .map((line) => normalizeBoundaryMatchText(line));
+
+  const hits: Array<{
+    fragment: string;
+    normalizedFragment: string;
+    occurrences: number;
+    lineHits: number;
+  }> = [];
+
+  for (const fragment of collectRestatementSourceFragments(normalized)) {
+    const normalizedFragment = normalizeBoundaryMatchText(fragment);
+    if (!normalizedFragment) continue;
+
+    const occurrences = countNormalizedOccurrences(textPart, fragment);
+    if (occurrences <= 0) continue;
+
+    const lineHits = lines.filter((line) =>
+      line.includes(normalizedFragment),
+    ).length;
+
+    hits.push({
+      fragment,
+      normalizedFragment,
+      occurrences,
+      lineHits,
+    });
+  }
+
+  return hits;
+}
+
+function hasHeadDirectSourceRestatement(
+  head: string,
+  normalized: NormalizedInput,
+): boolean {
+  const hits = detectSourceRestatementHits(head, normalized);
+  if (hits.length === 0) return false;
+
+  const normalizedHead = normalizeBoundaryMatchText(head);
+  if (!normalizedHead) return false;
+
+  const normalizedGoal = normalizeBoundaryMatchText(normalized.goal);
+  const headSentences = extractHeadSentences(head);
+  const headValue = normalizeJaText(head);
+  const hasSceneConnection = /(とき|場面|途中|朝|午後|夜|机|デスク|自宅|オフィス|洗面所|クローゼット|屋外|イベント|通勤|置い|持ち歩|手に取|使う|使え|整え|しまえ|収め|休憩|移動中)/.test(
+    headValue,
+  );
+
+  return hits.some((hit) => {
+    const targetLen = normalizedHead.length;
+    const fragmentLen = hit.normalizedFragment.length;
+    const remainder = normalizedHead.replace(hit.normalizedFragment, "");
+    const remainderLen = remainder.length;
+    const fragmentRatio = fragmentLen / Math.max(targetLen, 1);
+    const repeated = hit.occurrences >= 2;
+    const goalAnchored =
+      normalizedGoal.length > 0 &&
+      (normalizedGoal.includes(hit.normalizedFragment) ||
+        hit.normalizedFragment.includes(normalizedGoal));
+
+    const sentenceNearCopy = headSentences.some((sentence) => {
+      const normalizedSentence = normalizeBoundaryMatchText(sentence);
+      if (!normalizedSentence.includes(hit.normalizedFragment)) return false;
+
+      const sentenceRemainder = normalizedSentence.replace(
+        hit.normalizedFragment,
+        "",
+      );
+      const sentenceRatio =
+        hit.normalizedFragment.length / Math.max(normalizedSentence.length, 1);
+
+      if (sentenceRemainder.length <= 18) return true;
+      if (sentenceRatio >= 0.62 && sentenceRemainder.length <= 28) return true;
+      if (goalAnchored && sentenceRatio >= 0.5 && sentenceRemainder.length <= 34) {
+        return true;
+      }
+
+      return false;
+    });
+
+    const dominantNearCopy = fragmentRatio >= 0.5 && remainderLen <= 28;
+    const weaklyExpanded = goalAnchored && !hasSceneConnection && remainderLen <= 34;
+
+    return repeated || sentenceNearCopy || dominantNearCopy || weaklyExpanded;
+  });
+}
+
+function hasBodyDenseSourceRestatement(
+  body: string,
+  normalized: NormalizedInput,
+): boolean {
+  const hits = detectSourceRestatementHits(body, normalized);
+  if (hits.length === 0) return false;
+
+  const bulletContents = collectBulletLines(body).map((line) =>
+    line.replace(/^[・\-]\s*/, "").trim(),
+  );
+  const normalizedGoal = normalizeBoundaryMatchText(normalized.goal);
+
+  return hits.some((hit) => {
+    const goalAnchored =
+      normalizedGoal.length > 0 &&
+      (normalizedGoal.includes(hit.normalizedFragment) ||
+        hit.normalizedFragment.includes(normalizedGoal));
+
+    if (!goalAnchored) {
+      return hit.lineHits >= 2 || hit.occurrences >= 3;
+    }
+
+    if (hit.lineHits >= 2) return true;
+    if (hit.occurrences >= 2) return true;
+
+    const nearCopyBulletHits = bulletContents.filter((line) => {
+      const normalizedLine = normalizeBoundaryMatchText(line);
+      if (!normalizedLine.includes(hit.normalizedFragment)) return false;
+
+      const remainder = normalizedLine.replace(hit.normalizedFragment, "");
+      const ratio = hit.normalizedFragment.length / Math.max(normalizedLine.length, 1);
+      const lineValue = normalizeJaText(line);
+      const hasExpansionCue = /(ため|ので|から|ながら|つつ|やすい|しやすい|できる|でき|合わせ|使い分け|収め|整え|まとめ|置き方|工夫|立体的|無駄なく|保ちやすい)/.test(
+        lineValue,
+      );
+
+      if (remainder.length <= 12) return true;
+      if (ratio >= 0.6 && remainder.length <= 20) return true;
+      if (remainder.length <= 20 && !hasExpansionCue) return true;
+      return false;
+    }).length;
+
+    return nearCopyBulletHits >= 1;
+  });
+}
+
 function extractGoalAnchorFragments(goal: string, normalized: NormalizedInput): string[] {
   const productName = normalizeBoundaryMatchText(normalized.product_name);
   const audience = normalizeBoundaryMatchText(normalized.audience);
@@ -1080,20 +2105,98 @@ function hasHeadAbstractPromotion(head: string): boolean {
   return ABSTRACT_PROMOTION_PATTERNS.some((pattern) => pattern.test(value));
 }
 
-function hasAudiencePlacementViolation(head: string, body: string, normalized: NormalizedInput): boolean {
+function getAudiencePlacementStats(
+  head: string,
+  body: string,
+  normalized: NormalizedInput,
+): {
+  audience: string;
+  headCount: number;
+  bodyCount: number;
+} {
   const audience = normalizeJaText(normalized.audience);
-  if (!audience) return false;
+  if (!audience) {
+    return {
+      audience: "",
+      headCount: 0,
+      bodyCount: 0,
+    };
+  }
 
-  const headCount = countNormalizedOccurrences(head, audience);
-  const bodyCount = countNormalizedOccurrences(body, audience);
+  return {
+    audience,
+    headCount: countNormalizedOccurrences(head, audience),
+    bodyCount: countNormalizedOccurrences(body, audience),
+  };
+}
 
-  return headCount !== 1 || bodyCount > 0;
+function hasAudiencePlacementViolation(
+  head: string,
+  body: string,
+  normalized: NormalizedInput,
+): boolean {
+  const stats = getAudiencePlacementStats(head, body, normalized);
+  if (!stats.audience) return false;
+
+  if (stats.bodyCount > 0) return true;
+  if (stats.headCount > 1) return true;
+  return false;
+}
+
+function collectFaqLines(text: string): { qLines: string[]; aLines: string[] } {
+  const lines = (text ?? "")
+    .toString()
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  return {
+    qLines: lines.filter((line) => /^Q[.．]/i.test(line)),
+    aLines: lines.filter((line) => /^A[.．]/i.test(line)),
+  };
+}
+
+function evaluateFaqCandidateBoundary(
+  text: string,
+  normalized: NormalizedInput,
+): FinalProseBoundaryResult {
+  const reasons: string[] = [];
+  const warnings = buildBoundaryWarnings(text, normalized);
+  const placeholderLeakageHits = detectPlaceholderLeakage(text);
+  const productName = normalizeJaText(normalized.product_name);
+  const { qLines, aLines } = collectFaqLines(text);
+
+  if (qLines.length !== 3 || aLines.length !== 3) {
+    reasons.push("FAQ_PAIR_COUNT");
+  }
+
+  if (!productName || !text.includes(productName)) {
+    reasons.push("FAQ_MISSING_PRODUCT_NAME");
+  }
+
+  if (placeholderLeakageHits.length > 0) {
+    reasons.push("PLACEHOLDER_LEAKAGE");
+  }
+
+  const score = Math.max(0, 100 - reasons.length * 25 - warnings.length * 5);
+
+  return {
+    ok: reasons.length === 0,
+    reasons,
+    score,
+    warnings,
+  };
 }
 
 function evaluateCandidateSelectionBoundary(
   text: string,
   normalized: NormalizedInput,
 ): FinalProseBoundaryResult {
+  if (resolveArticleTypeFromNormalized(normalized) === "faq") {
+    return evaluateFaqCandidateBoundary(text, normalized);
+  }
+
   const reasons: string[] = [];
   const warnings = buildBoundaryWarnings(text, normalized);
 
@@ -1135,6 +2238,10 @@ export function evaluateFinalProseBoundary(
   normalized: NormalizedInput,
 ): FinalProseBoundaryResult {
   const base = evaluateCandidateSelectionBoundary(text, normalized);
+  if (resolveArticleTypeFromNormalized(normalized) === "faq") {
+    return base;
+  }
+
   const reasons = [...base.reasons];
 
   const { head, body } = splitHeadAndBody(text);
@@ -1147,11 +2254,11 @@ export function evaluateFinalProseBoundary(
     reasons.push("PURPOSE_NOT_ALIGNED");
   }
 
-  if (hasSourceRestatement(head, normalized)) {
+  if (hasHeadDirectSourceRestatement(head, normalized)) {
     reasons.push("HEAD_SOURCE_RESTATEMENT");
   }
 
-  if (hasSourceRestatement(body, normalized)) {
+  if (hasBodyDenseSourceRestatement(body, normalized)) {
     reasons.push("BODY_SOURCE_RESTATEMENT");
   }
 
@@ -1160,7 +2267,10 @@ export function evaluateFinalProseBoundary(
   }
 
   const uniqueReasons = Array.from(new Set(reasons));
-  const score = Math.max(0, 100 - uniqueReasons.length * 25 - base.warnings.length * 5);
+  const score = Math.max(
+    0,
+    100 - uniqueReasons.length * 25 - base.warnings.length * 5,
+  );
 
   return {
     ok: uniqueReasons.length === 0,
@@ -1170,9 +2280,6 @@ export function evaluateFinalProseBoundary(
   };
 }
 
-/* =========================
-   Finalize Helpers
-========================= */
 
 function normalizeBulletMarkers(text: string): { text: string; changed: boolean } {
   const raw = (text ?? "").toString().replace(/\r\n/g, "\n");
@@ -1299,12 +2406,20 @@ type CandidateRecord = {
   passKind: CandidatePassKind;
   candidateIndex: number;
   diversityHint: CandidateDiversityHint;
+  detailPlan: CandidateDetailPlan;
   content: string;
   apiMs: number;
   status: number;
   statusText: string;
   minimalBoundary: FinalProseBoundaryResult;
   richerBoundary: FinalProseBoundaryResult;
+  detailProfile: CandidateDetailProfile;
+  audiencePlacementStats: {
+    audience: string;
+    headCount: number;
+    bodyCount: number;
+  };
+  lowFactDetailed: boolean;
   proseUser: string;
 };
 
@@ -1342,6 +2457,52 @@ type CandidateAiJudgeResult = {
     | "invalid_index"
     | "invalid_decision";
 };
+
+type FallbackSelectionHints = {
+  aiJudgeAttempted: boolean;
+  aiJudgePreferredIndex: number | null;
+  aiJudgeRejectedIndexes: number[];
+};
+
+function buildFallbackSelectionHints(args: {
+  aiJudgeAttempted: boolean;
+  aiSelectedIndex: number | null;
+  aiRejectedCandidates: CandidateAiJudgeRejected[];
+}): FallbackSelectionHints {
+  return {
+    aiJudgeAttempted: args.aiJudgeAttempted,
+    aiJudgePreferredIndex:
+      typeof args.aiSelectedIndex === "number" &&
+      Number.isFinite(args.aiSelectedIndex)
+        ? args.aiSelectedIndex
+        : null,
+    aiJudgeRejectedIndexes: Array.from(
+      new Set(
+        args.aiRejectedCandidates
+          .map((item) => item.candidateIndex)
+          .filter((value) => Number.isFinite(value)),
+      ),
+    ),
+  };
+}
+
+function candidateMatchesFallbackPreferredIndex(
+  candidate: CandidateRecord,
+  hints: FallbackSelectionHints,
+): boolean {
+  return (
+    hints.aiJudgePreferredIndex !== null &&
+    candidate.candidateIndex === hints.aiJudgePreferredIndex
+  );
+}
+
+function candidateWasRejectedByFallbackHints(
+  candidate: CandidateRecord,
+  hints: FallbackSelectionHints,
+): boolean {
+  return hints.aiJudgeRejectedIndexes.includes(candidate.candidateIndex);
+}
+
 
 function collectMinimalPassedCandidates(
   candidates: CandidateRecord[],
@@ -1386,91 +2547,319 @@ function selectBestDiagnosticCandidate(
   return best;
 }
 
-function compareFallbackCandidates(
-  current: CandidateRecord | null,
-  next: CandidateRecord,
-): CandidateRecord {
+
+function buildAiJudgeCandidatePool(args: {
+  candidates: CandidateRecord[];
+  detailLevel: DetailLevel;
+}): { pool: CandidateRecord[]; inBandOnlyApplied: boolean } {
+  return {
+    pool: [...args.candidates].sort(
+      (a, b) => a.candidateIndex - b.candidateIndex,
+    ),
+    inBandOnlyApplied: false,
+  };
+}
+
+
+
+function resolveDetailBandOrder(
+  band: DetailLevel | CandidateDetailBand,
+): number {
+  switch (band) {
+    case "concise":
+      return 0;
+    case "standard":
+      return 1;
+    default:
+      return 2;
+  }
+}
+
+function computeRequestedBandDistance(args: {
+  requestedDetailLevel: DetailLevel;
+  band: CandidateDetailBand;
+}): number {
+  return Math.abs(
+    resolveDetailBandOrder(args.requestedDetailLevel) -
+      resolveDetailBandOrder(args.band),
+  );
+}
+
+
+function compareFallbackCandidates(args: {
+  current: CandidateRecord | null;
+  next: CandidateRecord;
+  detailLevel: DetailLevel;
+  hints: FallbackSelectionHints;
+}): CandidateRecord {
+  const { current, next, detailLevel, hints } = args;
   if (!current) return next;
+
+  const currentPreferred = candidateMatchesFallbackPreferredIndex(current, hints);
+  const nextPreferred = candidateMatchesFallbackPreferredIndex(next, hints);
+  if (currentPreferred !== nextPreferred) {
+    return nextPreferred ? next : current;
+  }
+
+  const currentRejected = candidateWasRejectedByFallbackHints(current, hints);
+  const nextRejected = candidateWasRejectedByFallbackHints(next, hints);
+  if (currentRejected !== nextRejected) {
+    return nextRejected ? current : next;
+  }
 
   if (next.richerBoundary.ok !== current.richerBoundary.ok) {
     return next.richerBoundary.ok ? next : current;
   }
 
-  if (next.richerBoundary.reasons.length !== current.richerBoundary.reasons.length) {
-    return next.richerBoundary.reasons.length < current.richerBoundary.reasons.length
+  const currentPurposePenalty = candidateHasRicherReason(
+    current,
+    "PURPOSE_NOT_ALIGNED",
+  );
+  const nextPurposePenalty = candidateHasRicherReason(
+    next,
+    "PURPOSE_NOT_ALIGNED",
+  );
+  if (currentPurposePenalty !== nextPurposePenalty) {
+    return nextPurposePenalty ? current : next;
+  }
+
+  const currentRestatementPenalty = candidateHasRicherReason(
+    current,
+    "BODY_SOURCE_RESTATEMENT",
+  );
+  const nextRestatementPenalty = candidateHasRicherReason(
+    next,
+    "BODY_SOURCE_RESTATEMENT",
+  );
+  if (currentRestatementPenalty !== nextRestatementPenalty) {
+    return nextRestatementPenalty ? current : next;
+  }
+
+  if (
+    next.richerBoundary.reasons.length !== current.richerBoundary.reasons.length
+  ) {
+    return next.richerBoundary.reasons.length <
+      current.richerBoundary.reasons.length
       ? next
       : current;
   }
 
-  if (next.richerBoundary.warnings.length !== current.richerBoundary.warnings.length) {
-    return next.richerBoundary.warnings.length < current.richerBoundary.warnings.length
+  if (
+    next.richerBoundary.warnings.length !== current.richerBoundary.warnings.length
+  ) {
+    return next.richerBoundary.warnings.length <
+      current.richerBoundary.warnings.length
+      ? next
+      : current;
+  }
+
+  const currentBandDistance = computeRequestedBandDistance({
+    requestedDetailLevel: detailLevel,
+    band: current.detailProfile.band,
+  });
+  const nextBandDistance = computeRequestedBandDistance({
+    requestedDetailLevel: detailLevel,
+    band: next.detailProfile.band,
+  });
+  if (currentBandDistance !== nextBandDistance) {
+    return nextBandDistance < currentBandDistance ? next : current;
+  }
+
+  if (
+    next.detailProfile.alignmentScore !== current.detailProfile.alignmentScore
+  ) {
+    return next.detailProfile.alignmentScore >
+      current.detailProfile.alignmentScore
       ? next
       : current;
   }
 
   if (next.richerBoundary.score !== current.richerBoundary.score) {
-    return next.richerBoundary.score > current.richerBoundary.score ? next : current;
-  }
-
-  if (next.minimalBoundary.reasons.length !== current.minimalBoundary.reasons.length) {
-    return next.minimalBoundary.reasons.length < current.minimalBoundary.reasons.length
+    return next.richerBoundary.score > current.richerBoundary.score
       ? next
       : current;
   }
 
-  if (next.minimalBoundary.warnings.length !== current.minimalBoundary.warnings.length) {
-    return next.minimalBoundary.warnings.length < current.minimalBoundary.warnings.length
+  if (
+    next.minimalBoundary.reasons.length !== current.minimalBoundary.reasons.length
+  ) {
+    return next.minimalBoundary.reasons.length <
+      current.minimalBoundary.reasons.length
+      ? next
+      : current;
+  }
+
+  if (
+    next.minimalBoundary.warnings.length !== current.minimalBoundary.warnings.length
+  ) {
+    return next.minimalBoundary.warnings.length <
+      current.minimalBoundary.warnings.length
       ? next
       : current;
   }
 
   if (next.minimalBoundary.score !== current.minimalBoundary.score) {
-    return next.minimalBoundary.score > current.minimalBoundary.score ? next : current;
+    return next.minimalBoundary.score > current.minimalBoundary.score
+      ? next
+      : current;
   }
 
   return next.candidateIndex < current.candidateIndex ? next : current;
 }
 
+
 function selectFallbackCandidate(
   candidates: CandidateRecord[],
+  detailLevel: DetailLevel,
+  hints: FallbackSelectionHints,
 ): CandidateRecord | null {
   let best: CandidateRecord | null = null;
 
   for (const candidate of candidates) {
-    best = compareFallbackCandidates(best, candidate);
+    best = compareFallbackCandidates({
+      current: best,
+      next: candidate,
+      detailLevel,
+      hints,
+    });
   }
 
   return best;
 }
 
+
 function selectBestAlternativeCandidate(
   candidates: CandidateRecord[],
   selectedCandidateIndex: number,
+  detailLevel: DetailLevel,
+  hints: FallbackSelectionHints,
 ): CandidateRecord | null {
   return selectFallbackCandidate(
-    candidates.filter((candidate) => candidate.candidateIndex !== selectedCandidateIndex),
+    candidates.filter(
+      (candidate) => candidate.candidateIndex !== selectedCandidateIndex,
+    ),
+    detailLevel,
+    {
+      ...hints,
+      aiJudgePreferredIndex:
+        hints.aiJudgePreferredIndex === selectedCandidateIndex
+          ? null
+          : hints.aiJudgePreferredIndex,
+      aiJudgeRejectedIndexes: hints.aiJudgeRejectedIndexes.filter(
+        (candidateIndex) => candidateIndex !== selectedCandidateIndex,
+      ),
+    },
   );
 }
+
 
 function candidateHasRicherReason(candidate: CandidateRecord, reason: string): boolean {
   return candidate.richerBoundary.reasons.includes(reason);
 }
 
-function candidateHasRicherWarning(candidate: CandidateRecord, warning: string): boolean {
-  return candidate.richerBoundary.warnings.includes(warning);
+
+
+
+type BoundaryHandoffSummary = {
+  hardFailReasons: string[];
+  strongPenaltyReasons: string[];
+  advisoryWarnings: string[];
+};
+
+const BOUNDARY_STRONG_PENALTY_REASONS = new Set<string>([
+  "PURPOSE_NOT_ALIGNED",
+  "HEAD_SOURCE_RESTATEMENT",
+  "BODY_SOURCE_RESTATEMENT",
+  "AUDIENCE_NOT_EXACT_ONCE_IN_HEAD",
+]);
+
+function buildBoundaryHandoffSummary(
+  candidate: CandidateRecord,
+): BoundaryHandoffSummary {
+  const hardFailReasons = Array.from(new Set(candidate.minimalBoundary.reasons));
+
+  const strongPenaltyReasons = Array.from(
+    new Set(
+      candidate.richerBoundary.reasons.filter((reason) => {
+        if (!BOUNDARY_STRONG_PENALTY_REASONS.has(reason)) return false;
+
+        if (
+          reason === "BODY_SOURCE_RESTATEMENT" &&
+          candidate.lowFactDetailed &&
+          candidate.detailPlan.requestedDetailLevel === "detailed" &&
+          candidate.detailProfile.isInRequestedBand
+        ) {
+          return false;
+        }
+
+        if (
+          reason === "AUDIENCE_NOT_EXACT_ONCE_IN_HEAD" &&
+          !audienceLeakIsStrong
+        ) {
+          return false;
+        }
+
+        return true;
+      }),
+    ),
+  );
+
+  const audienceLeakIsStrong =
+    candidate.richerBoundary.reasons.includes(
+      "AUDIENCE_NOT_EXACT_ONCE_IN_HEAD",
+    ) &&
+    (candidate.audiencePlacementStats.bodyCount > 0 ||
+      candidate.audiencePlacementStats.headCount > 1);
+
+  const advisoryWarnings = Array.from(
+    new Set([
+      ...candidate.minimalBoundary.warnings,
+      ...candidate.richerBoundary.warnings,
+      ...candidate.richerBoundary.reasons.filter((reason) => {
+        if (hardFailReasons.includes(reason)) return false;
+        if (strongPenaltyReasons.includes(reason)) return false;
+        if (reason === "BODY_SOURCE_RESTATEMENT") {
+          return (
+            candidate.lowFactDetailed &&
+            candidate.detailPlan.requestedDetailLevel === "detailed"
+          );
+        }
+        return false;
+      }),
+    ]),
+  );
+
+  return {
+    hardFailReasons,
+    strongPenaltyReasons,
+    advisoryWarnings,
+  };
 }
 
-function hasNonEmptyJudgeReason(reason: string): boolean {
-  return normalizeJaText(reason).length > 0;
+function candidateHasHardFail(candidate: CandidateRecord): boolean {
+  return candidate.minimalBoundary.reasons.length > 0;
 }
 
-function hasStructuredRejectedCandidates(rejected: CandidateAiJudgeRejected[]): boolean {
-  return (
-    rejected.length > 0 &&
-    rejected.every(
-      (item) =>
-        Number.isFinite(item.candidateIndex) && normalizeJaText(item.mainReason).length > 0,
-    )
+function candidateHasStrongPenalty(candidate: CandidateRecord): boolean {
+  return buildBoundaryHandoffSummary(candidate).strongPenaltyReasons.length > 0;
+}
+
+function shouldRejectStandardOutOfBandSelection(args: {
+  candidates: CandidateRecord[];
+  selectedCandidate: CandidateRecord;
+  detailLevel: DetailLevel;
+}): boolean {
+  if (args.detailLevel !== "standard") return false;
+  if (args.selectedCandidate.detailProfile.isInRequestedBand) return false;
+
+  const inBandCandidates = args.candidates.filter(
+    (candidate) => candidate.detailProfile.isInRequestedBand,
+  );
+  if (inBandCandidates.length === 0) return false;
+
+  return inBandCandidates.some(
+    (candidate) =>
+      !candidateHasHardFail(candidate) && !candidateHasStrongPenalty(candidate),
   );
 }
 
@@ -1478,99 +2867,90 @@ function validateAiJudgeSelection(args: {
   candidates: CandidateRecord[];
   selectedCandidate: CandidateRecord;
   decision: CandidateAiJudgeDecision;
-  rejected: CandidateAiJudgeRejected[];
-  reason: string;
+  detailLevel: DetailLevel;
 }): { ok: boolean; message?: string; meta?: Record<string, unknown> } {
-  const strongerAlternatives = args.candidates.filter(
-    (candidate) =>
-      candidate.candidateIndex !== args.selectedCandidate.candidateIndex &&
-      candidate.richerBoundary.score > args.selectedCandidate.richerBoundary.score,
+  const candidateIndexes = new Set(
+    args.candidates.map((candidate) => candidate.candidateIndex),
   );
 
-  const selectedHasPurposePenalty = candidateHasRicherReason(
-    args.selectedCandidate,
-    "PURPOSE_NOT_ALIGNED",
-  );
-  const selectedHasRestatementPenalty = candidateHasRicherReason(
-    args.selectedCandidate,
-    "BODY_SOURCE_RESTATEMENT",
-  );
-  const selectedHasRepeatedEnding = candidateHasRicherWarning(
-    args.selectedCandidate,
-    "REPEATED_SENTENCE_ENDING",
-  );
-
-  if (args.decision.overrideUsed && !hasStructuredRejectedCandidates(args.rejected)) {
+  if (!candidateIndexes.has(args.selectedCandidate.candidateIndex)) {
     return {
       ok: false,
-      message: "ai candidate judge used override without structured rejected reasons",
+      message: "ai candidate judge selected candidate outside provided pool",
       meta: {
         selectedCandidateIndex: args.selectedCandidate.candidateIndex,
-        rejectedCount: args.rejected.length,
+        candidateIndexes: Array.from(candidateIndexes),
       },
     };
   }
 
-  if (selectedHasPurposePenalty) {
-    if (!args.decision.overrideUsed) {
-      return {
-        ok: false,
-        message: "ai candidate judge selected PURPOSE_NOT_ALIGNED candidate without override",
-        meta: {
-          selectedCandidateIndex: args.selectedCandidate.candidateIndex,
-          selectedCandidateRicherReasons: args.selectedCandidate.richerBoundary.reasons,
-        },
-      };
-    }
-
-    if (!hasStructuredRejectedCandidates(args.rejected) || !hasNonEmptyJudgeReason(args.reason)) {
-      return {
-        ok: false,
-        message: "ai candidate judge selected PURPOSE_NOT_ALIGNED candidate without comparison reason",
-        meta: {
-          selectedCandidateIndex: args.selectedCandidate.candidateIndex,
-          selectedCandidateRicherReasons: args.selectedCandidate.richerBoundary.reasons,
-          rejectedCount: args.rejected.length,
-        },
-      };
-    }
-  }
-
-  if (selectedHasRestatementPenalty && !args.decision.restatementPenaltyUsed) {
+  if (!args.selectedCandidate.minimalBoundary.ok) {
     return {
       ok: false,
-      message: "ai candidate judge selected restatement-penalized candidate without restatement decision flag",
+      message: "ai candidate judge selected candidate that did not pass minimal boundary",
       meta: {
         selectedCandidateIndex: args.selectedCandidate.candidateIndex,
-        selectedCandidateRicherReasons: args.selectedCandidate.richerBoundary.reasons,
+        minimalReasons: args.selectedCandidate.minimalBoundary.reasons,
       },
     };
   }
 
-  if ((selectedHasRestatementPenalty || selectedHasRepeatedEnding) && strongerAlternatives.length > 0) {
-    if (!args.decision.overrideUsed) {
-      return {
-        ok: false,
-        message: "ai candidate judge selected penalized candidate without override against stronger alternatives",
-        meta: {
-          selectedCandidateIndex: args.selectedCandidate.candidateIndex,
-          selectedCandidateRicherReasons: args.selectedCandidate.richerBoundary.reasons,
-          selectedCandidateRicherWarnings: args.selectedCandidate.richerBoundary.warnings,
-          strongerAlternativeIndexes: strongerAlternatives.map((candidate) => candidate.candidateIndex),
-        },
-      };
-    }
+  const validMarks: CandidateAiJudgeDecisionMark[] = ["best", "tie", "override"];
+  if (
+    !validMarks.includes(args.decision.goalAlignment) ||
+    !validMarks.includes(args.decision.naturalJapanese) ||
+    !validMarks.includes(args.decision.sceneConcreteness)
+  ) {
+    return {
+      ok: false,
+      message: "ai candidate judge decision marks were invalid",
+      meta: {
+        selectedCandidateIndex: args.selectedCandidate.candidateIndex,
+        decision: args.decision,
+      },
+    };
+  }
 
-    if (!hasStructuredRejectedCandidates(args.rejected)) {
-      return {
-        ok: false,
-        message: "ai candidate judge override lacked structured rejected reasons against stronger alternatives",
-        meta: {
-          selectedCandidateIndex: args.selectedCandidate.candidateIndex,
-          strongerAlternativeIndexes: strongerAlternatives.map((candidate) => candidate.candidateIndex),
-        },
-      };
-    }
+  if (
+    typeof args.decision.restatementPenaltyUsed !== "boolean" ||
+    typeof args.decision.overrideUsed !== "boolean"
+  ) {
+    return {
+      ok: false,
+      message: "ai candidate judge decision booleans were invalid",
+      meta: {
+        selectedCandidateIndex: args.selectedCandidate.candidateIndex,
+        decision: args.decision,
+      },
+    };
+  }
+
+  if (
+    shouldRejectStandardOutOfBandSelection({
+      candidates: args.candidates,
+      selectedCandidate: args.selectedCandidate,
+      detailLevel: args.detailLevel,
+    })
+  ) {
+    return {
+      ok: false,
+      message:
+        "ai candidate judge selected out-of-band candidate even though a standard in-band candidate without strong penalties existed",
+      meta: {
+        selectedCandidateIndex: args.selectedCandidate.candidateIndex,
+        selectedBand: args.selectedCandidate.detailProfile.band,
+        requestedDetailLevel: args.detailLevel,
+        inBandCandidates: args.candidates
+          .filter((candidate) => candidate.detailProfile.isInRequestedBand)
+          .map((candidate) => ({
+            candidateIndex: candidate.candidateIndex,
+            hardFailReasons: buildBoundaryHandoffSummary(candidate)
+              .hardFailReasons,
+            strongPenaltyReasons: buildBoundaryHandoffSummary(candidate)
+              .strongPenaltyReasons,
+          })),
+      },
+    };
   }
 
   return { ok: true };
@@ -1595,12 +2975,19 @@ async function emitCandidateLog(args: {
     passKind: args.candidate.passKind,
     candidateIndex: args.candidate.candidateIndex,
     diversityHint: args.candidate.diversityHint,
+    requestedDetailLevel: args.candidate.detailPlan.requestedDetailLevel,
+    candidateDetailPlan: args.candidate.detailPlan.name,
+    isInRequestedBand: args.candidate.detailProfile.isInRequestedBand,
     minimalScore: args.candidate.minimalBoundary.score,
     minimalReasons: args.candidate.minimalBoundary.reasons,
     minimalWarnings: args.candidate.minimalBoundary.warnings,
     richerScore: args.candidate.richerBoundary.score,
     richerReasons: args.candidate.richerBoundary.reasons,
     richerWarnings: args.candidate.richerBoundary.warnings,
+    detailBand: args.candidate.detailProfile.band,
+    detailAlignmentScore: args.candidate.detailProfile.alignmentScore,
+    totalChars: args.candidate.detailProfile.totalChars,
+    averageBulletChars: args.candidate.detailProfile.averageBulletChars,
     contentHash8: sha256Hex(args.candidate.content).slice(0, 8),
   };
   logEvent(args.candidate.minimalBoundary.ok ? "ok" : "error", event);
@@ -1651,6 +3038,7 @@ function buildCandidateRecord(args: {
   passKind: CandidatePassKind;
   candidateIndex: number;
   diversityHint: CandidateDiversityHint;
+  detailPlan: CandidateDetailPlan;
   response: {
     content: string;
     apiMs: number;
@@ -1659,11 +3047,14 @@ function buildCandidateRecord(args: {
   };
   proseUser: string;
   normalized: NormalizedInput;
+  lowFactDetailed: boolean;
 }): CandidateRecord {
+  const { head, body } = splitHeadAndBody(args.response.content);
   return {
     passKind: args.passKind,
     candidateIndex: args.candidateIndex,
     diversityHint: args.diversityHint,
+    detailPlan: args.detailPlan,
     content: args.response.content,
     apiMs: args.response.apiMs,
     status: args.response.status,
@@ -1673,6 +3064,9 @@ function buildCandidateRecord(args: {
       args.normalized,
     ),
     richerBoundary: evaluateFinalProseBoundary(args.response.content, args.normalized),
+    detailProfile: buildCandidateDetailProfile(args.response.content, args.detailPlan),
+    audiencePlacementStats: getAudiencePlacementStats(head, body, args.normalized),
+    lowFactDetailed: args.lowFactDetailed,
     proseUser: args.proseUser,
   };
 }
@@ -1723,17 +3117,36 @@ async function generateCandidateWithShapeRescue(args: {
   normalized: NormalizedInput;
   proseSystem: string;
   isSNS: boolean;
-  usableFacts: AtomicFact[];
+  atomicFacts: AtomicFact[];
   productFactsBlock: ReturnType<typeof buildProductFactsBlock>;
+  templateKey: string;
+  noticeReason: string;
+  detailLevel: DetailLevel;
+  articleType: ArticleType;
   passKind: CandidatePassKind;
   candidateIndex: number;
 }): Promise<CandidateRecord | null> {
   const diversityHint = resolveCandidateDiversityHint(args.candidateIndex);
+  const detailPlan = resolveCandidateDetailPlan(
+    args.detailLevel,
+    args.candidateIndex,
+  );
+  const usableFacts = buildUsableFactsForRenderer(args.atomicFacts, detailPlan);
+  const lowFactDetailed = isLowFactDetailedContext({
+    detailPlan,
+    usableFacts,
+    productFactsBlock: args.productFactsBlock,
+  });
   const proseUser = buildProseUser({
     normalized: args.normalized,
-    usableFacts: args.usableFacts,
+    usableFacts,
     diversityHint,
     productFactsBlock: args.productFactsBlock,
+    templateKey: args.templateKey,
+    noticeReason: args.noticeReason,
+    detailLevel: args.detailLevel,
+    detailPlan,
+    articleType: args.articleType,
   });
 
   const initialResponse = await createFinalProse({
@@ -1762,9 +3175,11 @@ async function generateCandidateWithShapeRescue(args: {
     passKind: args.passKind,
     candidateIndex: args.candidateIndex,
     diversityHint,
+    detailPlan,
     response: initialResponse,
     proseUser,
     normalized: args.normalized,
+    lowFactDetailed,
   });
 
   if (!isShapeHardFailBoundary(initialCandidate.minimalBoundary)) {
@@ -1798,12 +3213,17 @@ async function generateCandidateWithShapeRescue(args: {
     passKind: args.passKind,
     candidateIndex: args.candidateIndex,
     diversityHint,
+    detailPlan,
     response: rescueResponse,
     proseUser: rescueUser,
     normalized: args.normalized,
+    lowFactDetailed,
   });
 
-  const selectedCandidate = chooseBetterShapeCandidate(initialCandidate, rescueCandidate);
+  const selectedCandidate = chooseBetterShapeCandidate(
+    initialCandidate,
+    rescueCandidate,
+  );
 
   const rescueLog = {
     phase: "pipeline_prose_shape_rescue" as const,
@@ -1816,6 +3236,7 @@ async function generateCandidateWithShapeRescue(args: {
     passKind: args.passKind,
     candidateIndex: args.candidateIndex,
     diversityHint,
+    candidateDetailPlan: detailPlan.name,
     initialScore: initialCandidate.minimalBoundary.score,
     initialReasons: initialCandidate.minimalBoundary.reasons,
     rescueScore: rescueCandidate.minimalBoundary.score,
@@ -1836,8 +3257,12 @@ async function generateIndependentProseCandidates(args: {
   normalized: NormalizedInput;
   proseSystem: string;
   isSNS: boolean;
-  usableFacts: AtomicFact[];
+  atomicFacts: AtomicFact[];
   productFactsBlock: ReturnType<typeof buildProductFactsBlock>;
+  templateKey: string;
+  noticeReason: string;
+  detailLevel: DetailLevel;
+  articleType: ArticleType;
   passKind: CandidatePassKind;
   count: number;
 }): Promise<CandidateBatchResult> {
@@ -1852,8 +3277,12 @@ async function generateIndependentProseCandidates(args: {
       normalized: args.normalized,
       proseSystem: args.proseSystem,
       isSNS: args.isSNS,
-      usableFacts: args.usableFacts,
+      atomicFacts: args.atomicFacts,
       productFactsBlock: args.productFactsBlock,
+      templateKey: args.templateKey,
+      noticeReason: args.noticeReason,
+      detailLevel: args.detailLevel,
+      articleType: args.articleType,
       passKind: args.passKind,
       candidateIndex: i,
     });
@@ -1878,19 +3307,48 @@ async function generateIndependentProseCandidates(args: {
 function buildAiSelectionJudgeSystem(): string {
   return [
     "あなたはEC商品紹介文の候補を比較して最終候補を1つ選ぶ審査者です。",
-    "あなたの仕事は、『自然に見える候補』を選ぶことではなく、『入力ゴールに整合し、自然な日本語で、既知の欠点が相対的に少ない候補』を選ぶことです。",
-    "minimal fail の候補は選びません。",
-    "PURPOSE_NOT_ALIGNED は強い減点対象です。他候補にも同等以上の欠点がある場合を除き、基本は選ばないでください。",
-    "BODY_SOURCE_RESTATEMENT は中程度以上の減点対象です。特徴の言い換えだけで終わる候補より、使用場面に着地している候補を優先してください。",
-    "REPEATED_SENTENCE_ENDING は中程度の減点対象です。",
-    "AUDIENCE_NOT_EXACT_ONCE_IN_HEAD は軽い減点にとどめますが、同点比較では不利にしてください。",
-    "比較の優先順位は、1. 入力ゴールとの整合 2. 日本語の自然さ 3. 使用場面の具体性 4. source restatement の少なさ 5. 重複・説明くささの少なさ、の順です。",
-    "自然さだけで goal 整合を逆転してはいけません。",
-    "richerBoundary の指摘は参考情報ではなく、必ず比較に使ってください。",
-    "richerBoundary 上は不利な候補を選ぶ場合は overrideUsed=true とし、なぜ他候補より良いのかを rejected に比較形式で入れてください。",
+    "候補はすべて minimal pass 済みです。意味比較を行い、最も良い候補を1つ選んでください。",
+    "比較の優先順位は、HARD_FAIL 回避 → requested detail 適合 → 入力ゴール整合 → 自然な日本語 → 使用場面の具体性 → strong penalty の少なさ → advisory の少なさ、です。",
+    "requested detail が standard の場合、in-band 候補が1本でもあるなら、out-of-band 候補を勝たせるには in-band 候補側に strong penalty が必要です。『少し自然』『少し具体的』だけでは override してはいけません。",
+    "PURPOSE_NOT_ALIGNED は strong penalty です。他候補にも同等以上の strong penalty がある場合を除き、基本は避けてください。",
+    "HEAD_SOURCE_RESTATEMENT と BODY_SOURCE_RESTATEMENT は、strong penalty として渡された場合に限って重く扱ってください。単なる事実利用や軽い source reuse は advisory に留めてください。",
+    "low-fact detailed では、置き方・収まり方・使い分けの一段展開がある候補を、単なる事実の焼き直しとは区別してください。BODY_SOURCE_RESTATEMENT が advisory なら、それだけで落とさないでください。",
+    "AUDIENCE_NOT_EXACT_ONCE_IN_HEAD が advisory として渡された場合、単独では落選理由にしないでください。同点比較の補助信号としてのみ使ってください。",
+    "detail の帯だけで勝者を決めないでください。ただし standard request では帯逸脱を甘く扱わないでください。",
+    'decision の各項目は "best" / "tie" / "override" のいずれかを入れてください。',
+    "override は、診断上の不利を乗り越える明確な理由がある場合だけ使ってください。standard request で in-band 候補が健全な場合、override は使わないでください。",
+    "rejected は任意です。書く場合は、選ばなかった候補の主要な負け筋だけを短く入れてください。",
     "返答は JSON のみです。前置き、補足、コードフェンスは不要です。",
     `返答形式は必ず {"selectedCandidateIndex": number, "decision": {"goalAlignment": "best|tie|override", "naturalJapanese": "best|tie|override", "sceneConcreteness": "best|tie|override", "restatementPenaltyUsed": boolean, "overrideUsed": boolean}, "reason": string, "rejected": [{"candidateIndex": number, "mainReason": string}]} の形にしてください。`,
   ].join("\n");
+}
+
+function buildRequestedDetailExpectationLines(
+  detailLevel: DetailLevel,
+): string[] {
+  if (detailLevel === "concise") {
+    return [
+      "requested detail expectation:",
+      "- 同じ shape の中で最も薄い版であること",
+      "- HEAD2 は入口の続きだけに留めること",
+      "- 箇条書きは一項目一義で、理由や別用途を重ねないこと",
+    ];
+  }
+
+  if (detailLevel === "detailed") {
+    return [
+      "requested detail expectation:",
+      "- 標準帯より一段だけ厚いこと",
+      "- 置き方・扱いやすさ・使い分けのどれか一つを自然に足せていること",
+      "- 長いだけ、言い換えだけになっていないこと",
+    ];
+  }
+
+  return [
+    "requested detail expectation:",
+    "- 過不足の少ない標準帯であること",
+    "- 場面と特徴・扱いやすさが一段だけ自然につながっていること",
+  ];
 }
 
 function formatCandidateBoundaryList(values: string[]): string {
@@ -1901,15 +3359,18 @@ function formatCandidateBoundaryList(values: string[]): string {
 function buildAiSelectionJudgeUser(args: {
   normalized: NormalizedInput;
   candidates: CandidateRecord[];
+  detailLevel: DetailLevel;
 }): string {
   const lines: string[] = [
     "以下は最小外形条件を通過した候補です。最も良い候補を1つだけ選んでください。",
-    "評価観点:",
+    "比較の優先順位:",
+    "- HARD_FAIL を避ける",
+    "- requested detail を守る（特に standard）",
     "- 入力ゴールとの整合を最優先する",
     "- 日本語として自然で読みやすい",
     "- 使用場面が具体的に読める",
-    "- source restatement が少ない",
-    "- 重複や説明くささが少ない",
+    "- strong penalty が少ない",
+    "- advisory は同点近辺の補助だけに使う",
     "",
   ];
 
@@ -1922,16 +3383,34 @@ function buildAiSelectionJudgeUser(args: {
   if (category) lines.push(`カテゴリ: ${category}`);
   if (audience) lines.push(`想定読者: ${audience}`);
   if (goal) lines.push(`入力ゴール: ${goal}`);
-
+  lines.push(`requested detail: ${args.detailLevel}`);
+  lines.push(...buildRequestedDetailExpectationLines(args.detailLevel));
   lines.push("");
 
   for (const candidate of args.candidates) {
+    const handoff = buildBoundaryHandoffSummary(candidate);
+
     lines.push(`候補 ${candidate.candidateIndex}:`);
     lines.push(candidate.content);
-    lines.push("既知の注意:");
-    lines.push(`- richer reasons: ${formatCandidateBoundaryList(candidate.richerBoundary.reasons)}`);
-    lines.push(`- richer warnings: ${formatCandidateBoundaryList(candidate.richerBoundary.warnings)}`);
-    lines.push(`- minimal warnings: ${formatCandidateBoundaryList(candidate.minimalBoundary.warnings)}`);
+    lines.push("診断情報:");
+    lines.push(
+      `- hard fail reasons: ${formatCandidateBoundaryList(
+        handoff.hardFailReasons,
+      )}`,
+    );
+    lines.push(
+      `- strong penalty reasons: ${formatCandidateBoundaryList(
+        handoff.strongPenaltyReasons,
+      )}`,
+    );
+    lines.push(
+      `- advisory warnings: ${formatCandidateBoundaryList(
+        handoff.advisoryWarnings,
+      )}`,
+    );
+    lines.push(
+      `- detail profile: band=${candidate.detailProfile.band}, inRequestedBand=${candidate.detailProfile.isInRequestedBand}, requestedPlan=${candidate.detailProfile.requestedPlanName}, lowFactDetailed=${candidate.lowFactDetailed}, totalChars=${candidate.detailProfile.totalChars}, averageBulletChars=${candidate.detailProfile.averageBulletChars}, alignmentScore=${candidate.detailProfile.alignmentScore}`,
+    );
     lines.push("");
   }
 
@@ -1941,7 +3420,7 @@ function buildAiSelectionJudgeUser(args: {
       .join(", ")} のいずれかを入れてください。`,
   );
   lines.push(
-    "overrideUsed を true にする場合は、rejected に非選択候補の主な欠点を必ず入れてください。",
+    "rejected は任意です。書く場合は、非選択候補の主な負け筋だけを短く入れてください。",
   );
 
   return lines.join("\n").trim();
@@ -2066,11 +3545,13 @@ async function judgePassedCandidatesWithAi(args: {
   requestId: string;
   normalized: NormalizedInput;
   candidates: CandidateRecord[];
+  detailLevel: DetailLevel;
 }): Promise<CandidateAiJudgeResult> {
   const system = buildAiSelectionJudgeSystem();
   const userMessage = buildAiSelectionJudgeUser({
     normalized: args.normalized,
     candidates: args.candidates,
+    detailLevel: args.detailLevel,
   });
 
   const response = await createFinalProse({
@@ -2220,8 +3701,7 @@ async function judgePassedCandidatesWithAi(args: {
     candidates: args.candidates,
     selectedCandidate,
     decision: parsed.decision,
-    rejected: parsed.rejected,
-    reason: parsed.reason,
+    detailLevel: args.detailLevel,
   });
 
   if (!validation.ok) {
@@ -2325,73 +3805,6 @@ function mapWriterErrorStatus(reason: WriterErrorReason): number {
   }
 }
 
-function mapOpenAiFailure(args: {
-  errorKind: string;
-  status: number;
-  statusText: string;
-  errorText: string;
-}): Pick<WriterPipelineError, "reason" | "message" | "code" | "meta"> {
-  const errorKind = (args.errorKind ?? "").toString();
-
-  if (errorKind === "empty") {
-    return {
-      reason: "openai_empty_content",
-      code: "openai_empty_content",
-      message: "openai returned empty content",
-      meta: {
-        status: args.status,
-        statusText: args.statusText,
-      },
-    };
-  }
-
-  if (errorKind === "rate_limit") {
-    return {
-      reason: "rate_limit",
-      code: "openai_rate_limit",
-      message: "openai rate limit",
-      meta: {
-        status: args.status,
-        statusText: args.statusText,
-      },
-    };
-  }
-
-  if (errorKind === "timeout") {
-    return {
-      reason: "timeout",
-      code: "openai_timeout",
-      message: "openai timeout",
-      meta: {
-        status: args.status,
-        statusText: args.statusText,
-      },
-    };
-  }
-
-  if (errorKind === "bad_request") {
-    return {
-      reason: "bad_request",
-      code: "openai_bad_request",
-      message: "openai bad request",
-      meta: {
-        status: args.status,
-        statusText: args.statusText,
-      },
-    };
-  }
-
-  return {
-    reason: "openai_api_error",
-    code: "openai_api_error",
-    message: "openai api error",
-    meta: {
-      status: args.status,
-      statusText: args.statusText,
-      errorTextPreview: args.errorText.slice(0, 500),
-    },
-  };
-}
 
 export async function runWriterPipeline(
   args: WriterPipelineArgs,
@@ -2441,7 +3854,7 @@ export async function runWriterPipeline(
         text: finalized.text,
         meta: {
           style: (result.ctx.input.normalized.style ?? "").toString(),
-          tone: (result.ctx.input.normalized.tone ?? "").toString(),
+          tone: result.ctx.input.articleType,
           locale: "ja-JP",
         },
       },
@@ -2469,10 +3882,16 @@ export async function runWriterPipelineCore(
 
   const templateKey = resolveTemplateKey(normalized);
   const isSNS = isSnsLikeTemplate(templateKey);
-  const toneKey = resolveTonePresetKey(normalized.tone, normalized.style);
+  const articleType = resolveArticleTypeFromNormalized(normalized);
+  const detailLevel = resolveDetailLevel(normalized);
+  const noticeReason = normalizeJaText(normalized.meta?.noticeReason);
   const ctaMode = resolveCtaMode(normalized);
   const atomicFacts = buildAtomicFacts(normalized);
-  const usableFacts = buildUsableFactsForRenderer(atomicFacts);
+  const centerDetailPlan = resolveCandidateDetailPlan(detailLevel, 1);
+  const previewUsableFacts = buildUsableFactsForRenderer(
+    atomicFacts,
+    centerDetailPlan,
+  );
 
   logProductContextStatus({
     productId: productId ?? null,
@@ -2500,8 +3919,9 @@ export async function runWriterPipelineCore(
   });
 
   const proseSystem = buildProseSystem({
-    toneKey,
+    articleType,
     isSNS,
+    detailLevel,
   });
 
   const ctx: WriterPipelineCtx = {
@@ -2520,7 +3940,7 @@ export async function runWriterPipelineCore(
       productContext: productContext ?? null,
       templateKey,
       isSNS,
-      toneKey,
+      articleType,
     },
     flags: { cta: { mode: ctaMode } },
     contracts: {
@@ -2552,13 +3972,25 @@ export async function runWriterPipelineCore(
     provider,
     model,
     requestId,
-    toneKey,
+    articleType,
+    articleTypeLabel: getArticleTypeLabel(articleType),
+    detailLevel,
+    lengthHint: normalized.length_hint ?? null,
     templateKey,
     isSNS,
     ctaMode,
     proseSystemHash8: ctx.prompts.debug?.proseSystemHash8 ?? null,
     atomicFactCount: atomicFacts.length,
-    usableFactIds: usableFacts.map((fact) => fact.id),
+    usableFactIds: previewUsableFacts.map((fact) => fact.id),
+    detailBudget: resolveDetailBudget(detailLevel),
+    detailCandidatePlans: [0, 1, 2].map((candidateIndex) => {
+      const detailPlan = resolveCandidateDetailPlan(detailLevel, candidateIndex);
+      return {
+        candidateIndex,
+        plan: detailPlan.name,
+        budget: detailPlan.budget,
+      };
+    }),
     productFactsStatus: productFactsBlock.meta.status,
     productFactsSceneCount: productFactsBlock.scene.length,
     productFactsValueCount: productFactsBlock.value.length,
@@ -2610,9 +4042,13 @@ export async function runWriterPipelineCore(
     normalized,
     proseSystem: ctx.prompts.proseSystem,
     isSNS,
-    usableFacts,
+    atomicFacts,
     productFactsBlock,
     passKind: "initial",
+    templateKey,
+    noticeReason,
+    detailLevel,
+    articleType,
     count: 3,
   });
 
@@ -2637,17 +4073,25 @@ export async function runWriterPipelineCore(
     };
   }
 
-  let bestCandidate: CandidateRecord = passedCandidates[0];
-  let selectionSource: "single_pass" | "ai_judge" | "ai_judge_fallback" =
-    "single_pass";
   let aiJudgeUsed = false;
   let aiJudgeReason = "";
   let aiJudgeRawHash8: string | null = null;
   let aiSelectedIndex: number | null = null;
   let aiJudgeDecision: CandidateAiJudgeDecision | null = null;
   let aiRejectedCandidates: CandidateAiJudgeRejected[] = [];
+  let aiJudgeSelectedCandidate: CandidateRecord | null = null;
 
-  if (passedCandidates.length >= 2) {
+  const inBandCandidateCount = passedCandidates.filter(
+    (candidate) => candidate.detailProfile.isInRequestedBand,
+  ).length;
+  const aiJudgePoolResult = buildAiJudgeCandidatePool({
+    candidates: passedCandidates,
+    detailLevel,
+  });
+  const aiJudgeCandidates = aiJudgePoolResult.pool;
+  const aiJudgeInBandOnlyApplied = aiJudgePoolResult.inBandOnlyApplied;
+
+  if (aiJudgeCandidates.length >= 2) {
     aiJudgeUsed = true;
 
     const aiJudgeResult = await judgePassedCandidatesWithAi({
@@ -2656,7 +4100,8 @@ export async function runWriterPipelineCore(
       provider,
       requestId,
       normalized,
-      candidates: passedCandidates,
+      candidates: aiJudgeCandidates,
+      detailLevel,
     });
 
     aiJudgeReason = aiJudgeResult.reason;
@@ -2668,34 +4113,48 @@ export async function runWriterPipelineCore(
       : null;
 
     if (aiJudgeResult.ok) {
-      const selectedByAi = passedCandidates.find(
-        (candidate) =>
-          candidate.candidateIndex === aiJudgeResult.selectedCandidateIndex,
-      );
-
-      if (selectedByAi) {
-        bestCandidate = selectedByAi;
-        selectionSource = "ai_judge";
-      } else {
-        const fallbackCandidate = selectFallbackCandidate(passedCandidates);
-        if (fallbackCandidate) {
-          bestCandidate = fallbackCandidate;
-          selectionSource = "ai_judge_fallback";
-        }
-      }
-    } else {
-      const fallbackCandidate = selectFallbackCandidate(passedCandidates);
-      if (fallbackCandidate) {
-        bestCandidate = fallbackCandidate;
-        selectionSource = "ai_judge_fallback";
-      }
+      aiJudgeSelectedCandidate =
+        aiJudgeCandidates.find(
+          (candidate) =>
+            candidate.candidateIndex === aiJudgeResult.selectedCandidateIndex,
+        ) ?? null;
     }
   }
+
+  const fallbackHints = buildFallbackSelectionHints({
+    aiJudgeAttempted: aiJudgeUsed,
+    aiSelectedIndex: aiSelectedIndex,
+    aiRejectedCandidates: aiRejectedCandidates,
+  });
+
+  const fallbackCandidate =
+    selectFallbackCandidate(
+      passedCandidates,
+      detailLevel,
+      fallbackHints,
+    ) ?? passedCandidates[0];
+  const bestCandidate: CandidateRecord =
+    aiJudgeSelectedCandidate ?? fallbackCandidate;
+  const selectionSource: "single_pass" | "ai_judge" | "ai_judge_fallback" =
+    aiJudgeSelectedCandidate
+      ? "ai_judge"
+      : aiJudgeUsed
+        ? "ai_judge_fallback"
+        : "single_pass";
 
   const topAlternativeCandidate = selectBestAlternativeCandidate(
     passedCandidates,
     bestCandidate.candidateIndex,
+    detailLevel,
+    fallbackHints,
   );
+  const bandEscapeReason = bestCandidate.detailProfile.isInRequestedBand
+    ? null
+    : selectionSource === "ai_judge"
+      ? "ai_judge_out_of_band"
+      : selectionSource === "ai_judge_fallback"
+        ? "ai_judge_fallback_out_of_band"
+        : "single_pass_out_of_band";
 
   const selectionLog = {
     phase: "pipeline_candidate_selection" as const,
@@ -2715,9 +4174,16 @@ export async function runWriterPipelineCore(
     aiJudgeDecision,
     aiRejectedCandidates,
     aiOverrideUsed: aiJudgeDecision?.overrideUsed ?? false,
+    requestedDetailLevel: detailLevel,
+    inBandCandidateCount,
+    aiJudgeCandidateCount: aiJudgeCandidates.length,
+    aiJudgeInBandOnlyApplied,
     selectedPassKind: bestCandidate.passKind,
     selectedCandidateIndex: bestCandidate.candidateIndex,
     selectedCandidateDiversityHint: bestCandidate.diversityHint,
+    selectedCandidateDetailPlan: bestCandidate.detailPlan.name,
+    selectedIsInRequestedBand: bestCandidate.detailProfile.isInRequestedBand,
+    bandEscapeReason,
     minimalScore: bestCandidate.minimalBoundary.score,
     minimalReasons: bestCandidate.minimalBoundary.reasons,
     minimalWarnings: bestCandidate.minimalBoundary.warnings,
@@ -2728,12 +4194,22 @@ export async function runWriterPipelineCore(
     selectedCandidateRicherWarnings: bestCandidate.richerBoundary.warnings,
     topAlternativeCandidateIndex: topAlternativeCandidate?.candidateIndex ?? null,
     topAlternativeCandidateDiversityHint: topAlternativeCandidate?.diversityHint ?? null,
+    topAlternativeDetailPlan: topAlternativeCandidate?.detailPlan.name ?? null,
+    topAlternativeIsInRequestedBand:
+      topAlternativeCandidate?.detailProfile.isInRequestedBand ?? null,
     topAlternativeRicherScore: topAlternativeCandidate?.richerBoundary.score ?? null,
     topAlternativeRicherReasons: topAlternativeCandidate?.richerBoundary.reasons ?? [],
     topAlternativeRicherWarnings:
       topAlternativeCandidate?.richerBoundary.warnings ?? [],
     topAlternativeMinimalWarnings:
       topAlternativeCandidate?.minimalBoundary.warnings ?? [],
+    selectedDetailBand: bestCandidate.detailProfile.band,
+    selectedDetailAlignmentScore: bestCandidate.detailProfile.alignmentScore,
+    selectedTotalChars: bestCandidate.detailProfile.totalChars,
+    selectedAverageBulletChars: bestCandidate.detailProfile.averageBulletChars,
+    topAlternativeDetailBand: topAlternativeCandidate?.detailProfile.band ?? null,
+    topAlternativeDetailAlignmentScore:
+      topAlternativeCandidate?.detailProfile.alignmentScore ?? null,
     contentHash8: sha256Hex(bestCandidate.content).slice(0, 8),
   };
   logEvent("ok", selectionLog);
@@ -2767,12 +4243,19 @@ export async function runWriterPipelineCore(
     provider,
     model,
     requestId,
+    requestedDetailLevel: detailLevel,
+    selectedCandidateDetailPlan: bestCandidate.detailPlan.name,
+    selectedIsInRequestedBand: bestCandidate.detailProfile.isInRequestedBand,
     minimalScore: bestCandidate.minimalBoundary.score,
     minimalReasons: bestCandidate.minimalBoundary.reasons,
     minimalWarnings: bestCandidate.minimalBoundary.warnings,
     richerScore: bestCandidate.richerBoundary.score,
     richerReasons: bestCandidate.richerBoundary.reasons,
     richerWarnings: bestCandidate.richerBoundary.warnings,
+    detailBand: bestCandidate.detailProfile.band,
+    detailAlignmentScore: bestCandidate.detailProfile.alignmentScore,
+    totalChars: bestCandidate.detailProfile.totalChars,
+    averageBulletChars: bestCandidate.detailProfile.averageBulletChars,
     contentHash8: sha256Hex(bestCandidate.content).slice(0, 8),
   };
   logEvent("ok", proseLog);
