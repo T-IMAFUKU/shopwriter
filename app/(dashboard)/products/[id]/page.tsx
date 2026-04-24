@@ -14,6 +14,7 @@
 // - 一般ユーザー向けにUI文言を整理
 // - 内部設計語（中核 / 参照 / 補助 / 第1〜第4グループ）を画面表示から削除
 // - 保存ロジック / Server Action / Writer導線は維持
+// - 商品詳細画面から商品本体を削除できる導線を追加
 
 export const dynamic = "force-dynamic";
 
@@ -253,6 +254,35 @@ async function deleteAttr(formData: FormData) {
   redirect(`/products/${productId}`);
 }
 
+async function deleteProduct(formData: FormData) {
+  "use server";
+
+  await requirePaidUserOrRedirect();
+
+  const productId = String(formData.get("productId") ?? "").trim();
+  const confirmName = String(formData.get("confirmName") ?? "").trim();
+
+  if (!productId) notFound();
+
+  const product = await prisma.product.findUnique({
+    where: { id: productId },
+    select: { id: true, name: true },
+  });
+
+  if (!product) notFound();
+
+  if (confirmName !== product.name) {
+    redirect(`/products/${productId}?e=product_delete_name_mismatch`);
+  }
+
+  await prisma.product.delete({
+    where: { id: productId },
+  });
+
+  revalidatePath("/products");
+  redirect("/products");
+}
+
 // ---------------------------------------------------------------------------
 
 export default async function ProductDetailPage({
@@ -292,6 +322,10 @@ export default async function ProductDetailPage({
     a.key.localeCompare(b.key, "ja"),
   );
 
+  const errorCode = searchParams?.e;
+  const deleteError = errorCode === "product_delete_name_mismatch";
+  const topErrorCode = deleteError ? undefined : errorCode;
+
   return (
     <main className="mx-auto w-full max-w-4xl space-y-6 p-4 md:p-6">
       <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -313,7 +347,7 @@ export default async function ProductDetailPage({
         </div>
       </header>
 
-      <ErrorBanner code={searchParams?.e} />
+      <ErrorBanner code={topErrorCode} />
 
       <Card>
         <CardHeader className="space-y-3">
@@ -562,6 +596,52 @@ export default async function ProductDetailPage({
       <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
         Writer には productId を渡します（/writer?productId=...）。この画面で商品情報を整えてから、文章作成に進めます。
       </div>
+
+      <Card className="border-destructive/30 bg-destructive/[0.03]">
+        <CardHeader className="space-y-2">
+          <CardTitle className="text-base sm:text-lg">商品を削除</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            この操作は取り消せません。削除すると、この商品に紐づく「使う場面」「商品の良さ」「仕様・サイズなど」「補足情報」も削除されます。
+          </p>
+        </CardHeader>
+        <CardContent>
+          <form action={deleteProduct} className="space-y-4">
+            <input type="hidden" name="productId" value={product.id} />
+
+            <div className="space-y-2">
+              <div className="text-sm font-medium">削除確認</div>
+              <div className="text-xs text-muted-foreground">
+                削除するには、商品名「{product.name}」を正確に入力してください。
+              </div>
+              <input
+                name="confirmName"
+                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                placeholder={product.name}
+                autoComplete="off"
+                required
+              />
+              {deleteError && (
+                <div
+                  role="alert"
+                  className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm"
+                >
+                  商品名が一致しません。削除する場合は、表示されている商品名を正確に入力してください。
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end">
+              <Button
+                type="submit"
+                variant="outline"
+                className="border-destructive/50 text-destructive hover:bg-destructive/10"
+              >
+                この商品を削除
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
     </main>
   );
 }
