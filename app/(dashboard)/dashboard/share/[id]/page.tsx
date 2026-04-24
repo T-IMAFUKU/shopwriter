@@ -1,7 +1,6 @@
 // app/(dashboard)/dashboard/share/[id]/page.tsx
 import type { Metadata } from "next";
 import Link from "next/link";
-import Script from "next/script";
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import { getServerSession } from "next-auth/next";
@@ -9,6 +8,7 @@ import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import ShareAdminActions, { ShareAdminBodyCopyButton } from "./ShareAdminActions.client";
 
 type ShareItem = {
   id: string;
@@ -468,40 +468,14 @@ export default async function Page({ params }: { params: { id: string } }) {
             </dd>
           </dl>
 
-          <div className="flex flex-wrap gap-2 pt-1">
-            <Button
-              type="button"
-              id="sw-toggle-public"
-              variant={item.isPublic ? "outline" : "primary"}
-              data-share-id={shareId}
-              data-next-is-public={item.isPublic ? "false" : "true"}
-              data-is-dev={isDev ? "true" : "false"}
-              data-dev-user-id={devUserId ?? ""}
-              aria-label="公開/非公開を切り替える"
-            >
-              {item.isPublic ? "非公開にする" : "公開にする"}
-            </Button>
-
-            <Button
-              type="button"
-              id="sw-copy-url"
-              variant="secondary"
-              data-copy-text={publicUrl}
-              aria-label="共有URLをコピー"
-            >
-              共有URLをコピー
-            </Button>
-
-            <Button asChild variant="outline">
-              <Link href={publicPath} prefetch={false}>
-                公開ページを見る
-              </Link>
-            </Button>
-
-            <span id="sw-action-msg" className="text-xs text-muted-foreground self-center pl-1" />
-          </div>
-
-          <div id="sw-action-err" className="hidden text-xs text-destructive" />
+          <ShareAdminActions
+            shareId={shareId}
+            isPublic={item.isPublic}
+            publicPath={publicPath}
+            publicUrl={publicUrl}
+            isDev={isDev}
+            devUserId={devUserId}
+          />
         </CardContent>
       </Card>
 
@@ -510,17 +484,7 @@ export default async function Page({ params }: { params: { id: string } }) {
           <div className="flex items-center justify-between gap-3">
             <CardTitle className="text-base">本文</CardTitle>
 
-            <Button
-              type="button"
-              id="sw-copy-body"
-              variant="secondary"
-              disabled={!body}
-              aria-disabled={!body}
-              data-copy-text={body}
-              aria-label="本文をコピー"
-            >
-              本文をコピー
-            </Button>
+            <ShareAdminBodyCopyButton body={body} />
           </div>
         </CardHeader>
 
@@ -532,119 +496,6 @@ export default async function Page({ params }: { params: { id: string } }) {
           )}
         </CardContent>
       </Card>
-
-      <Script id="sw-share-admin-actions" strategy="afterInteractive">
-        {`
-(() => {
-  const msgEl = document.getElementById("sw-action-msg");
-  const errEl = document.getElementById("sw-action-err");
-
-  const setMsg = (t) => { if (msgEl) msgEl.textContent = t || ""; };
-  const setErr = (t) => {
-    if (!errEl) return;
-    if (!t) { errEl.classList.add("hidden"); errEl.textContent = ""; return; }
-    errEl.classList.remove("hidden");
-    errEl.textContent = t;
-  };
-
-  const copyText = async (text) => {
-    setErr("");
-    try {
-      if (!text) throw new Error("コピーする内容がありません。");
-      if (!navigator.clipboard) throw new Error("このブラウザではクリップボードAPIが使えません。");
-      await navigator.clipboard.writeText(text);
-      setMsg("コピーしました");
-      window.setTimeout(() => setMsg(""), 1500);
-    } catch (e) {
-      setErr(e?.message || "コピーに失敗しました。");
-    }
-  };
-
-  const copyUrlBtn = document.getElementById("sw-copy-url");
-  if (copyUrlBtn) copyUrlBtn.addEventListener("click", async () => {
-    await copyText(copyUrlBtn.getAttribute("data-copy-text") || "");
-  });
-
-  const copyBodyBtn = document.getElementById("sw-copy-body");
-  if (copyBodyBtn) copyBodyBtn.addEventListener("click", async () => {
-    await copyText(copyBodyBtn.getAttribute("data-copy-text") || "");
-  });
-
-  const readErrMsg = async (res) => {
-    try {
-      const ct = res.headers.get("content-type") || "";
-      if (ct.includes("application/json")) {
-        const j = await res.json();
-        return (j && (j.error || j.message)) ? String(j.error || j.message) : "";
-      }
-      return (await res.text()).slice(0, 200);
-    } catch {
-      return "";
-    }
-  };
-
-  const patchTry = async (url, payload, extraHeaders) => {
-    return fetch(url, {
-      method: "PATCH",
-      headers: {
-        "content-type": "application/json",
-        "accept": "application/json",
-        ...(extraHeaders || {}),
-      },
-      credentials: "same-origin",
-      body: JSON.stringify(payload),
-    });
-  };
-
-  const toggleBtn = document.getElementById("sw-toggle-public");
-  if (toggleBtn) toggleBtn.addEventListener("click", async () => {
-    setErr("");
-    setMsg("切り替え中…");
-
-    const id = toggleBtn.getAttribute("data-share-id");
-    const nextIsPublic = toggleBtn.getAttribute("data-next-is-public") === "true";
-
-    const isDev = toggleBtn.getAttribute("data-is-dev") === "true";
-    const devUserId = toggleBtn.getAttribute("data-dev-user-id") || "";
-
-    if (!id) {
-      setMsg("");
-      setErr("share id が取得できません。");
-      return;
-    }
-
-    const extraHeaders = {};
-    if (isDev && devUserId) {
-      extraHeaders["x-user-id"] = devUserId;
-    }
-
-    try {
-      let res = await patchTry(\`/api/shares/\${encodeURIComponent(id)}\`, { isPublic: nextIsPublic }, extraHeaders);
-
-      if (res.status === 405) {
-        res = await patchTry("/api/shares", { id, isPublic: nextIsPublic }, extraHeaders);
-      }
-
-      if (res.status === 401 || res.status === 403) {
-        window.location.href = "/api/auth/signin";
-        return;
-      }
-
-      if (!res.ok) {
-        const m = await readErrMsg(res);
-        throw new Error(m || \`切り替えに失敗しました（HTTP \${res.status}）\`);
-      }
-
-      setMsg("更新しました");
-      window.setTimeout(() => { window.location.reload(); }, 300);
-    } catch (e) {
-      setMsg("");
-      setErr(e?.message || "切り替えに失敗しました。");
-    }
-  });
-})();
-        `}
-      </Script>
     </main>
   );
 }
