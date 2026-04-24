@@ -4,6 +4,7 @@
 // - 有料のみ（ACTIVE/TRIALING）を許可（合意どおり）
 // - 必須: name, category
 // - 任意: slug, brand, description, factsNote
+// - 作成時に Product 本体と ProductAttribute(purpose/value) を同時保存
 // - 成功: { ok: true, id: string }
 // - 失敗: 400/401/403/409/500
 
@@ -84,6 +85,27 @@ async function requirePaidUser(): Promise<{ ok: true; userId: string } | { ok: f
   };
 }
 
+function buildInitialAttributes(params: {
+  category: string;
+  description: string | null;
+}): Array<{ key: string; value: string }> {
+  const attributes: Array<{ key: string; value: string }> = [
+    {
+      key: "purpose",
+      value: params.category,
+    },
+  ];
+
+  if (params.description) {
+    attributes.push({
+      key: "value",
+      value: params.description,
+    });
+  }
+
+  return attributes;
+}
+
 export async function POST(req: Request): Promise<Response> {
   const gate = await requirePaidUser();
   if (!gate.ok) return gate.res;
@@ -109,6 +131,7 @@ export async function POST(req: Request): Promise<Response> {
   const brand = optionalTrimmedString(body.brand);
   const description = optionalTrimmedString(body.description);
   const factsNote = optionalTrimmedString(body.factsNote);
+  const initialAttributes = buildInitialAttributes({ category, description });
 
   try {
     const created = await prisma.product.create({
@@ -119,6 +142,9 @@ export async function POST(req: Request): Promise<Response> {
         brand,
         description,
         factsNote,
+        attributes: {
+          create: initialAttributes,
+        },
       },
       select: { id: true },
     });
