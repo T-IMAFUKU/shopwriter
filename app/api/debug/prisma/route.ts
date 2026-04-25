@@ -1,62 +1,106 @@
-// app/api/debug/prisma/route.ts  窶披披披・蜈ｨ譁・ｼ域眠隕丈ｽ懈・・・
-// Prisma謗･邯夊ｨｺ譁ｭ繝ｫ繝ｼ繝茨ｼ域圻螳夲ｼ・
-// 豕ｨ諢擾ｼ壽悽逡ｪ蜑阪↓蜑企勁縺励※縺上□縺輔＞縲・
+// app/api/debug/prisma/route.ts
+import { PrismaClient } from "@prisma/client";
+import { NextResponse } from "next/server";
 
-import { NextResponse } from "next/server"
-import { PrismaClient } from "@prisma/client"
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-const prisma =
-  (global as any).prisma ??
-  new PrismaClient()
-if (process.env.NODE_ENV !== "production") {
-  ;(global as any).prisma = prisma
+function isPublicDeployment(): boolean {
+  return process.env.NODE_ENV === "production" || Boolean(process.env.VERCEL);
 }
 
-function json(data: any, init: ResponseInit = {}) {
-  const headers = new Headers(init.headers)
-  headers.set("Content-Type", "application/json; charset=utf-8")
-  headers.set("Content-Language", "ja")
-  return new NextResponse(JSON.stringify(data, null, 2), { ...init, headers })
+function notFound(): Response {
+  return new Response(null, { status: 404 });
 }
 
+function json(data: unknown, init: ResponseInit = {}) {
+  const headers = new Headers(init.headers);
+  headers.set("Content-Type", "application/json; charset=utf-8");
+  headers.set("Content-Language", "ja");
+  headers.set("Cache-Control", "no-store, must-revalidate");
+
+  return new NextResponse(JSON.stringify(data, null, 2), {
+    ...init,
+    headers,
+  });
+}
+
+function getPrismaClient(): PrismaClient {
+  const globalForPrisma = globalThis as typeof globalThis & {
+    prisma?: PrismaClient;
+  };
+
+  if (!globalForPrisma.prisma) {
+    globalForPrisma.prisma = new PrismaClient();
+  }
+
+  return globalForPrisma.prisma;
+}
+
+/**
+ * GET /api/debug/prisma
+ *
+ * 開発環境専用のPrisma診断API。
+ * 公開環境ではDB接続前に 404 を返す。
+ */
 export async function GET() {
-  const report: Record<string, any> = {
+  if (isPublicDeployment()) {
+    return notFound();
+  }
+
+  const prisma = getPrismaClient();
+
+  const report: {
+    ok: boolean;
+    message: string;
+    checks: Array<{ name: string; ok: boolean; count?: number }>;
+    errors: Array<{ stage: string; code?: string; message?: string }>;
+  } = {
     ok: false,
-    message: "險ｺ譁ｭ邨先棡",
-    env: {
-      NODE_ENV: process.env.NODE_ENV ?? null,
-      DATABASE_URL: process.env.DATABASE_URL ? "set" : "unset",
-    },
-    checks: [] as any[],
-    errors: [] as any[],
+    message: "Prisma development diagnostics",
+    checks: [],
+    errors: [],
+  };
+
+  try {
+    await prisma.$connect();
+    report.checks.push({ name: "connect", ok: true });
+  } catch (e: unknown) {
+    const err = e as { code?: string; message?: string };
+    report.errors.push({
+      stage: "connect",
+      code: err.code,
+      message: err.message,
+    });
+    return json(report, { status: 500 });
   }
 
   try {
-    await prisma.$connect()
-    report.checks.push({ name: "connect", ok: true })
-  } catch (e: any) {
-    report.errors.push({ stage: "connect", code: e?.code, message: e?.message })
-    return json(report, { status: 500 })
+    await prisma.$queryRawUnsafe("SELECT 1 as ok");
+    report.checks.push({ name: "select1", ok: true });
+  } catch (e: unknown) {
+    const err = e as { code?: string; message?: string };
+    report.errors.push({
+      stage: "select1",
+      code: err.code,
+      message: err.message,
+    });
+    return json(report, { status: 500 });
   }
 
   try {
-    const pong = await prisma.$queryRawUnsafe("SELECT 1 as ok")
-    report.checks.push({ name: "select1", ok: true, pong })
-  } catch (e: any) {
-    report.errors.push({ stage: "select1", code: e?.code, message: e?.message })
-    return json(report, { status: 500 })
+    const count = await prisma.share.count();
+    report.checks.push({ name: "share.count", ok: true, count });
+  } catch (e: unknown) {
+    const err = e as { code?: string; message?: string };
+    report.errors.push({
+      stage: "share.count",
+      code: err.code,
+      message: err.message,
+    });
+    return json(report, { status: 500 });
   }
 
-  try {
-    const one = await prisma.share.findMany({ take: 1 })
-    report.checks.push({ name: "share.findMany", ok: true, sample: one })
-  } catch (e: any) {
-    report.errors.push({ stage: "share.findMany", code: e?.code, message: e?.message })
-    return json(report, { status: 500 })
-  }
-
-  report.ok = true
-  return json(report, { status: 200 })
+  report.ok = true;
+  return json(report, { status: 200 });
 }
-
-export const dynamic = "force-dynamic"
