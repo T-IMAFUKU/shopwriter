@@ -19,38 +19,59 @@ async function getAuthedUserId(): Promise<string | null> {
 /** OPTIONS: 許可メソッドを明示（Allow を必ず返す） */
 export async function OPTIONS(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: { id: string } },
 ) {
   const headers = new Headers();
   headers.set("Allow", "GET, PATCH, DELETE, OPTIONS");
   return new NextResponse(null, { status: 204, headers });
 }
 
-/** GET /api/templates/[id]（閲覧） */
+/** GET /api/templates/[id]（認証必須・所有者のみ閲覧） */
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: { id: string } },
 ) {
   const id = params.id;
+  const uid = await getAuthedUserId();
+
+  if (!uid) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const tpl = await prisma.template.findUnique({ where: { id } });
-    if (!tpl) return NextResponse.json({ error: "Template not found" }, { status: 404 });
+
+    if (!tpl) {
+      return NextResponse.json({ error: "Template not found" }, { status: 404 });
+    }
+
+    if (tpl.userId !== uid) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
     return NextResponse.json({ item: tpl }, { status: 200 });
   } catch (err) {
-    return NextResponse.json({ error: "Internal Server Error", detail: String(err) }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal Server Error", detail: String(err) },
+      { status: 500 },
+    );
   }
 }
 
 /** PATCH /api/templates/[id]（認証必須・所有者のみ更新） */
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: { id: string } },
 ) {
   const id = params.id;
   const uid = await getAuthedUserId();
-  if (!uid) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  if (!uid) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   let body: any;
+
   try {
     body = await req.json();
   } catch {
@@ -62,8 +83,14 @@ export async function PATCH(
       where: { id },
       select: { id: true, userId: true },
     });
-    if (!existing) return NextResponse.json({ error: "Template not found" }, { status: 404 });
-    if (existing.userId !== uid) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+    if (!existing) {
+      return NextResponse.json({ error: "Template not found" }, { status: 404 });
+    }
+
+    if (existing.userId !== uid) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     // Prismaに存在するフィールドのみ（例: title）
     const data: any = {};
@@ -72,30 +99,45 @@ export async function PATCH(
     const updated = await prisma.template.update({ where: { id }, data });
     return NextResponse.json({ item: updated }, { status: 200 });
   } catch (err) {
-    return NextResponse.json({ error: "Internal Server Error", detail: String(err) }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal Server Error", detail: String(err) },
+      { status: 500 },
+    );
   }
 }
 
 /** DELETE /api/templates/[id]（認証必須・所有者のみ削除） */
 export async function DELETE(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: { id: string } },
 ) {
   const id = params.id;
   const uid = await getAuthedUserId();
-  if (!uid) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  if (!uid) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   try {
     const existing = await prisma.template.findUnique({
       where: { id },
       select: { id: true, userId: true },
     });
-    if (!existing) return NextResponse.json({ error: "Template not found" }, { status: 404 });
-    if (existing.userId !== uid) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+    if (!existing) {
+      return NextResponse.json({ error: "Template not found" }, { status: 404 });
+    }
+
+    if (existing.userId !== uid) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const deleted = await prisma.template.delete({ where: { id } });
     return NextResponse.json({ item: deleted }, { status: 200 });
   } catch (err) {
-    return NextResponse.json({ error: "Internal Server Error", detail: String(err) }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal Server Error", detail: String(err) },
+      { status: 500 },
+    );
   }
 }
